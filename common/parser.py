@@ -9,6 +9,7 @@ def base_parser():
     parser.add_argument('--output-path',type=str, required=True)
     parser.add_argument('--tokenizer-name',type=str, default=None)
     parser.add_argument('--model-name',type=str, default=None)
+    parser.add_argument('--dataset-name',type=str, default=None)
     parser.add_argument('--tensorboard', action='store_true')
     return parser
 
