@@ -13,7 +13,7 @@ from typing import Union, Optional
 from model.gemma.model import Linear
 
 
-class LinearWithLoRA(Linear):
+class LinearWithLoRA(nn.Linear):
     def __init__(
         self,
         in_features: int,
@@ -34,7 +34,7 @@ class LinearWithLoRA(Linear):
         param quant (bool, optional): Whether to apply weight quantization. Default is False.
         param plora_steps (Union(int, None), optional): Steps to merge and reset lora weight.  Deault is None.
         """
-        super().__init__(in_features, out_features, quant)
+        super().__init__(in_features, out_features, bias=False)
         self.lora_rank = lora_rank
         self.lora_scaler = lora_scaler / lora_rank
         self.quant = quant
@@ -48,6 +48,7 @@ class LinearWithLoRA(Linear):
             self.weight_b = nn.Parameter(
                 torch.zeros((out_features, lora_rank), dtype=torch.int8)
             )
+            self.weight_scaler = nn.Parameter(torch.Tensor(out_features))
             self.weight_a_scaler = nn.Parameter(torch.Tensor(lora_rank))
             self.weight_b_scaler = nn.Parameter(torch.Tensor(out_features))
         else:
@@ -82,8 +83,7 @@ class LinearWithLoRA(Linear):
             if self.dora and lora_weight is not None:
                 weight = self._apply_dora(weight, lora_weight)
             elif lora_weight is not None:
-                weight += lora_weight
-
+                weight.data += lora_weight
         # Unified output.
         return F.linear(x, weight)
 
@@ -125,7 +125,7 @@ class LinearWithLoRA(Linear):
             # Compute lora weight.
             weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
             weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
-            lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
+            lora_weight = self.lora_scaler * torch.matmul(self.weight_b, self.weight_a)
             return lora_weight
         
     def _merge_lora(self) -> bool:
@@ -168,7 +168,7 @@ class LinearWithLoRA(Linear):
         print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, Quantized: {self.quant}, DoRA: {self.dora}")
 
 
-def switch_to_lora(model, replace_names, rank=4, lora_scaler=32, use_dora=False, plora_steps=None):
+def switch_to_lora(model, replace_names, rank=4, lora_scaler=32, transposition=False, use_dora=False, plora_steps=None):
     """
     Switch function for lora, responsible for replacing Linear layer with LinearWithLoRA layer
 
@@ -181,18 +181,23 @@ def switch_to_lora(model, replace_names, rank=4, lora_scaler=32, use_dora=False,
         replace_names = ['qkv_proj']
     for name, module in model.named_modules():
         for replace_name in replace_names:
-            if isinstance(module, Linear) and replace_name in name:
+            if isinstance(module, nn.Module) and replace_name in name:
                 # Create LoRA layer instance.
+                assert hasattr(module, "in_features") and hasattr(module, "out_features")
+                quant = getattr(module, "quant", False)
                 lora_layer = LinearWithLoRA(lora_rank=rank, 
                                             lora_scaler=lora_scaler, 
                                             in_features=module.in_features, 
                                             out_features=module.out_features, 
                                             use_dora=use_dora, 
-                                            quant=module.quant,
+                                            quant=quant,
                                             plora_steps=plora_steps)
                 # Copy the original weight to the LoRA layer.
-                lora_layer.weight.data = module.weight.data
-                if module.quant:
+                if transposition:
+                    lora_layer.weight.data = module.weight.data.T
+                else:
+                    lora_layer.weight.data = module.weight.data
+                if quant:
                     lora_layer.weight_scaler = module.weight_scaler
                 # Replace the original layer with the LoRA layer.
                 parent = get_parent_model(model, module)
