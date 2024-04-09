@@ -118,6 +118,7 @@ def data_collator(examples):
     return ((torch.stack(input_ids_list), torch.stack(labels_list)), torch.stack(labels_list))
     
 args = ds_parser(train_parser(base_parser())).parse_args()
+args = registry.get_paths(args)
 set_random_seed(args.seed)
 device, args = init_dist(args)
 tokenizer_name = args.tokenizer_name if args.tokenizer_name is not None else args.model_name
