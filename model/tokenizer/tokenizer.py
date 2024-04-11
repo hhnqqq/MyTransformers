@@ -7,7 +7,7 @@ from common.registry import registry
 from sentencepiece import SentencePieceProcessor
 
 
-@registry.register_tokenizer("gemma")
+@registry.register_tokenizer("base")
 class BaseTokenizer:
 
     def __init__(self, model_path: Optional[str]):
