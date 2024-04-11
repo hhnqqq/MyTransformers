@@ -10,7 +10,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from typing import Union, Optional
-from model.gemma.model import Linear
 
 
 class LinearWithLoRA(nn.Linear):
@@ -30,7 +29,7 @@ class LinearWithLoRA(nn.Linear):
         param out_features (int): Number of output features.
         param lora_rank (int, optional): Rank of LoRA decomposition. Default is 4.
         param lora_scaler (float, optional): Scaler for LoRA weights. Default is 32.0.
-        param use_dora (bool, optional): Whether to use DoRA (Directional Regularized Autoencoder). Default is False.
+        param use_dora (bool, optional): Whether to use DoRA (Weight-Decomposed Low-Rank Adaptation). Default is False.
         param quant (bool, optional): Whether to apply weight quantization. Default is False.
         param plora_steps (Union(int, None), optional): Steps to merge and reset lora weight.  Deault is None.
         """
@@ -41,22 +40,7 @@ class LinearWithLoRA(nn.Linear):
         self.dora = use_dora
         self.plora = plora_steps is not None
 
-        if quant:
-            self.weight_a = nn.Parameter(
-                torch.empty((lora_rank, in_features), dtype=torch.int8)
-            )
-            self.weight_b = nn.Parameter(
-                torch.zeros((out_features, lora_rank), dtype=torch.int8)
-            )
-            self.weight_scaler = nn.Parameter(torch.Tensor(out_features))
-            self.weight_a_scaler = nn.Parameter(torch.Tensor(lora_rank))
-            self.weight_b_scaler = nn.Parameter(torch.Tensor(out_features))
-        else:
-            self.weight_a = nn.Parameter(torch.empty((lora_rank, in_features)))
-            self.weight_b = nn.Parameter(torch.zeros((out_features, lora_rank)))
-        std = (1 / in_features) ** 0.5
-        nn.init.normal_(self.weight_a, mean=0, std=std)
-
+        self._init_lora_weights()
         # Enable plora, if plora_steps is not None.
         if self.plora:
             self.plora_steps = plora_steps
@@ -104,6 +88,22 @@ class LinearWithLoRA(nn.Linear):
         # Ensure the new weight's magnitude remains the same as the origin weight.
         return m * directional_component
 
+    def _init_lora_weights(self):
+        if self.quant:
+            self.weight_a = nn.Parameter(
+                torch.empty((self.lora_rank, self.in_features), dtype=torch.int8, requires_grad=False)
+            )
+            self.weight_b = nn.Parameter(
+                torch.zeros((self.out_features, self.lora_rank), dtype=torch.int8, requires_grad=False)
+            )
+            self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
+            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
+        else:
+            self.weight_a = nn.Parameter(torch.empty((self.lora_rank, self.in_features)))
+            self.weight_b = nn.Parameter(torch.zeros((self.out_features, self.lora_rank)))
+        std = (1 / self.in_features) ** 0.5
+        nn.init.normal_(self.weight_a, mean=0, std=std)
+
     @property
     def weight_quantizer(self) -> Optional[torch.Tensor]:
         return getattr(self, "weight_scaler", None)
@@ -125,7 +125,7 @@ class LinearWithLoRA(nn.Linear):
             # Compute lora weight.
             weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
             weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
-            lora_weight = self.lora_scaler * torch.matmul(self.weight_b, self.weight_a)
+            lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
             return lora_weight
         
     def _merge_lora(self) -> bool:
@@ -133,7 +133,6 @@ class LinearWithLoRA(nn.Linear):
         if self.has_lora_weights:
             # Compute lora weight.
             lora_weight = self._compute_lora()
-
             if self.dora:
                 self.weight.data = self._apply_dora(self.weight, lora_weight)
             else:
@@ -160,8 +159,9 @@ class LinearWithLoRA(nn.Linear):
                 delattr(self, "weight_a_scaler")
                 delattr(self, "weight_b_scaler")
 
-    def enable_dora(self) -> None:
-        self.dora = True
+    def reset(self):
+        if not self.has_lora_weights:
+            self._init_lora_weights()
 
     def print_details(self) -> None:
         print(f"LinearWithLoRA Layer: in_features={self.in_features}, out_features={self.out_features}")
@@ -183,7 +183,9 @@ def switch_to_lora(model, replace_names, rank=4, lora_scaler=32, transposition=F
         for replace_name in replace_names:
             if isinstance(module, nn.Module) and replace_name in name:
                 # Create LoRA layer instance.
-                assert hasattr(module, "in_features") and hasattr(module, "out_features")
+                assert all(hasattr(module, attr) for attr in ["in_features", "out_features", "weight"]), \
+                "Module is missing one or more of the required attributes: 'in_features', 'out_features', 'weight'"
+
                 quant = getattr(module, "quant", False)
                 lora_layer = LinearWithLoRA(lora_rank=rank, 
                                             lora_scaler=lora_scaler, 
@@ -194,7 +196,7 @@ def switch_to_lora(model, replace_names, rank=4, lora_scaler=32, transposition=F
                                             plora_steps=plora_steps)
                 # Copy the original weight to the LoRA layer.
                 if transposition:
-                    lora_layer.weight.data = module.weight.data.T
+                    lora_layer.weight = nn.Parameter(module.weight.data.T)
                 else:
                     lora_layer.weight.data = module.weight.data
                 if quant:
@@ -234,5 +236,15 @@ if __name__ == '__main__':
     print(linear.weight)
 
     # forward test
-    print(linear(torch.ones(2048,2048)))
+    print(linear(torch.randn(2048,2048)))
     linear.print_details()
+
+    model = nn.Transformer(num_encoder_layers=0)
+    print(model)
+    switch_to_lora(model, ['linear'], transposition=False)
+    for name, module in model.named_modules():
+        if isinstance(module, LinearWithLoRA):
+            module.merge_and_reset()
+            # print(module.in_features, module.out_features, module.weight.shape)
+    # switch_to_lora(model, ['norm'], transposition=True) # result in a assert error 
+    
