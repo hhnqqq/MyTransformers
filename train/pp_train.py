@@ -188,7 +188,7 @@ engine, optimizer, _, _ = deepspeed.initialize(model=model_pipe,
                                                model_parameters=[p for p in model_pipe.parameters() if p.requires_grad])
 
 if __name__ == '__main__':
-    def forward_step(model, data_loader, args):
+    def forward_step(model, data_loader, _):
         return model.train_batch(data_loader), []
     trainer = Trainer(args)
-    trainer.train(engine, train_dataloader, forward_step, None, args)
+    trainer.train(engine, train_dataloader, None, forward_step, None, args)
