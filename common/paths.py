@@ -2,18 +2,18 @@
 from common.registry import registry
 
 paths = {"model":{
-    "llama":"path_of_llama",
-    "gemma":"path_of_gemma"
+    "llama":"path_of_model",
+    "gemma":"path_of_model"
 }, 
 "tokenizer":{
-    "llama":"path_of_llama_tokenizer",
-    "gemma":"path_of_gemma_tokenizer"
+    "llama":"/workspace/tokenizer.model",
+    "gemma":"/workspace/tokenizer.model"
 },
 "dataset":{
-    "dna_pretrain":"path_of_dna_pretrain_dataset"
+    "dna_pretrain":"/workspace/longtext-2k-clean.jsonl"
 }}
 
 for key, value in paths.items():
     for sub_k, sub_v in value.items():
-        name = '_'.join(key, sub_k)
-        registry.register_path(name=name, path=value)
+        name = '_'.join([key, sub_k])
+        registry.register_path(name=name, path=sub_v)

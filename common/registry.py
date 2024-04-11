@@ -1,3 +1,4 @@
+import os
 class Regitry:
     mapping = {
         "model_mapping":{},
@@ -12,7 +13,7 @@ class Regitry:
         if name in cls.mapping['paths_mapping']:
             raise KeyError(
                 "Name '{}' already registered for {}.".format(
-                    name, cls.mapping["ipaths_mapping"][name]
+                    name, cls.mapping["paths_mapping"][name]
                 )
             )
         cls.mapping['paths_mapping'][name] = path
@@ -67,12 +68,15 @@ class Regitry:
     def get_paths(cls, args):
         # by doing this you are not need to provide paths in your script
         paths_mapping = cls.mapping["paths_mapping"]
+        for k,v in cls.mapping["paths_mapping"].items():
+            if not os.path.isfile(v):
+                paths_mapping[k] = None
         tokenizer_name = "tokenizer_" + args.model_name
         model_name = "model_"  + args.model_name
         dataset_name = "dataset_" + args.dataset_name
         args.tokenizer_path = args.tokenizer_path if args.tokenizer_path else paths_mapping.get(tokenizer_name, None)
-        args.dataset_path = args.dataset_path if args.dataset_path else paths_mapping.get(model_name, None)
-        args.model_path = args.model_path if args.model_path else paths_mapping.get(dataset_name, None)
+        args.dataset_path = args.dataset_path if args.dataset_path else paths_mapping.get(dataset_name, None)
+        args.ckptl_path = args.ckpt_path if args.ckpt_path else paths_mapping.get(model_name, None)
         return args
     
 registry = Regitry()

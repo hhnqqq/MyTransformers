@@ -14,13 +14,13 @@ from deepspeed.pipe import PipelineModule, TiedLayerSpec, LayerSpec
 
 from train.trainer import Trainer
 from model.llama import *
+from model.tokenizer import BaseTokenizer
 from common.registry import registry
 from common.lora import *
 from common.dataset import LongRopeDataset
 from common.optimizer import get_optimizer
 from common.parser import base_parser, train_parser, ds_parser
-from fairscale.nn.model_parallel.initialize import initialize_model_parallel
-from common.utils import print_rank_0, read_config, ensure_directory_exists, set_random_seed, init_dist
+from common.utils import print_rank_0, read_config, set_random_seed, init_dist
 from common.utils.params_manager import (
     refresh_config, 
     print_trainable_module_names, 
@@ -125,8 +125,7 @@ tokenizer_name = args.tokenizer_name if args.tokenizer_name is not None else arg
 tokenizer = registry.get_tokenizer_class(tokenizer_name)(args.tokenizer_path)
 print_rank_0('--->loading the model', args.global_rank)
 ModelArgs.vocab_size = tokenizer.n_words
-initialize_model_parallel(1)
-model = Transformer(ModelArgs)
+model = Transformer(ModelArgs, is_train=True)
 if args.ckpt_path is not None:
     model.load_weights(args.ckpt_path)
 args.head_dim = ModelArgs.dim // ModelArgs.n_heads
@@ -154,7 +153,7 @@ if args.fp16:
 elif args.bf16:
     model_pipe.to(device).bfloat16()
 
-train_dataset = LongRopeDataset(args.data_path, tokenizer, args.max_len, args.max_src_len, args.mode, args.read_nums)
+train_dataset = LongRopeDataset(args.dataset_path, tokenizer, args.max_len, args.max_src_len, args.mode, args.read_nums)
 ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)
 

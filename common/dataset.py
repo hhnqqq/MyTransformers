@@ -67,13 +67,18 @@ class LongRopeDataset(Dataset):
         output_ids (list): The preprocessed output sequence.
         """
         if self.mode == 'sft':
+            # In the case of sft, the input sample mast be a instance of dict.
             input_text = self.meta_prompt + 'Q:' + sample["input"] + '\n'
             output_text = 'A:' + sample["output"]
             input_ids = self.tokenizer.encode(input_text)
             output_ids = self.tokenizer.encode(output_text)
             self.train_token_count += len(output_ids)
         else:
-            input = sample["input"] + sample["output"] if "output" in sample.keys() else sample["input"]
+            # In the case of pretrain, the input sample can be a single string.
+            if isinstance(sample, dict):
+                input = sample["input"] + sample["output"] if "output" in sample.keys() else sample["input"]
+            else:
+                input = sample
             input_ids = self.tokenizer.encode(input)
             self.train_token_count += len(input_ids)
             output_ids = []

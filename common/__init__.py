@@ -1,2 +1,2 @@
 # register all paths into registry
-from paths import *
+from common.paths import *

@@ -3,9 +3,9 @@ import deepspeed
 
 def base_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data-path',type=str, required=True)
+    parser.add_argument('--dataset-path',type=str, default=None)
     parser.add_argument('--ckpt-path',type=str, default=None)
-    parser.add_argument('--tokenizer-path',type=str, required=True)
+    parser.add_argument('--tokenizer-path',type=str, default=None)
     parser.add_argument('--output-path',type=str, required=True)
     parser.add_argument('--tokenizer-name',type=str, default=None)
     parser.add_argument('--model-name',type=str, default=None)
