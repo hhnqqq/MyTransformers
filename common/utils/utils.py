@@ -113,14 +113,17 @@ def set_random_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 def init_dist(args):
-    if args.local_rank == -1:
-        device = torch.device("cuda")
+    if args.device == 'cuda':
+        if args.local_rank == -1:
+            device = torch.device("cuda")
+        else:
+            torch.cuda.set_device(args.local_rank)
+            device = torch.device("cuda", args.local_rank)
+            deepspeed.init_distributed(dist_backend="nccl")
+            args.world_size = dist.get_world_size()
+            args.global_rank = dist.get_rank()
     else:
-        torch.cuda.set_device(args.local_rank)
-        device = torch.device("cuda", args.local_rank)
-        deepspeed.init_distributed(dist_backend="nccl")
-        args.world_size = dist.get_world_size()
-        args.global_rank = dist.get_rank()
+        device = 'cpu'
     return device, args
 
 def get_masks(seq_len, device='cpu', dtype=torch.float):

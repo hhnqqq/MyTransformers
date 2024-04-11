@@ -18,8 +18,7 @@ def train_parser(parser):
 
     # --------------- Core hyper-parameters --------------- 
     group.add_argument('--experiment-name', type=str, default="MyModel", 
-                       help="The name of the experiment for summary and checkpoint."
-                       "Will load the previous name if mode==pretrain and with --load ")
+                       help='The name of the experiment for summary and checkpoint.')
     group.add_argument('--train-iters', type=int, default=None, 
                        help='Total number of iterations to train over all training runs')
     group.add_argument('--epochs', type=int, default=None, 
@@ -29,17 +28,18 @@ def train_parser(parser):
     group.add_argument('--bf16', action='store_true', 
                        help='Run the model in bf16 mode')
     group.add_argument('--variant', type=str, default='2b', choices=['test', '2b', '7b'], 
-                       help='The variant of the model.')
+                       help='The variant of the model. This argument is only useful when using gemma')
     group.add_argument('--save-interval', type=int, default=5000, 
                        help='Number of iterations between saves')
-    group.add_argument('--device', type=str, default='cpu', 
+    group.add_argument('--device', type=str, default='cuda', 
                        help='The device to load the model')
     group.add_argument('--mode', type=str, default='pretrain', 
-                       help='The training mode')
+                       help='The training mode, currently this argument only change the behavior of dataset')
     
     # --------------------- optimizer -----------------------
     group.add_argument('--diy-optimizer', action='store_true', 
-                       help='Whether to DIY the optimizer')
+                       help='Whether to DIY the optimizer. '
+                       'DeepSpeed optimizer will be used as defualt optimizer.')
     group.add_argument('--batch-size-per-gpu', type=int, default=4, 
                        help='Batch size on a single GPU. batch-size * world_size = total batch_size.')
     group.add_argument('--lr', type=float, default=1.0e-4, 
@@ -68,13 +68,13 @@ def train_parser(parser):
     group.add_argument('--lr-decay-iters', type=int, default=None, 
                        help='Number of iterations to decay LR over. If None, defaults to --train-iters * --epochs')
     group.add_argument('--optim-type', type=str, default=None, 
-                       help='Type of the optimizer')
+                       help='Type of the optimizer, this arg will be useful when diy-optimizer is true')
 
     # ---------------------------- dataset ------------------------------
     group.add_argument('--read-nums', type=int, default=None,
-                       help='The number of data to read')
+                       help='The number of data to read. If this value is None, the dataset will read all data')
     group.add_argument('--max-len', type=int, default=None,
-                       help='Maximum length of tokens')
+                       help='Maximum length of tokens for a single data sample')
     group.add_argument('--max-src-len', type=int, default=None,
                        help='Maximum length of input tokens')
     
@@ -122,7 +122,7 @@ def train_parser(parser):
                        help='The interpolation factor of RoPE, which is used to enhance the sequence length\
                         In the case of a non-existent interpolation multiple, the rope will remain in its original state.')
     group.add_argument('--atten-type', type=str, default=None,
-                       help='Type of attention')
+                       help='Type of attention. For example: flash-atten')
 
     return parser
 
@@ -135,7 +135,7 @@ def ds_parser(parser):
     group.add_argument("--global-rank", default=-1, type=int, 
                       help="global rank")
     group.add_argument("--with-aml-log", default=True, 
-                      help="Use Azure ML metric logging")
+                      help="Use Azure ML metric logging. This argument is not enabled currently")
     group.add_argument("--offload-optimizer", action='store_true')
     group.add_argument("--offload-param", action='store_true')
     group.add_argument("--csv-monitor", action='store_true')
