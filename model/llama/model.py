@@ -4,6 +4,7 @@ from typing import Optional, Tuple, Union
 import torch
 import torch.nn.functional as F
 from torch import nn
+from model.attention import attention_func
 
 
 @dataclass
@@ -197,6 +198,7 @@ class Attention(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        atten_type: str = ''
     ):
         """
         Forward pass of the attention module.
@@ -240,12 +242,14 @@ class Attention(nn.Module):
         xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
         keys = keys.transpose(1, 2) # (bs, n_local_heads, cache_len + seqlen, head_dim)
         values = values.transpose(1, 2) # (bs, n_local_heads, cache_len + seqlen, head_dim)
-        scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
-        if mask is not None:
-            scores = scores + mask  # (bs, n_local_heads, seqlen, cache_len + seqlen)
-        scores = F.softmax(scores.float(), dim=-1).type_as(xq)
-        output = torch.matmul(scores, values)  # (bs, n_local_heads, seqlen, head_dim)
-        output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
+        output = attention_func(q=xq, 
+                                k=keys, 
+                                v=values, 
+                                atten_mask=mask, 
+                                dropout_p=0.0, 
+                                scaling=math.sqrt(self.head_dim),
+                                is_causal=False,
+                                atten_type=atten_type)
         return self.wo(output)
 
 
