@@ -59,7 +59,8 @@ class Trainer:
     def save_model(self, model, step, args): 
         if args.global_rank <= 0: 
             if not self.end: 
-                torch.save(model.state_dict(), os.path.join(args.output_path, f'{args.experiment_name}_{step}.ckpt'))
+                if step % args.save_interval == 0:
+                    torch.save(model.state_dict(), os.path.join(args.output_path, f'{args.experiment_name}_{step}.ckpt'))
             else: 
                 torch.save(model.state_dict(), os.path.join(args.output_path, f'{args.experiment_name}_final.ckpt'))
             
