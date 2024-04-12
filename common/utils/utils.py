@@ -3,9 +3,11 @@ import time
 import json
 import torch
 import random
+import logging
 import deepspeed
 import configparser
 import numpy as np
+from datetime import datetime
 import torch.distributed as dist
 
 """with 环境用法：进入with语句之后，类中__enter__对应的返回值将被赋值给as后面的变量名
@@ -36,11 +38,6 @@ class Timer(object):
             self.loop_start = None
         else:
             raise ValueError("Invalid entry value. Expected 'start' or 'end'.")
-    
-
-def print_rank_0(msg, rank=0):
-    if rank <= 0:
-        print(msg)
 
 def load_ckpt(model, ckpt_path):
     checkpoint = torch.load(ckpt_path)
@@ -63,7 +60,7 @@ def ensure_directory_exists(directory):
     """确保目录存在"""
     if not os.path.exists(directory):
         os.makedirs(directory)
-        print('>>> 目录不存在，已新建对应目录')
+        print_rank_0(f'---> Directory:{directory} is not existed. created a new floder')
 
 def count_trainable_parameters(model):
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
@@ -131,3 +128,35 @@ def get_masks(seq_len, device='cpu', dtype=torch.float):
                 -2.3819763e38).to(torch.float)
     attention_mask = torch.triu(attention_mask, diagonal=1).to(device=device).to(dtype=dtype)
     return attention_mask
+
+
+# ------------------logging----------------------------
+def configure_logging(log_path):
+    sh_level = os.environ.get("PRINTLEVEL", logging.DEBUG)
+    fh_level = os.environ.get("LOGLEVEL", logging.INFO)
+    logger = logging.getLogger("DNALLaMa")
+    logger.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s')
+    sh = logging.StreamHandler()
+    sh.setFormatter(formatter)
+    sh.setLevel(sh_level)
+    logger.addHandler(sh)
+
+    date_string, hour_string = datetime.now().strftime('%y-%m-%d'), datetime.now().strftime('%H-%M')+'.log'
+    log_path = os.path.join(log_path, date_string)
+    ensure_directory_exists(log_path)
+    fh = logging.FileHandler(os.path.join(log_path, hour_string))
+    fh.setFormatter(formatter)
+    fh.setLevel(fh_level)
+    logger.addHandler(fh)
+    return logger
+
+logger = configure_logging(os.environ.get("LOG_FLODER", "log"))
+
+def print_rank_0(msg, rank=0, level=logging.INFO, flush=True):
+    if isinstance(level, str):
+        level = getattr(logging, level.upper(), logging.INFO)
+    if rank <= 0:
+        logger.log(msg=msg, level=level)
+        if flush:
+            logger.handlers[0].flush()

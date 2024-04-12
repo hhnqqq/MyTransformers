@@ -61,7 +61,7 @@ def attention_func(
        q (torch.Tensor): Query tensor of shape [batch_size, n_local_heads, input_len, head_dim].
        k (torch.Tensor): Key tensor of shape [batch_size, n_local_heads, input_len, head_dim].
        v (torch.Tensor): Value tensor of shape [batch_size, n_local_heads, input_len, head_dim].
-       atten_mask (torch.Tensor): Attention mask tensor of shape [batch_size, 1, 1, input_len].
+       atten_mask (torch.Tensor): Attention mask tensor of shape [batch_size, 1, input_len, input_len].
        dropout_p (float): Dropout probability.
        scaling (float): Scaling factor for the attention scores.
        is_causal (bool): Whether the attention is causal (only attend to past tokens).
