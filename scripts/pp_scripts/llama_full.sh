@@ -1,4 +1,6 @@
 #! /bin/bash
+export LOG_FLODER="../log"
+
 base_options="--dataset-name dna_pretrain \
 --model-name gemma \
 --tokenizer-name base \
@@ -6,7 +8,7 @@ base_options="--dataset-name dna_pretrain \
 "
 
 options="$base_options \
-    --experiment-name train_pi_test \
+    --experiment-name dna_test \
     --show-loss-step 1 \
     --epochs 3 \
     --batch-size-per-gpu 1 \
@@ -20,8 +22,6 @@ options="$base_options \
     --seed 42 \
     --read-nums 100 \
     --ds-config-path /workspace/dnallama/ds_config/pp_config.json \
-    --variant 7b \
-    --train-pi 2 \
     --lr 1e-5 \
     --warmup-min-lr 1e-6 \
     --warmup-max-lr 2e-5 \
