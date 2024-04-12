@@ -9,20 +9,29 @@ class Regitry:
     }
 
     @classmethod
-    def register_path(cls, name, path):
-        if name in cls.mapping['paths_mapping']:
-            raise KeyError(
-                "Name '{}' already registered for {}.".format(
-                    name, cls.mapping["paths_mapping"][name]
-                )
-            )
-        cls.mapping['paths_mapping'][name] = path
+    def register_info_manager(cls, name):
 
+        def wrap(model_cls):
+            if name in cls.mapping['model_mapping']:
+                raise KeyError(
+                    "Name '{}' already registered for {}.".format(
+                        name, cls.mapping["model_mapping"][name]
+                    )
+                )
+            cls.mapping['model_mapping'][name] = model_cls
+            return model_cls
+        return wrap
 
     @classmethod
-    def register_model(cls, name):
+    def register_model(cls, name, model_cls):
         # from model import BaseModel
-        pass
+        if model_cls in cls.mapping['model_mapping']:
+            raise KeyError(
+                "Name '{}' already registered for {}.".format(
+                    model_cls, cls.mapping["model_mapping"][name]
+                )
+            )
+        cls.mapping['model_mapping'][model_cls] = model_cls
 
     @classmethod
     def register_info_manager(cls, name):
@@ -78,5 +87,25 @@ class Regitry:
         args.dataset_path = args.dataset_path if args.dataset_path else paths_mapping.get(dataset_name, None)
         args.ckptl_path = args.ckpt_path if args.ckpt_path else paths_mapping.get(model_name, None)
         return args
+    
+    @classmethod
+    def list_models(cls):
+        return sorted(cls.mapping["model_mapping"].keys())
+
+    @classmethod
+    def list_paths(cls):
+        return sorted(cls.mapping["paths_mapping"].keys())
+    
+    @classmethod
+    def list_datasets(cls):
+        return sorted(cls.mapping["datasets_mapping"].keys())
+    
+    @classmethod
+    def list_info_managers(cls):
+        return sorted(cls.mapping["info_manager_mapping"].keys())
+    
+    @classmethod
+    def list_info_tokenizers(cls):
+        return sorted(cls.mapping["tokenizer_mapping"].keys())
     
 registry = Regitry()
