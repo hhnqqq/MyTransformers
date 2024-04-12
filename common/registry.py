@@ -10,6 +10,16 @@ class Regitry:
         "paths_mapping":{}
     }
 
+    def register_path(cls, name, path):
+        if name in cls.mapping['paths_mapping']:
+            raise KeyError(
+                "Name '{}' already registered for {}.".format(
+                    name, cls.mapping["paths_mapping"][name]
+                )
+            )
+        cls.mapping['paths_mapping'][name] = path
+
+
     @classmethod
     def register_info_manager(cls, name):
 
@@ -25,34 +35,45 @@ class Regitry:
         return wrap
 
     @classmethod
-    def register_model(cls, name, model_cls):
-        if model_cls in cls.mapping['model_mapping']:
-            raise KeyError(
-                "Name '{}' already registered for {}.".format(
-                    model_cls, cls.mapping["model_mapping"][name]
+    def register_model(cls, name):
+        
+        def wrap(model_cls):
+            if model_cls in cls.mapping['model_mapping']:
+                raise KeyError(
+                    "Name '{}' already registered for {}.".format(
+                        name, cls.mapping["model_mapping"][name]
+                    )
                 )
-            )
-        cls.mapping['model_mapping'][name] = model_cls
+            cls.mapping['model_mapping'][name] = model_cls
+            return model_cls
+        return wrap
 
     @classmethod
-    def register_model_config(cls, name, model_cls):
-        if model_cls in cls.mapping['model_mapping']:
-            raise KeyError(
-                "Name '{}' already registered for {}.".format(
-                    model_cls, cls.mapping["model_config_mapping"][name]
+    def register_model_config(cls, name):
+
+        def wrap(model_cls):
+            if model_cls in cls.mapping['model_mapping']:
+                raise KeyError(
+                    "Name '{}' already registered for {}.".format(
+                        name, cls.mapping["model_config_mapping"][name]
+                    )
                 )
-            )
-        cls.mapping['model_config_mapping'][name] = model_cls
+            cls.mapping['model_config_mapping'][name] = model_cls
+            return model_cls
+        return wrap
 
     @classmethod
-    def register_train_model(cls, name, model_cls):
-        if model_cls in cls.mapping['model_mapping']:
-            raise KeyError(
-                "Name '{}' already registered for {}.".format(
-                    model_cls, cls.mapping["train_model_mapping"][name]
+    def register_train_model(cls, name):
+        def wrap(model_cls):
+            if model_cls in cls.mapping['model_mapping']:
+                raise KeyError(
+                    "Name '{}' already registered for {}.".format(
+                        name, cls.mapping["train_model_mapping"][name]
+                    )
                 )
-            )
-        cls.mapping['train_model_mapping'][name] = model_cls
+            cls.mapping['train_model_mapping'][name] = model_cls
+            return model_cls
+        return wrap
 
     @classmethod
     def register_info_manager(cls, name):

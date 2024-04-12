@@ -1,20 +1,14 @@
-import os
-import time
-import random
-
 import math
 import torch
 import deepspeed
-import numpy as np
 import torch.nn.functional as F
 
 from torch.utils.data import DataLoader
 from torch.utils.checkpoint import checkpoint
-from deepspeed.pipe import PipelineModule, TiedLayerSpec, LayerSpec
+from deepspeed.pipe import PipelineModule, LayerSpec
 
 from train.trainer import Trainer
 from model.llama import *
-from model.tokenizer import BaseTokenizer
 from common.registry import registry
 from common.lora import *
 from common.dataset import LongRopeDataset
@@ -33,7 +27,6 @@ class EmbeddingPipelineLayer(torch.nn.Module):
         super().__init__()
         self.args = args
         self.embedder = model.tok_embeddings
-        self.weight = self.embedder.weight
         self.freqs_cis = precompute_freqs_cis(args.head_dim,
                                          args.max_len,
                                          theta=args.rope_theta,
@@ -46,7 +39,7 @@ class EmbeddingPipelineLayer(torch.nn.Module):
         # [batch_size, input_len, 1]
         input_ids, labels = inputs
         # [batch_size, input_len, hidden_size]
-        hidden_states = F.embedding(input_ids, self.weight)
+        hidden_states = self.embedder(input_ids)
         # Acquire attention mask.
         attention_mask = get_masks(input_ids.shape[1], device=hidden_states.device, dtype=hidden_states.dtype)
         freqs_cis = self.freqs_cis.to(hidden_states.device)
@@ -65,9 +58,9 @@ class DecoderPipelineLayer(torch.nn.Module):
         hidden_states, freqs_cis, attention_mask, labels = inputs
         # [batch_size, input_len, hidden_dim]
         if self.args.activation_checkpoint:
-            hidden_states = checkpoint(self.layer,  hidden_states, 0, freqs_cis, attention_mask)
+            hidden_states = checkpoint(self.layer,  hidden_states, 0, freqs_cis, attention_mask, args.atten_type)
         else:
-            hidden_states = self.layer(hidden_states, 0, freqs_cis, attention_mask)
+            hidden_states = self.layer(hidden_states, 0, freqs_cis, attention_mask, args.atten_type)
         return hidden_states, freqs_cis, attention_mask, labels
     
 class FNormPipelineLayer(torch.nn.Module):
@@ -188,7 +181,28 @@ engine, optimizer, _, _ = deepspeed.initialize(model=model_pipe,
                                                model_parameters=[p for p in model_pipe.parameters() if p.requires_grad])
 
 if __name__ == '__main__':
+    import logging
+    import traceback
+    if args.tensorboard:
+        try:
+            from torch.utils.tensorboard import SummaryWriter
+        except ImportError:
+            from tensorboard import SummaryWriter
+        writer = SummaryWriter()
+    else:
+        writer = None
+
     def forward_step(model, data_loader, _):
         return model.train_batch(data_loader), []
-    trainer = Trainer(args)
-    trainer.train(engine, train_dataloader, None, forward_step, None, args)
+    trainer = Trainer(args, writer)
+    try:
+        trainer.train(model=engine, 
+                      data_loader=train_dataloader, 
+                      optimizer=None, 
+                      forward_step=forward_step, 
+                      backward_step=None, 
+                      log_loss=True)
+    except:
+        # When any error occur during the training process, log the error
+        traceback_info = traceback.format_exc()
+        print_rank_0(traceback_info, args.global_rank, logging.ERROR)

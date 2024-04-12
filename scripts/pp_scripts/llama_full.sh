@@ -26,6 +26,8 @@ options="$base_options \
     --warmup-min-lr 1e-6 \
     --warmup-max-lr 2e-5 \
     --activation-checkpoint \
+    --atten-type flash_atten \
+    --tensorboard \
     "
     
 run_cmd="deepspeed --include localhost:0,1,2 --master_port 16666 /workspace/dnallama/train/pp_train.py ${options}"

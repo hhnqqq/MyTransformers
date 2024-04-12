@@ -31,6 +31,8 @@ def train_parser(parser):
                        help='The variant of the model. This argument is only useful when using gemma')
     group.add_argument('--save-interval', type=int, default=5000, 
                        help='Number of iterations between saves')
+    group.add_argument('--eval-interval', type=int, default=5000, 
+                       help='Number of iterations between saves')
     group.add_argument('--device', type=str, default='cuda', 
                        help='The device to load the model')
     group.add_argument('--mode', type=str, default='pretrain', 

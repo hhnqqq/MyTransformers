@@ -1,7 +1,9 @@
 import os
 import torch
+import logging
 from torch.utils.data import DataLoader
-from gemma.utils import Timer, print_rank_0
+from common.utils import Timer, print_rank_0
+from typing import Callable
 
 class Trainer:
     def __init__(self, args, writer=None):
@@ -15,9 +17,10 @@ class Trainer:
     def train(self, 
               model:torch.nn.Module, 
               data_loader:DataLoader, 
-              optimizer,
-              forward_step, 
-              backward_step):
+              optimizer: Callable,
+              forward_step: Callable, 
+              backward_step: Callable,
+              log_loss: bool = False):
         print_rank_0('--->loaded the model, start training', self.args.global_rank)
         with Timer() as timer:
             for step in range(self.args.num_update_steps):
@@ -27,13 +30,16 @@ class Trainer:
                     backward_step(model, optimizer, loss)
                 self.all_loss += loss.item()
                 self.all_metric.append(metric)
-                self.info_manager(step, timer)
+                self.info_manager(step, timer, log_loss)
                 self.save_model(model, step)
+                if (step+1) % self.args.eval_interval == 0:
+                    self.eval_step()
         self.end = True
         self.save_model(model, step)
         print_rank_0(f"--->total time cosumed is {timer.time_cost}", self.args.global_rank)
 
-    def info_manager(self, step:int, timer:Timer):
+    def info_manager(self, step:int, timer:Timer, log_loss: bool = False):
+        loss_level = logging.INFO if log_loss else logging.DEBUG
         if self.args.local_rank == 0:
             if (step+1) % self.args.gradient_accumulation_steps == 0:
                 self.global_step += 1
@@ -46,12 +52,16 @@ class Trainer:
                     print_str = f"--->step={self.global_step+1}, avg_loss={avg_loss:.4f}, avg_time={avg_time:.2f}s"
                     if self.get_task_print:
                         print_str += self.get_task_print(self.all_metric, self.args)
-                    print_rank_0(print_str)
+                    print_rank_0(print_str, self.args.global_rank, loss_level)
                     self.all_loss = 0.0
                     self.all_metric = []
 
     def register_task_print(self, print_func):
         self.task_print = print_func
+
+    def eval_step():
+        # TODO
+        pass
 
     @property
     def get_task_print(self):
@@ -61,20 +71,21 @@ class Trainer:
         if self.args.global_rank <= 0: 
             if not self.end and (step+1) % self.args.save_interval == 0: 
                 save_path = os.path.join(self.args.output_path, f'{self.args.experiment_name}_{step+1}.ckpt')
-                print_rank_0(f'--->Start saving model at {step+1}th step in {save_path}.')
+                print_rank_0(f'--->Start saving model at {step+1}th step in {save_path}.', self.args.global_rank)
                 torch.save(model.state_dict(), save_path)
-                print_rank_0('--->Saved the model.')
+                print_rank_0('--->Saved the model.', self.args.global_rank)
             elif self.end: 
                 save_path = os.path.join(self.args.output_path, f'{self.args.experiment_name}_final.ckpt')
-                print_rank_0(f'--->Start saving model at final step in {save_path}.')
+                print_rank_0(f'--->Start saving model at final step in {save_path}.', self.args.global_rank)
                 torch.save(model.state_dict(), save_path)
-            
+                print_rank_0('--->Saved the model.', self.args.global_rank)            
     
 if __name__ == '__main__':
     """A quick test for trainer"""
     import torchvision
     from torchvision import datasets, transforms
     from dataclasses import dataclass
+    import traceback
 
     model = torchvision.models.resnet18()
 
@@ -112,6 +123,7 @@ if __name__ == '__main__':
         num_update_steps = 10000
         show_loss_step = 10
         save_interval = 10000
+        eval_interval = 100000
         output_path = '.'
         experiment_name = 'resnet'
         global_rank = 0
@@ -120,4 +132,8 @@ if __name__ == '__main__':
         
     trainer = Trainer(args=ARGS, writer=None)
     trainer.register_task_print(task_print)
-    trainer.train(model, data_loader, optimizer, forward_step, backward_step)
+    try:
+        trainer.train(model, data_loader, optimizer, forward_step, backward_step)
+    except:
+        traceback_info = traceback.format_exc()
+        print_rank_0(traceback_info, ARGS.global_rank ,level=logging.ERROR)

@@ -62,10 +62,11 @@ class GemmaConfig:
         return _STR_DTYPE_TO_TORCH_DTYPE.get(self.dtype, None)
 
 
+@registry.register_model_config("gemma_7b")
 def get_config_for_7b() -> GemmaConfig:
     return GemmaConfig()
 
-
+@registry.register_model_config("gemma_2b")
 def get_config_for_2b() -> GemmaConfig:
     return GemmaConfig(
         num_hidden_layers=18,
@@ -75,6 +76,7 @@ def get_config_for_2b() -> GemmaConfig:
         intermediate_size=16384
     )
 
+@registry.register_model_config("gemma_test")
 def get_config_for_test() -> GemmaConfig:
     return GemmaConfig(
         num_hidden_layers=6,
@@ -95,12 +97,3 @@ def get_model_config(variant: str) -> GemmaConfig:
         return get_config_for_test()
     return ValueError(f'Invalid variant {variant}. Supported variants are "2b"'
                       'and "7b"')
-
-registry.register_model_config("gemma_7b")
-get_model_config("7b")
-
-registry.register_model_config("gemma_2b")
-get_model_config("2b")
-
-registry.register_model_config("gemma_test")
-get_model_config("test")

@@ -5,23 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from model.attention import attention_func
-from common.registry import registry
-
-
-@registry.register_model_config("llama_7b")
-@dataclass
-class ModelArgs:
-    dim: int = 4096
-    n_layers: int = 32
-    n_heads: int = 32
-    n_kv_heads: Optional[int] = None
-    vocab_size: int = -1  # defined later by tokenizer
-    multiple_of: int = 256  # make SwiGLU hidden layer size multiple of large power of 2
-    ffn_dim_multiplier: Optional[float] = None
-    norm_eps: float = 1e-5
-
-    max_batch_size: int = 32
-    max_seq_len: int = 2048
+from model.llama.config import *
 
 
 class RMSNorm(torch.nn.Module):
@@ -251,7 +235,8 @@ class Attention(nn.Module):
                                 dropout_p=0.0, 
                                 scaling=math.sqrt(self.head_dim),
                                 is_causal=False,
-                                atten_type=atten_type)
+                                atten_type=atten_type) # (bs, n_local_heads, cache_len + seqlen, head_dim)
+        output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
         return self.wo(output)
 
 
@@ -339,6 +324,7 @@ class TransformerBlock(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        atten_type: str = ''
     ):
         """
         Perform a forward pass through the TransformerBlock.
@@ -354,7 +340,7 @@ class TransformerBlock(nn.Module):
 
         """
         h = x + self.attention(
-            self.attention_norm(x), start_pos, freqs_cis, mask
+            self.attention_norm(x), start_pos, freqs_cis, mask, atten_type
         )
         out = h + self.feed_forward(self.ffn_norm(h))
         return out

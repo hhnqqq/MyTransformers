@@ -41,6 +41,10 @@ class LongRopeDataset(Dataset):
         self.max_src_len = max_src_len
         self.meta_prompt = meta_prompt
         self.train_token_count = 0 
+        print_rank_0(f'--->using dataset: {data_path}', global_rank)
+        print_rank_0(f'--->training mode: {self.mode}', global_rank)
+        print_rank_0(f'--->meta prompt: {self.meta_prompt}', global_rank)
+        print_rank_0(f'--->tokenizer name: {type(self.tokenizer).__name__}', global_rank)
         with open(data_path, "r", encoding="utf-8") as fh:
             if read_nums is None:
                 read_nums = sum(1 for _ in fh)

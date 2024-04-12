@@ -26,6 +26,8 @@ options="$base_options \
     --use-lora-plus \
     --lora-rank 128 \
     --activation-checkpoint \
+    --atten-type flash_atten \
+    --tensorboard \
     "
     
 run_cmd="deepspeed --include localhost:0 --master_port 16666 /workspace/dnallama/train/pp_train.py ${options}"

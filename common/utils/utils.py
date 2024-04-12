@@ -60,7 +60,7 @@ def ensure_directory_exists(directory):
     """确保目录存在"""
     if not os.path.exists(directory):
         os.makedirs(directory)
-        print_rank_0(f'---> Directory:{directory} is not existed. created a new floder')
+        print(f'---> Directory:{directory} is not existed. created a new floder')
 
 def count_trainable_parameters(model):
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
