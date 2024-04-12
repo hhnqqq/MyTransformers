@@ -5,8 +5,10 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from model.attention import attention_func
+from common.registry import registry
 
 
+@registry.register_model_config("llama_7b")
 @dataclass
 class ModelArgs:
     dim: int = 4096
@@ -358,6 +360,7 @@ class TransformerBlock(nn.Module):
         return out
 
 
+@registry.register_model("llama")
 class Transformer(nn.Module):
     def __init__(self, params: ModelArgs, is_train:bool=False):
         """

@@ -24,6 +24,7 @@ from deepspeed.sequence.layer import DistributedAttention
 from gemma import config as gemma_config
 from gemma import tokenizer
 import common.utils.parallel_states as parallel_states
+from common.registry import registry
 
 
 class Sampler(nn.Module):
@@ -443,7 +444,7 @@ class GemmaModel(nn.Module):
         hidden_states = self.norm(hidden_states)
         return hidden_states
 
-
+@registry.register_model("gemma")
 class GemmaForCausalLM(nn.Module):
 
     def __init__(

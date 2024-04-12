@@ -5,7 +5,7 @@ from torch.utils.checkpoint import checkpoint
 from model.gemma.model import GemmaForCausalLM, precompute_freqs_cis
 from common.registry import registry
 
-@registry.register_model('gemma')
+@registry.register_train_model('gemma')
 class TrainModel(BaseModel):
     """
     Trainer class for Gemma, responsible for handling input and output during training.

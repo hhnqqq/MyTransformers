@@ -4,7 +4,7 @@ from model.base_model import BaseModel
 from model.llama.model import Transformer, precompute_freqs_cis
 from common.registry import registry
 
-@registry.register_model('llama')
+@registry.register_train_model('llama')
 class TrainModel(BaseModel):
     """
     Trainer class for llama, responsible for handling input and output during training.

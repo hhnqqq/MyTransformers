@@ -18,6 +18,7 @@ import dataclasses
 import immutabledict
 import torch
 from typing import Optional
+from common.registry import registry
 
 
 # Keep a mapping from dtype strings to the supported torch dtypes.
@@ -94,3 +95,12 @@ def get_model_config(variant: str) -> GemmaConfig:
         return get_config_for_test()
     return ValueError(f'Invalid variant {variant}. Supported variants are "2b"'
                       'and "7b"')
+
+registry.register_model_config("gemma_7b")
+get_model_config("7b")
+
+registry.register_model_config("gemma_2b")
+get_model_config("2b")
+
+registry.register_model_config("gemma_test")
+get_model_config("test")
