@@ -123,13 +123,6 @@ def init_dist(args):
         device = 'cpu'
     return device, args
 
-def get_masks(seq_len, device='cpu', dtype=torch.float):
-    attention_mask = torch.full((1, 1, seq_len, seq_len),
-                -2.3819763e38).to(torch.float)
-    attention_mask = torch.triu(attention_mask, diagonal=1).to(device=device).to(dtype=dtype)
-    return attention_mask
-
-
 # ------------------logging----------------------------
 def configure_logging(log_path):
     sh_level = os.environ.get("PRINTLEVEL", logging.DEBUG)
