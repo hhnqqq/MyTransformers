@@ -9,6 +9,7 @@ import configparser
 import numpy as np
 from datetime import datetime
 import torch.distributed as dist
+import common.utils.parallel_states as parallel_states
 
 """with 环境用法：进入with语句之后，类中__enter__对应的返回值将被赋值给as后面的变量名
 with之后的代码执行"""
@@ -121,6 +122,9 @@ def init_dist(args):
             args.global_rank = dist.get_rank()
     else:
         device = 'cpu'
+    if args.num_sp_stages is not None:
+        assert args.atten_type == 'ulysses_atten', 'when using sequence parallism, the attention type must be `ulysses_atten`'
+        parallel_states.initialize_model_parallel(sequence_model_parallel_size=args.num_sp_stages)
     return device, args
 
 # ------------------logging----------------------------

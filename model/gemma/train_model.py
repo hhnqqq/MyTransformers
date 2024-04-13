@@ -1,12 +1,13 @@
 import torch
 import torch.nn.functional as F
-from model.base_model import BaseModel
 from torch.utils.checkpoint import checkpoint
-from model.gemma.model import GemmaForCausalLM, precompute_freqs_cis
+
 from common.registry import registry
+from model.base_model import BaseModel
+from model.gemma.model import GemmaForCausalLM, precompute_freqs_cis
 
 @registry.register_train_model('gemma')
-class TrainModel(BaseModel):
+class GemmaTrainModel(BaseModel):
     """
     Trainer class for Gemma, responsible for handling input and output during training.
     """
@@ -22,7 +23,7 @@ class TrainModel(BaseModel):
         self.model = model.model
         self.embedder = model.embedder
         self.emb_weight = model.embedder.weight
-        self.attention_mask = TrainModel.get_masks(args.max_len)
+        self.attention_mask = GemmaTrainModel.get_masks(args.max_len)
         self.freqs_cis = precompute_freqs_cis(args.head_dim,
                                          args.max_len,
                                          theta=args.rope_theta,

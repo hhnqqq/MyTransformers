@@ -1,14 +1,11 @@
 import math
 import torch
 import deepspeed
-import torch.nn.functional as F
 
 from torch.utils.data import DataLoader
-from torch.utils.checkpoint import checkpoint
-from deepspeed.pipe import PipelineModule, LayerSpec
 
 from train.trainer import Trainer
-from model.llama import *
+from model import *
 from common.registry import registry
 from common.lora import *
 from common.dataset import LongRopeDataset
@@ -22,87 +19,6 @@ from common.utils.params_manager import (
     disable_untrainable_params
 )
 
-class EmbeddingPipelineLayer(torch.nn.Module):
-    def __init__(self, model: Transformer, args):
-        super().__init__()
-        self.args = args
-        self.embedder = model.tok_embeddings
-        self.freqs_cis = precompute_freqs_cis(args.head_dim,
-                                         args.max_len,
-                                         theta=args.rope_theta,
-                                         train_pi=args.train_pi,
-                                         train_pipeline=True)
-        # if args.quant:
-        #     self.weight_scaler = self.word_embeddings.weight_scaler
-
-    def forward(self, inputs):
-        # [batch_size, input_len, 1]
-        input_ids, labels = inputs
-        # [batch_size, input_len, hidden_size]
-        hidden_states = self.embedder(input_ids)
-        # Acquire attention mask.
-        attention_mask = get_masks(input_ids.shape[1], device=hidden_states.device, dtype=hidden_states.dtype)
-        freqs_cis = self.freqs_cis.to(hidden_states.device)
-        # Have to set freqs_cis and attention mask trainable, or deepspeed will throw a exception.
-        freqs_cis.requires_grad_(True)
-        attention_mask.requires_grad_(True)
-        return hidden_states, freqs_cis, attention_mask, labels
-    
-class DecoderPipelineLayer(torch.nn.Module):
-    def __init__(self, model: Transformer, layer_idx, args):
-        super().__init__()
-        self.layer = model.layers[layer_idx]
-        self.args = args
-
-    def forward(self, inputs):
-        hidden_states, freqs_cis, attention_mask, labels = inputs
-        # [batch_size, input_len, hidden_dim]
-        if self.args.activation_checkpoint:
-            hidden_states = checkpoint(self.layer,  hidden_states, 0, freqs_cis, attention_mask, args.atten_type)
-        else:
-            hidden_states = self.layer(hidden_states, 0, freqs_cis, attention_mask, args.atten_type)
-        return hidden_states, freqs_cis, attention_mask, labels
-    
-class FNormPipelineLayer(torch.nn.Module):
-    def __init__(self, model: Transformer):
-        super().__init__()
-        self.final_norm = model.norm
-        self.o_proj = model.output
-
-    def forward(self, inputs):
-        hidden_states, _, _, labels = inputs
-        # [batch_size, input_len, hidden_dim]
-        logits = self.final_norm(hidden_states)
-        logits = self.o_proj(logits)
-        return logits, labels
-
-class LossPipelineLayer(torch.nn.Module):
-    def __init__(self, pad_id):
-        super().__init__()
-        self.loss_fct = torch.nn.CrossEntropyLoss(ignore_index=pad_id)
-
-    def forward(self, inputs):
-        logits, labels = inputs
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-        loss = self.loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.reshape(-1))
-        return loss
-    
-def get_model(model, args):
-    layers = [LayerSpec(EmbeddingPipelineLayer, model=model, args=args),
-              *[LayerSpec(DecoderPipelineLayer, model=model, args=args, layer_idx=idx) for idx in
-                range(args.num_layers)],
-              LayerSpec(FNormPipelineLayer, model=model),
-              LayerSpec(LossPipelineLayer, pad_id=args.pad_id)]
-    return layers
-
-def get_masks(seqlen, device, dtype, start_pos=0):
-    if seqlen > 1:
-        mask = torch.full((seqlen, seqlen), float("-inf"), device=device)
-        mask = torch.triu(mask, diagonal=1)
-        mask = torch.hstack([torch.zeros((seqlen, start_pos), device=device),mask]).to(dtype)
-        return mask
-
 def data_collator(examples):
     input_ids_list, labels_list = [], []
     for instance in examples:
@@ -114,19 +30,27 @@ args = ds_parser(train_parser(base_parser())).parse_args()
 args = registry.get_paths(args)
 set_random_seed(args.seed)
 device, args = init_dist(args)
-tokenizer_name = args.tokenizer_name if args.tokenizer_name is not None else args.model_name
-tokenizer = registry.get_tokenizer_class(tokenizer_name)(args.tokenizer_path)
+
 print_rank_0('--->loading the model', args.global_rank)
-ModelArgs.vocab_size = tokenizer.n_words
-model = Transformer(ModelArgs, is_train=True)
+tokenizer = registry.get_tokenizer_class(args.tokenizer_name)(args.tokenizer_path)
+print_rank_0(f'--->using tokenizer: {args.tokenizer_name} with path: {args.tokenizer_path}', args.global_rank)
+config_type = '_'.join([args.model_name, args.variant])
+model_config = registry.get_model_config_class(config_type)()
+print_rank_0(f'--->using model config: {config_type}', args.global_rank)
+model_config.vocab_size = tokenizer.n_words
+print(registry.list_all())
+model = registry.get_model_class(args.model_name)(model_config, is_train=True)
+print_rank_0(f'--->using model: {args.model_name}, and loading its pipeline variant', args.global_rank)
+model_pipe_cls = registry.get_pipeline_model_class(args.model_name)
+
 if args.ckpt_path is not None:
     model.load_weights(args.ckpt_path)
-args.head_dim = ModelArgs.dim // ModelArgs.n_heads
-args.hidden_size = ModelArgs.dim
-args.num_layers = ModelArgs.n_layers
+args.head_dim = model_config.dim // model_config.n_heads
+args.hidden_size = model_config.dim
+args.num_layers = model_config.n_layers
 args.pad_id = tokenizer.pad_id
 
-model_pipe = PipelineModule(layers=get_model(model, args), num_stages=args.num_pp_stages, partition_method='uniform')
+model_pipe = model_pipe_cls(model, args)
 if args.use_lora or args.use_lora_plus:
     if args.replace_modules is None:
         args.replace_modules = ['wq','wk','wv']

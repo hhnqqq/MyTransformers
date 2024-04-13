@@ -1,11 +1,12 @@
 import torch
 from torch.utils.checkpoint import checkpoint
+
+from common.registry import registry
 from model.base_model import BaseModel
 from model.llama.model import Transformer, precompute_freqs_cis
-from common.registry import registry
 
 @registry.register_train_model('llama')
-class TrainModel(BaseModel):
+class LLaMaTrainModel(BaseModel):
     """
     Trainer class for llama, responsible for handling input and output during training.
     """
@@ -22,7 +23,7 @@ class TrainModel(BaseModel):
         self.embedder = model.tok_embeddings
         self.output = model.output
         self.norm = model.norm
-        self.attention_mask = TrainModel.get_masks(args.max_len)
+        self.attention_mask = LLaMaTrainModel.get_masks(args.max_len)
         self.freqs_cis = precompute_freqs_cis(args.head_dim,
                                          args.max_len,
                                          theta=args.rope_theta,

@@ -2,6 +2,7 @@ import os
 class Regitry:
     mapping = {
         "model_mapping":{},
+        "pipeline_model_mapping":{},
         "train_model_mapping":{},
         "model_config_mapping":{},
         "dataset_mapping":{},
@@ -36,7 +37,6 @@ class Regitry:
 
     @classmethod
     def register_model(cls, name):
-        
         def wrap(model_cls):
             if model_cls in cls.mapping['model_mapping']:
                 raise KeyError(
@@ -45,6 +45,19 @@ class Regitry:
                     )
                 )
             cls.mapping['model_mapping'][name] = model_cls
+            return model_cls
+        return wrap
+    
+    @classmethod
+    def register_pipeline_model(cls, name):
+        def wrap(model_cls):
+            if model_cls in cls.mapping['pipeline_model_mapping']:
+                raise KeyError(
+                    "Name '{}' already registered for {}.".format(
+                        name, cls.mapping["pipeline_model_mapping"][name]
+                    )
+                )
+            cls.mapping['pipeline_model_mapping'][name] = model_cls
             return model_cls
         return wrap
 
@@ -64,7 +77,9 @@ class Regitry:
 
     @classmethod
     def register_train_model(cls, name):
+        from model.base_model import BaseModel
         def wrap(model_cls):
+            assert(issubclass(model_cls, BaseModel))
             if model_cls in cls.mapping['model_mapping']:
                 raise KeyError(
                     "Name '{}' already registered for {}.".format(
@@ -108,6 +123,10 @@ class Regitry:
         return cls.mapping["model_mapping"].get(name, None)
     
     @classmethod
+    def get_pipeline_model_class(cls, name):
+        return cls.mapping["pipeline_model_mapping"].get(name, None)
+    
+    @classmethod
     def get_model_config_class(cls, name):
         return cls.mapping["model_config_mapping"].get(name, None)
     
@@ -135,7 +154,7 @@ class Regitry:
         dataset_name = "dataset_" + args.dataset_name
         args.tokenizer_path = args.tokenizer_path if args.tokenizer_path else paths_mapping.get(tokenizer_name, None)
         args.dataset_path = args.dataset_path if args.dataset_path else paths_mapping.get(dataset_name, None)
-        args.ckptl_path = args.ckpt_path if args.ckpt_path else paths_mapping.get(model_name, None)
+        args.ckpt_path = args.ckpt_path if args.ckpt_path else paths_mapping.get(model_name, None)
         return args
     
     @classmethod
@@ -165,5 +184,10 @@ class Regitry:
     @classmethod
     def list_info_tokenizers(cls):
         return sorted(cls.mapping["tokenizer_mapping"].keys())
+
+    @classmethod
+    def list_all(cls):
+        return {k:sorted(v.keys()) for k,v in cls.mapping.items()}
+
     
 registry = Regitry()

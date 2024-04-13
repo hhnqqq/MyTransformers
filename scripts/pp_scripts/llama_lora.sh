@@ -1,6 +1,6 @@
 #! /bin/bash
 base_options="--dataset-name dna_pretrain \
---model-name gemma \
+--model-name llama \
 --tokenizer-name base \
 --output-path /workspace/dnallama \
 "

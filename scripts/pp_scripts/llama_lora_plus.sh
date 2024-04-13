@@ -1,6 +1,6 @@
 #! /bin/bash
 base_options="--dataset-name dna_pretrain \
---model-name gemma \
+--model-name llama \
 --tokenizer-name base \
 --output-path /workspace/dnallama \
 "
@@ -13,6 +13,7 @@ options="$base_options \
     --fp16 \
     --gradient-accumulation-steps 1 \
     --warmup 0.02 \
+    --variant 7b \
     --device cuda \
     --num-pp-stages 1 \
     --max-len 1024 \
