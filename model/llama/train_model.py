@@ -27,7 +27,8 @@ class LLaMaTrainModel(BaseModel):
         self.freqs_cis = precompute_freqs_cis(args.head_dim,
                                          args.max_len,
                                          theta=args.rope_theta,
-                                         train_pi=args.train_pi)
+                                         train_pi=args.train_pi,
+                                         train_pipeline=False)
         
     def forward(self, input_ids, labels):
         return super().forward(input_ids, labels)
@@ -39,18 +40,27 @@ class LLaMaTrainModel(BaseModel):
     
     def model_forward(self, hidden_states, freqs_cis, attention_mask):
         # Using activation checkpoint to reduce memory consumption or not.
-        for i in self.args.num_layers:
+        for i in range(self.args.num_layers):
             if self.args.activation_checkpoint:
-                    logits = checkpoint(self.layers[i], hidden_states, freqs_cis, attention_mask, self.args.atten_type)
+                    logits = checkpoint(self.layers[i], 
+                                        hidden_states, 
+                                        0, 
+                                        freqs_cis, 
+                                        attention_mask, 
+                                        self.args.atten_type)
             else:
-                logits = self.layers[i](hidden_states=hidden_states, freqs_cis=freqs_cis, mask=attention_mask, atten_type=self.args.atten_type)
+                logits = self.layers[i](hidden_states=hidden_states, 
+                                        start_pos=0, 
+                                        freqs_cis=freqs_cis, 
+                                        mask=attention_mask, 
+                                        atten_type=self.args.atten_type)
         logits = self.norm(logits)
         logits = self.output(logits)
         return logits
     
     
     @staticmethod
-    def get_masks(seqlen, device, dtype, start_pos=0):
+    def get_masks(seqlen, device='cpu', dtype=torch.float, start_pos=0):
         if seqlen > 1:
             mask = torch.full((seqlen, seqlen), float("-inf"), device=device)
             mask = torch.triu(mask, diagonal=1)

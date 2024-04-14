@@ -6,7 +6,7 @@ from typing import Optional
 class ModelArgs:
     dim: int = 4096
     head_dim: int = 128
-    hideen_size: int = 4096
+    hidden_size: int = 4096
     n_layers: int = 32
     num_hidden_layers: int = 32
     n_heads: int = 32
@@ -32,7 +32,7 @@ def get_config_for_2b() -> ModelArgs:
         hidden_size=5120,
         n_layers=40,
         num_hidden_layers=40,
-        n_head=40,
+        n_heads=40,
         num_attention_heads=40,
     )
 
@@ -43,6 +43,6 @@ def get_config_for_test() -> ModelArgs:
         hidden_size=2048,
         n_layers=16,
         num_hidden_layers=16,
-        n_head=16,
+        n_heads=16,
         num_attention_heads=16,
     )
