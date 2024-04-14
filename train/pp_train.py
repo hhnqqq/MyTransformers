@@ -31,14 +31,15 @@ args = registry.get_paths(args)
 set_random_seed(args.seed)
 device, args = init_dist(args)
 
+
 print_rank_0('--->loading the model', args.global_rank)
+print_rank_0(f'--->registry contains {registry.list_all()}')
 tokenizer = registry.get_tokenizer_class(args.tokenizer_name)(args.tokenizer_path)
 print_rank_0(f'--->using tokenizer: {args.tokenizer_name} with path: {args.tokenizer_path}', args.global_rank)
 config_type = '_'.join([args.model_name, args.variant])
 model_config = registry.get_model_config_class(config_type)()
 print_rank_0(f'--->using model config: {config_type}', args.global_rank)
 model_config.vocab_size = tokenizer.n_words
-print(registry.list_all())
 model = registry.get_model_class(args.model_name)(model_config, is_train=True)
 print_rank_0(f'--->using model: {args.model_name}, and loading its pipeline variant', args.global_rank)
 model_pipe_cls = registry.get_pipeline_model_class(args.model_name)
@@ -64,6 +65,7 @@ elif args.disable_list is not None:
 elif args.enable_list is not None:
     enable_trainable_params(model_pipe, args.enable_list)
 print_trainable_module_names(model_pipe)
+print(model_pipe)
 
 if args.fp16:
     model_pipe.to(device).half()
@@ -116,7 +118,7 @@ if __name__ == '__main__':
     else:
         writer = None
 
-    def forward_step(model, data_loader, _):
+    def forward_step(model, data_loader, args, step):
         return model.train_batch(data_loader), []
     trainer = Trainer(args, writer)
     try:

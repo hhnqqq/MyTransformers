@@ -67,7 +67,7 @@ class LinearWithLoRA(nn.Linear):
             if self.dora and lora_weight is not None:
                 weight = self._apply_dora(weight, lora_weight)
             elif lora_weight is not None:
-                weight.data += lora_weight
+                weight = weight + lora_weight
         # Unified output.
         return F.linear(x, weight)
 
@@ -245,6 +245,49 @@ if __name__ == '__main__':
     for name, module in model.named_modules():
         if isinstance(module, LinearWithLoRA):
             module.merge_and_reset()
-            # print(module.in_features, module.out_features, module.weight.shape)
-    # switch_to_lora(model, ['norm'], transposition=True) # result in a assert error 
-    
+            print(module.in_features, module.out_features, module.weight.shape)
+    switch_to_lora(model, ['norm'], transposition=True) # result in a assert error 
+
+    import torch.optim as optim
+    # backward test
+    class TestModel(nn.Module):
+        def __init__(self, in_features, out_features, lora_rank, lora_scaler, use_dora, quant, plora_steps):
+            super().__init__()
+            self.linear = LinearWithLoRA(in_features, out_features, lora_rank, lora_scaler, use_dora, quant, plora_steps)
+
+        def forward(self, x):
+            return self.linear(x)
+
+    def test_lora_gradient():
+        # Set up the model
+        in_features = 64
+        out_features = 64
+        lora_rank = 4
+        lora_scaler = 32.0
+        use_dora = False
+        quant = False
+        plora_steps = None
+
+        model = TestModel(in_features, out_features, lora_rank, lora_scaler, use_dora, quant, plora_steps)
+        # model.linear.merge_and_del()
+
+        # Generate some random input and target
+        input_data = torch.randn(32, in_features)
+        target_data = torch.randn(32, out_features)
+
+        # Forward pass
+        output = model(input_data)
+
+        # Compute the loss
+        loss = nn.MSELoss()(output, target_data)
+
+        # Backward pass
+        loss.backward()
+
+        # Check if the gradients are not None
+        for param in model.parameters():
+            assert param.grad is not None, "Gradient is None for some parameters"
+
+        print("Test passed: Gradients are not None.")
+
+    test_lora_gradient()

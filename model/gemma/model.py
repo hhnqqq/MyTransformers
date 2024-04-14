@@ -22,7 +22,7 @@ from transformers.utils.versions import require_version
 from deepspeed.sequence.layer import DistributedAttention
 
 from gemma import config as gemma_config
-from gemma import tokenizer
+from model import BaseTokenizer
 import common.utils.parallel_states as parallel_states
 from common.registry import registry
 
@@ -459,8 +459,9 @@ class GemmaForCausalLM(nn.Module):
         head_dim = config.head_dim
         vocab_size = config.vocab_size
 
-        self.tokenizer = tokenizer.Tokenizer(config.tokenizer)
+        # self.tokenizer = BaseTokenizer(config.tokenizer)
         self.embedder = Embedding(vocab_size, config.hidden_size, config.quant)
+        nn.init.xavier_uniform_(self.embedder.weight)
         self.model = GemmaModel(config)
         self.sampler = Sampler(vocab_size)
 

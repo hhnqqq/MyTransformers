@@ -18,11 +18,14 @@ def disable_untrainable_params(model,unable_list):
     for n, p in model.named_parameters():
         flag = False
         for e in unable_list:
+            print(e, n)
             if e.lower() in n.lower():
                 flag = True
                 break
         if not flag:
             p.requires_grad_(True)
+        else:
+            p.requires_grad_(False)
 
 def enable_trainable_params(model,enable_list):
     for n, p in model.named_parameters():

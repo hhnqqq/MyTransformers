@@ -125,6 +125,8 @@ def init_dist(args):
     if args.num_sp_stages is not None:
         assert args.atten_type == 'ulysses_atten', 'when using sequence parallism, the attention type must be `ulysses_atten`'
         parallel_states.initialize_model_parallel(sequence_model_parallel_size=args.num_sp_stages)
+    else:
+        parallel_states.initialize_model_parallel()
     return device, args
 
 # ------------------logging----------------------------
