@@ -33,7 +33,7 @@ device, args = init_dist(args)
 
 
 print_rank_0('--->loading the model', args.global_rank)
-print_rank_0(f'--->registry contains {registry.list_all()}')
+print_rank_0(f'--->registry contains {registry.list_all()}', args.global_rank)
 tokenizer = registry.get_tokenizer_class(args.tokenizer_name)(args.tokenizer_path)
 print_rank_0(f'--->using tokenizer: {args.tokenizer_name} with path: {args.tokenizer_path}', args.global_rank)
 config_type = '_'.join([args.model_name, args.variant])
@@ -46,15 +46,16 @@ model_pipe_cls = registry.get_pipeline_model_class(args.model_name)
 
 if args.ckpt_path is not None:
     model.load_weights(args.ckpt_path)
-args.head_dim = model_config.dim // model_config.n_heads
-args.hidden_size = model_config.dim
-args.num_layers = model_config.n_layers
+args.head_dim = model_config.head_dim
+args.head_num = model_config.num_attention_heads
+args.hidden_size = model_config.hidden_size
+args.num_layers = model_config.num_hidden_layers
 args.pad_id = tokenizer.pad_id
 
 model_pipe = model_pipe_cls(model, args)
 if args.use_lora or args.use_lora_plus:
     if args.replace_modules is None:
-        args.replace_modules = ['wq','wk','wv']
+        args.replace_modules = model_config.lora_layers
     switch_to_lora(model_pipe, args.replace_modules, rank=4)
     if args.lora_fa:
         enable_trainable_params(model_pipe, ['weight_b'])
@@ -65,14 +66,20 @@ elif args.disable_list is not None:
 elif args.enable_list is not None:
     enable_trainable_params(model_pipe, args.enable_list)
 print_trainable_module_names(model_pipe)
-print(model_pipe)
 
 if args.fp16:
     model_pipe.to(device).half()
 elif args.bf16:
     model_pipe.to(device).bfloat16()
 
-train_dataset = LongRopeDataset(args.dataset_path, tokenizer, args.max_len, args.max_src_len, args.mode, args.read_nums)
+train_dataset = LongRopeDataset(args.dataset_path, 
+                                tokenizer, 
+                                args.max_len, 
+                                args.max_src_len, 
+                                args.mode, 
+                                args.read_nums,
+                                args.global_rank)
+
 ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)
 
@@ -121,6 +128,7 @@ if __name__ == '__main__':
     def forward_step(model, data_loader, args, step):
         return model.train_batch(data_loader), []
     trainer = Trainer(args, writer)
+    args.gradient_accumulation_steps=1 # For correctly print info
     try:
         trainer.train(model=engine, 
                       data_loader=train_dataloader, 

@@ -83,12 +83,11 @@ elif args.local_rank == -1 :
 else:
     train_sampler = DistributedSampler(train_dataset)
 data_collator = DataCollator(tokenizer)
-train_dataloader = iter(DataLoader(train_dataset, collate_fn=data_collator, sampler=train_sampler,
-                                batch_size=args.batch_size_per_gpu))
+train_dataloader = iter(deepspeed.utils.RepeatingLoader(DataLoader(train_dataset, collate_fn=data_collator, sampler=train_sampler,
+                                batch_size=args.batch_size_per_gpu)))
 
 assert args.train_iters is not None or args.epochs is not None, 'train_iters and epochs can not be None at the same time'
 if args.epochs is not None:
-    # TODO: 修正sp与dp时的不同
     args.num_update_steps = args.epochs * (math.ceil(len(train_dataloader) / (args.gradient_accumulation_steps)))
 else:
     args.num_update_steps = args.train_iters/args.gradient_accumulation_steps

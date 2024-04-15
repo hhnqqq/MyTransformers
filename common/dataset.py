@@ -6,7 +6,7 @@ from tqdm import tqdm
 from typing import Union
 
 from torch.utils.data import Dataset
-from gemma.tokenizer import Tokenizer
+from model.tokenizer import BaseTokenizer
 from common.utils import print_rank_0
 
 class LongRopeDataset(Dataset):
@@ -26,7 +26,7 @@ class LongRopeDataset(Dataset):
     def __init__(
         self,
         data_path: str,
-        tokenizer: Tokenizer,
+        tokenizer: BaseTokenizer,
         max_len: int,
         max_src_len: int,
         mode: str = 'pretrain',
