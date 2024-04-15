@@ -14,11 +14,11 @@
 
 """Gemma model config."""
 
-import dataclasses
 import immutabledict
 import torch
-from typing import Optional
+from typing import Optional, List
 from common.registry import registry
+from dataclasses import dataclass, field
 
 
 # Keep a mapping from dtype strings to the supported torch dtypes.
@@ -30,7 +30,7 @@ _STR_DTYPE_TO_TORCH_DTYPE = immutabledict.immutabledict({
 })
 
 
-@dataclasses.dataclass
+@dataclass
 class GemmaConfig:
     # The number of tokens in the vocabulary.
     vocab_size: int = 256000
@@ -55,7 +55,8 @@ class GemmaConfig:
     # Whether a quantized version of the model is used.
     quant: bool = False
     # The path to the model tokenizer.
-    tokenizer: Optional[str] = '/home/modelfun/zhaokangkang/mini_LLama/gemma/tokenizer.model'
+    tokenizer: Optional[str] = ''
+    lora_layers: List[str] = field(default_factory=lambda: ["qkv_proj"])
 
     def get_dtype(self) -> Optional[torch.dtype]:
         """Gets the torch dtype from the config dtype string."""

@@ -1,6 +1,6 @@
 from common.registry import registry
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, List
 
 @dataclass
 class ModelArgs:
@@ -19,6 +19,7 @@ class ModelArgs:
 
     max_batch_size: int = 32
     max_seq_len: int = 2048
+    lora_layers: List[str] = field(default_factory=lambda: ['wk', 'wv', 'wo'])
 
 
 @registry.register_model_config("llama_7b")

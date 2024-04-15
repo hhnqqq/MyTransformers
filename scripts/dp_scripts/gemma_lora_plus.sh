@@ -1,8 +1,9 @@
 #! /bin/bash
 base_options="--dataset-name dna_pretrain \
---model-name llama \
+--model-name gemma \
 --tokenizer-name base \
 --output-path /workspace/dnallama \
+--ckpt-path /workspace/gemma-2b-it.ckpt \
 "
 
 options="$base_options \
@@ -13,7 +14,7 @@ options="$base_options \
     --fp16 \
     --gradient-accumulation-steps 1 \
     --warmup 0.02 \
-    --variant 7b \
+    --variant 2b \
     --device cuda \
     --max-len 2048 \
     --max-src-len 1024 \

@@ -62,7 +62,7 @@ class Trainer:
         if self.args.local_rank == 0:
             if (step + 1) % self.args.gradient_accumulation_steps == 0:
                 self.global_step += 1
-                if (self.global_step + 1) % self.args.show_loss_step == 0:
+                if (self.global_step) % self.args.show_loss_step == 0:
                     timer.average_time(entry='end')
                     # Calculate average time per step and average loss.
                     avg_time = (timer.loop_time) / self.args.show_loss_step
@@ -71,7 +71,7 @@ class Trainer:
                     if self.writer is not None:
                         self.writer.add_scalar('loss', avg_loss, self.global_step)
                     # Prepare the string to print with step number, average loss, and time.
-                    print_str = f"--->step={self.global_step+1}, avg_loss={avg_loss:.4f}, avg_time={avg_time:.2f}s"
+                    print_str = f"--->step={self.global_step}, avg_loss={avg_loss:.4f}, avg_time={avg_time:.2f}s"
                     # Include additional information specific to the task if available.
                     if self.get_task_print:
                         print_str += self.get_task_print(self.all_metric, self.args)

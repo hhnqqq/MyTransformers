@@ -2,8 +2,9 @@
 from common.registry import registry
 
 paths = {"model":{
-    "llama":"path_of_model",
-    "gemma":"path_of_model"
+    "llama_7b":"path_of_model",
+    "gemma_2b":"/workspace/gemma-2b-it.ckpt",
+    "gemma_7b":"path_of_model"
 }, 
 "tokenizer":{
     "llama":"/workspace/tokenizer.model",

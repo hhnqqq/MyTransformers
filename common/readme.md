@@ -45,3 +45,6 @@ from common.parser import base_parser, train_parser, ds_parser
 args = ds_parser(train_parser(base_parser())).parse_args()
 ```
     
+### 数据集的格式
+数据集需要是jsonl或者txt格式，jsonl每一行需要是一个字典，字典需要包含input和output两个键，当使用pretrain模式时可以只有input键
+txt则每一行为一条数据（仅支持pretrain模式）

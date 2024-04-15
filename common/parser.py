@@ -28,7 +28,7 @@ def train_parser(parser):
     group.add_argument('--bf16', action='store_true', 
                        help='Run the model in bf16 mode')
     group.add_argument('--variant', type=str, default='2b', choices=['test', '2b', '7b'], 
-                       help='The variant of the model. This argument is only useful when using gemma')
+                       help='The variant of the model.')
     group.add_argument('--save-interval', type=int, default=5000, 
                        help='Number of iterations between saves')
     group.add_argument('--eval-interval', type=int, default=5000, 

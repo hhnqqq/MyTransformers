@@ -53,7 +53,6 @@ class LongRopeDataset(Dataset):
                         for i, line in enumerate(tbar):
                             if i < read_nums:
                                 sample = json.loads(line.strip())
-                                assert "input" in sample.keys()
                                 input_ids, output_ids = self.preprocess_sample(sample)
                                 postfix={"train_tokens":self._get_post_fix(self.train_token_count)}   
                                 tbar.set_postfix(postfix)
@@ -80,9 +79,12 @@ class LongRopeDataset(Dataset):
         else:
             # In the case of pretrain, the input sample can be a single string.
             if isinstance(sample, dict):
+                assert "input" in sample.keys(), "Can not find input information in the dataset"
                 input = sample["input"] + sample["output"] if "output" in sample.keys() else sample["input"]
-            else:
+            elif isinstance(sample, str):
                 input = sample
+            else:
+                raise ValueError("You are using a not supported file format, please use jsonl or txt.")
             input_ids = self.tokenizer.encode(input)
             self.train_token_count += len(input_ids)
             output_ids = []
