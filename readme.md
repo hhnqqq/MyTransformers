@@ -20,6 +20,8 @@ paths = {"model":{
 }}
 ```
 - 设置好参数之后运行该脚本即可启动训练
-
+## 数据：
+pretraining data: oss://pjlab-3090-ai4bio/renyuchen/temp/pretraining_data/human8k/GRCh38.p13.genome.txt
+eval data: oss://pjlab-3090-ai4bio/multi-omics/DNA/downstream/GUE/human.txt
 ## 各模块的使用方法：
 [common](https://github.com/terry-r123/DNALAMMA/blob/main/common/readme.md)
