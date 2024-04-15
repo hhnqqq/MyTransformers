@@ -48,9 +48,9 @@ class DecoderPipelineLayer(nn.Module):
         hidden_states, freqs_cis, attention_mask, labels = inputs
         # [batch_size, input_len, hidden_dim]
         if self.args.activation_checkpoint:
-            hidden_states = checkpoint(self.layer, hidden_states, freqs_cis, attention_mask, args.atten_type)
+            hidden_states = checkpoint(self.layer, hidden_states, freqs_cis, attention_mask, self.args.atten_type)
         else:
-            hidden_states = self.layer(hidden_states, freqs_cis, attention_mask, args.atten_type)
+            hidden_states = self.layer(hidden_states, freqs_cis, attention_mask, self.args.atten_type)
         return hidden_states, freqs_cis, attention_mask, labels
     
 class FNormPipelineLayer(torch.nn.Module):
