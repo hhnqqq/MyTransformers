@@ -120,23 +120,48 @@ class Regitry:
     
     @classmethod
     def get_model_class(cls, name):
-        return cls.mapping["model_mapping"].get(name, None)
+        result = cls.mapping["model_mapping"].get(name, None)
+        if result is None:
+            raise ValueError(f"Can not find name: {name} in model mapping, \
+supported models are listed below:{cls.list_models()}")
+        else:
+            return result
     
     @classmethod
     def get_pipeline_model_class(cls, name):
-        return cls.mapping["pipeline_model_mapping"].get(name, None)
+        result = cls.mapping["pipeline_model_mapping"].get(name, None)
+        if result is None:
+            raise ValueError(f"Can not find name: {name} in pipeline model mapping, \
+supported pipeline models are listed below:{cls.list_pipeline_models()}")
+        else:
+            return result
     
     @classmethod
     def get_model_config_class(cls, name):
-        return cls.mapping["model_config_mapping"].get(name, None)
+        result = cls.mapping["model_config_mapping"].get(name, None)
+        if result is None:
+            raise ValueError(f"Can not find name: {name} in model config mapping, \
+supported model configs are listed below:{cls.list_model_configs()}")
+        else:
+            return result
     
     @classmethod
     def get_train_model_class(cls, name):
-        return cls.mapping["train_model_mapping"].get(name, None)
+        result = cls.mapping["train_model_mapping"].get(name, None)
+        if result is None:
+            raise ValueError(f"Can not find name: {name} in train model mapping, \
+supported train models are listed below:{cls.list_train_models()}")
+        else:
+            return result
     
     @classmethod
     def get_tokenizer_class(cls, name):
-        return cls.mapping["tokenizer_mapping"].get(name, None)
+        result =  cls.mapping["tokenizer_mapping"].get(name, None)
+        if result is None:
+            raise ValueError(f"Can not find name:{name} in tokenizer mapping, \
+supported tokenizer are listed below:{cls.list_tokenizers()}")
+        else:
+            return result
     
     @classmethod
     def get_path(cls, name):
@@ -160,6 +185,10 @@ class Regitry:
     @classmethod
     def list_models(cls):
         return sorted(cls.mapping["model_mapping"].keys())
+    
+    @classmethod
+    def list_pipeline_models(cls):
+        return sorted(cls.mapping["pipeline_model_mapping"].keys())
 
     @classmethod
     def list_model_configs(cls):
@@ -182,7 +211,7 @@ class Regitry:
         return sorted(cls.mapping["info_manager_mapping"].keys())
     
     @classmethod
-    def list_info_tokenizers(cls):
+    def list_tokenizers(cls):
         return sorted(cls.mapping["tokenizer_mapping"].keys())
 
     @classmethod
