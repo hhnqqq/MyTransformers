@@ -1,12 +1,11 @@
 import math
 import deepspeed
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
 import common.utils.parallel_states as parallel_states
 
 from model import *
-from gemma.config import *
 from train.trainer import Trainer
 from common.registry import registry
 from common.lora import switch_to_lora
@@ -34,7 +33,7 @@ config_type = '_'.join([args.model_name, args.variant])
 model_config = registry.get_model_config_class(config_type)()
 print_rank_0(f'--->using model config: {config_type}', args.global_rank)
 model_config.vocab_size = tokenizer.n_words
-model = registry.get_model_class(args.model_name)(model_config)
+model = registry.get_model_class(args.model_name)(model_config, is_train=True)
 print_rank_0(f'--->using model: {args.model_name} and loading its dp train variant', args.global_rank)
 train_model = registry.get_train_model_class(args.model_name)
 if args.ckpt_path is not None:
@@ -49,7 +48,7 @@ model = train_model(model=model, args=args, pad_id=tokenizer.pad_id)
 
 if args.use_lora or args.use_lora_plus:
     if args.replace_modules is None:
-        args.replace_modules = ['qkv_proj']
+        args.replace_modules = model_config.lora_layers
     switch_to_lora(model, args.replace_modules, rank=4)
     if args.lora_fa:
         enable_trainable_params(model, ['weight_b'])
@@ -77,7 +76,9 @@ train_dataset = LongRopeDataset(args.dataset_path,
 ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)
 
-if args.local_rank == -1 or args.num_sp_stages is not None:
+if args.num_sp_stages is not None:
+    train_sampler = SequentialSampler(train_dataset)
+elif args.local_rank == -1 :
     train_sampler = RandomSampler(train_dataset)
 else:
     train_sampler = DistributedSampler(train_dataset)

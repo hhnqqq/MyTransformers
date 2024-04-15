@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import pytz
 import torch
 import random
 import logging
@@ -141,6 +142,7 @@ def configure_logging(log_path):
     sh.setLevel(sh_level)
     logger.addHandler(sh)
 
+    timezone = pytz.timezone('Asia/Shanghai')
     date_string, hour_string = datetime.now().strftime('%y-%m-%d'), datetime.now().strftime('%H-%M')+'.log'
     log_path = os.path.join(log_path, date_string)
     ensure_directory_exists(log_path)

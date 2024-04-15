@@ -150,7 +150,7 @@ class Regitry:
             if not os.path.isfile(v):
                 paths_mapping[k] = None
         tokenizer_name = "tokenizer_" + args.model_name
-        model_name = "model_"  + args.model_name
+        model_name = "model_"  + '_'.join([args.model_name, args.variant])
         dataset_name = "dataset_" + args.dataset_name
         args.tokenizer_path = args.tokenizer_path if args.tokenizer_path else paths_mapping.get(tokenizer_name, None)
         args.dataset_path = args.dataset_path if args.dataset_path else paths_mapping.get(dataset_name, None)

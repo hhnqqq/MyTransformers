@@ -23,11 +23,9 @@ options="$base_options \
     --lr 1e-5 \
     --warmup-min-lr 1e-6 \
     --warmup-max-lr 2e-5 \
-    --lora-rank 128 \
     --activation-checkpoint \
     --atten-type flash_atten \
     --tensorboard \
-    --use-lora-plus \
     --diy-optimizer \
     "
 

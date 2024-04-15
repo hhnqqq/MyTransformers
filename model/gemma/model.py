@@ -450,6 +450,7 @@ class GemmaForCausalLM(nn.Module):
     def __init__(
         self,
         config: gemma_config.GemmaConfig,
+        is_train: bool = False
     ):
         super().__init__()
         self.config = config
@@ -461,7 +462,6 @@ class GemmaForCausalLM(nn.Module):
 
         # self.tokenizer = BaseTokenizer(config.tokenizer)
         self.embedder = Embedding(vocab_size, config.hidden_size, config.quant)
-        nn.init.xavier_uniform_(self.embedder.weight)
         self.model = GemmaModel(config)
         self.sampler = Sampler(vocab_size)
 

@@ -246,9 +246,8 @@ if __name__ == '__main__':
         if isinstance(module, LinearWithLoRA):
             module.merge_and_reset()
             print(module.in_features, module.out_features, module.weight.shape)
-    switch_to_lora(model, ['norm'], transposition=True) # result in a assert error 
+    # switch_to_lora(model, ['norm'], transposition=True) # result in a assert error 
 
-    import torch.optim as optim
     # backward test
     class TestModel(nn.Module):
         def __init__(self, in_features, out_features, lora_rank, lora_scaler, use_dora, quant, plora_steps):
@@ -264,7 +263,7 @@ if __name__ == '__main__':
         out_features = 64
         lora_rank = 4
         lora_scaler = 32.0
-        use_dora = False
+        use_dora = True
         quant = False
         plora_steps = None
 

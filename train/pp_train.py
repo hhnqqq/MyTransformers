@@ -89,7 +89,7 @@ if args.epochs is not None:
     args.num_update_steps = args.epochs * (math.ceil(len(train_dataloader) / (args.gradient_accumulation_steps)))
 else:
     args.num_update_steps = args.train_iters/args.gradient_accumulation_steps
-args.num_warmup_steps = int(args.num_update_steps * args.warmup)
+args.num_warmup_steps = int(args.num_update_steps * args.warmup) + 1
 ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = args.num_warmup_steps
 print_rank_0("--->TRAIN DATALOADER LENGTH: len(train_dataloader) = {}".format(len(train_dataloader)), args.global_rank)
 print_rank_0("--->TRAIN DATASET LENGTH: = {}".format(len(train_dataset)), args.global_rank)
