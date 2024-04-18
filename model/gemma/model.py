@@ -460,7 +460,7 @@ class GemmaForCausalLM(nn.Module):
         head_dim = config.head_dim
         vocab_size = config.vocab_size
 
-        # self.tokenizer = BaseTokenizer(config.tokenizer)
+        self.tokenizer = BaseTokenizer(config.tokenizer)
         self.embedder = Embedding(vocab_size, config.hidden_size, config.quant)
         self.model = GemmaModel(config)
         self.sampler = Sampler(vocab_size)
@@ -632,7 +632,7 @@ class GemmaForCausalLM(nn.Module):
                 )['model_state_dict']
             self.load_state_dict(
                 state_dict,
-                strict=False,
+                strict=True,
             )
         except:
             state_dict = torch.load(
@@ -640,7 +640,7 @@ class GemmaForCausalLM(nn.Module):
                 )
             self.load_state_dict(
                 state_dict,
-                strict=False,
+                strict=True,
             )    
 
 if __name__ == '__main__':

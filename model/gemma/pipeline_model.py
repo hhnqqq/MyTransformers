@@ -48,9 +48,16 @@ class DecoderPipelineLayer(nn.Module):
         hidden_states, freqs_cis, attention_mask, labels = inputs
         # [batch_size, input_len, hidden_dim]
         if self.args.activation_checkpoint:
-            hidden_states = checkpoint(self.layer, hidden_states, freqs_cis, attention_mask, self.args.atten_type)
+            hidden_states = checkpoint(self.layer, 
+                                       hidden_states, 
+                                       freqs_cis, 
+                                       attention_mask, 
+                                       self.args.atten_type)
         else:
-            hidden_states = self.layer(hidden_states, freqs_cis, attention_mask, self.args.atten_type)
+            hidden_states = self.layer(hidden_states, 
+                                       freqs_cis, 
+                                       attention_mask, 
+                                       self.args.atten_type)
         return hidden_states, freqs_cis, attention_mask, labels
     
 class FNormPipelineLayer(torch.nn.Module):
@@ -64,18 +71,6 @@ class FNormPipelineLayer(torch.nn.Module):
         # [batch_size, input_len, hidden_dim]
         logits = self.final_norm(hidden_states)
         logits = torch.matmul(logits, self.emb_weight.to(hidden_states.device).to(hidden_states.dtype))
-        return logits, labels
-    
-class SamplerPipelineLayer(torch.nn.Module):
-    def __init__(self, model: GemmaForCausalLM):
-        super().__init__()
-        self.embedder = model.embedder
-        self.weight = self.embedder.weight
-
-    def forward(self, inputs):
-        hidden_states, labels = inputs
-        # [batch_size, input_len, vocab_size]
-        logits = torch.matmul(hidden_states, self.weight.t().to(hidden_states.device).to(hidden_states.dtype))
         return logits, labels
 
 class LossPipelineLayer(torch.nn.Module):

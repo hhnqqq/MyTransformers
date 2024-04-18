@@ -93,3 +93,31 @@ class AnnealingLR(_LRScheduler):
                 'decay_ratio': self.decay_ratio
         }
         return sd
+
+if __name__ == '__main__':
+    import torchvision
+    import torch.optim as optim
+    from common.utils import print_rank_0
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Define a simple model for demonstration
+    model = torchvision.models.resnet18().to(device)
+    optimizer = optim.SGD(model.parameters(), lr=0.1)
+
+    # Create an instance of AnnealingLR scheduler
+    decay_style = 'cosine'
+    lr_scheduler = AnnealingLR(optimizer=optimizer, start_lr=0.1, warmup_iter=1000, num_iters=5000,
+                            decay_style=decay_style)
+
+    # Train the model with lr_scheduler
+    for epoch in range(10):
+        print_rank_0(f"Epoch: {epoch}")
+        for i in range(500):
+            optimizer.zero_grad()
+            output = model(torch.randn(4, 3, 224, 224).to(device))
+            loss = output.sum()
+            loss.backward()
+            optimizer.step()
+            lr_scheduler.step()
+            if i % 100 == 0:
+                print_rank_0(f"Iteration: {i}, LR: {optimizer.param_groups[0]['lr']}")

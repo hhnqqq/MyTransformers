@@ -1,6 +1,7 @@
 import re
 import itertools
 import os
+import numpy as np
 from typing import List, Optional
 from common.registry import registry
 
@@ -59,6 +60,7 @@ class DNATokenizer():
         self.k = k
         self.dna_vocab = self.build_dna_vocab()
         self.dna_vocab_size = len(self.dna_vocab)
+        self.dna_vocab_dict = {kmer: i for i, kmer in enumerate(self.dna_vocab)}
     
     def build_dna_vocab(self) -> List[str]:
         """
@@ -68,20 +70,23 @@ class DNATokenizer():
         dna_vocab = [''.join(x) for x in itertools.product('ACGT', repeat=self.k)]
         return dna_vocab
 
-    def encode_dna(self, dna_seq: str) -> List[int]:
+    def encode_dna(self, dna_seq: str, n_words: int, overlap: bool = True) -> List[int]:
         """
         Encode a DNA sequence into a list of k-mer IDs.
         """
-        dna_tokens = []
         dna_ids = []
-        for i in range(len(dna_seq) - self.k + 1):
+        if overlap:
+            kmer_range = range(len(dna_seq) - self.k + 1)
+        else:
+            kmer_range = range(0, len(dna_seq), self.k)
+
+        for i in kmer_range:
             kmer = dna_seq[i:i + self.k]
             if kmer in self.dna_vocab:
-                dna_tokens.append(kmer)
-                dna_ids.append(self.dna_vocab.index(kmer) + (self.base_tokenizer.n_words-1))
+                dna_ids.append(self.dna_vocab_dict[kmer] + (n_words))
             else:
-                dna_ids.append(self.dna_vocab_size + (self.base_tokenizer.n_words-1))  # Unknown token ID
-        return dna_ids, dna_tokens
+                dna_ids.append(self.dna_vocab_dict[kmer] + (n_words))  # Unknown token ID
+        return dna_ids
 
     def decode_dna(self, dna_ids: List[int]) -> str:
         """
@@ -96,30 +101,27 @@ class DNATokenizer():
         return ''.join(dna_seq)
 
 @registry.register_tokenizer("gemma_dna")
-class GemmaDNATokenizer(DNATokenizer):
-    def __init__(self, model_path: str, k: int = 4):
-        super().__init__(k)
-        self.base_tokenizer = BaseTokenizer(model_path)
+class GemmaDNATokenizer(DNATokenizer, BaseTokenizer):
+    def __init__(self, model_path: str, k: int = 6):
+        DNATokenizer.__init__(self, k)
+        BaseTokenizer.__init__(self, model_path)
+        self.new_vocab_size = self.n_words + self.dna_vocab_size
     
-    def encode(self, s: str, bos: bool, eos: bool) -> List[int]:
+    def encode(self, s: str, bos: bool=True, eos: bool=False) -> List[int]:
         if '<dna>' in s and '</dna>' in s:
             result_ids = []
-            tokens = []
             pattern = r'<dna>([ACTG]*?)</dna>'
             split_groups = re.split(pattern, s)
-            print(split_groups)
             for sub_str in split_groups:
                 if re.match(r'[ACTG]+', sub_str):
-                    result_ids += self.encode_dna(sub_str)[0]
-                    tokens += self.encode_dna(sub_str)[1]
+                    result_ids += self.encode_dna(sub_str, self.n_words)
                 else:
-                    result_ids += self.base_tokenizer.sp_model.encode(sub_str ) 
-                    tokens += self.base_tokenizer.tokenize(sub_str)
+                    result_ids += self.sp_model.encode(sub_str) 
             if bos:
                 result_ids = [self.bos_id] + result_ids
             if eos:
                 result_ids = result_ids + [self.eos_id]
-            return result_ids, tokens
+            return result_ids
         else:
-            return self.base_tokenizer.encode(s, bos, eos), self.tokenize(s)
+            return super().encode(s, bos, eos)
         
