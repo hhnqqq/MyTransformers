@@ -136,10 +136,12 @@ if __name__ == '__main__':
     trainer = Trainer(args, writer)
     try:
         trainer.train(model=model, 
-                      data_loader=train_dataloader, 
+                      train_data_loader=train_dataloader, 
+                      eval_data_loader=None
                       optimizer=None, 
                       forward_step=forward_step, 
                       backward_step=backward_step, 
+                      eval_step=None
                       log_loss=True)
     except:
         # When any error occur during the training process, log the error

@@ -11,7 +11,7 @@ from common.lora import *
 from common.dataset import LongRopeDataset
 from common.optimizer import get_optimizer
 from common.parser import base_parser, train_parser, ds_parser
-from common.utils import print_rank_0, read_config, set_random_seed, init_dist
+from common.utils import print_rank_0, read_config, set_random_seed, init_dist, load_ckpt
 from common.utils.params_manager import (
     refresh_config, 
     print_trainable_module_names, 
@@ -44,8 +44,9 @@ model = registry.get_model_class(args.model_name)(model_config, is_train=True)
 print_rank_0(f'--->using model: {args.model_name}, and loading its pipeline variant', args.global_rank)
 model_pipe_cls = registry.get_pipeline_model_class(args.model_name)
 
-if args.ckpt_path is not None:
+if args.ckpt_path is not None and args.from_pretrained:
     model.load_weights(args.ckpt_path)
+resize_embedding(model, getattr(tokenizer, "dna_vocab_size", 0))
 args.head_dim = model_config.head_dim
 args.head_num = model_config.num_attention_heads
 args.hidden_size = model_config.hidden_size
@@ -56,7 +57,7 @@ model_pipe = model_pipe_cls(model, args)
 if args.use_lora or args.use_lora_plus:
     if args.replace_modules is None:
         args.replace_modules = model_config.lora_layers
-    switch_to_lora(model_pipe, args.replace_modules, rank=4)
+    switch_to_lora(model_pipe, args.replace_modules, rank=args.lora_rank)
     if args.lora_fa:
         enable_trainable_params(model_pipe, ['weight_b'])
     else:
@@ -78,13 +79,23 @@ train_dataset = LongRopeDataset(args.dataset_path,
                                 args.max_src_len, 
                                 args.mode, 
                                 args.read_nums,
-                                args.global_rank)
+                                args.global_rank,
+                                meta_prompt='以下是一条dna序列：',
+                                prefix='<dna>',
+                                postfix='</dna>')
 
 ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)
 
 g = torch.Generator()
 train_dataloader = DataLoader(train_dataset,
+                            collate_fn=data_collator,
+                            shuffle=True,
+                            drop_last=True,
+                            batch_size=args.batch_size_per_gpu,
+                            generator=g)
+
+eval_dataloader = DataLoader(eval_dataset,
                             collate_fn=data_collator,
                             shuffle=True,
                             drop_last=True,
@@ -106,6 +117,7 @@ print_rank_0("--->NUMBER OF WARMUP STEPS: args.num_warmup_steps = {}".format(arg
 # start tranning
 
 train_dataloader = iter(deepspeed.utils.RepeatingLoader(train_dataloader))
+eval_dataloader = iter(deepspeed.utils.RepeatingLoader(train_dataloader))
 optimizer, lr_scheduler = get_optimizer(ds_config, args, model=model_pipe)
 engine, optimizer, _, _ = deepspeed.initialize(model=model_pipe, 
                                                optimizer=optimizer, 
@@ -127,11 +139,17 @@ if __name__ == '__main__':
 
     def forward_step(model, data_loader, args, step):
         return model.train_batch(data_loader), []
+    
+    def eval_step(model, data_loader, args, step):
+        return model.eval_batch(data_loader).item()
+
+    
     trainer = Trainer(args, writer)
     args.gradient_accumulation_steps=1 # For correctly print info
     try:
         trainer.train(model=engine, 
-                      data_loader=train_dataloader, 
+                      train_data_loader=train_dataloader, 
+                      eval_data_loader=eval_dataloader
                       optimizer=None, 
                       forward_step=forward_step, 
                       backward_step=None, 
