@@ -27,7 +27,7 @@ def train_parser(parser):
                        help='Run the model in fp16 mode')
     group.add_argument('--bf16', action='store_true', 
                        help='Run the model in bf16 mode')
-    group.add_argument('--variant', type=str, default='2b', choices=['test', '2b', '7b'], 
+    group.add_argument('--variant', type=str, default='2b', choices=['test', '2b', '7b', '13b', '65b'], 
                        help='The variant of the model.')
     group.add_argument('--save-interval', type=int, default=5000, 
                        help='Number of iterations between saves')
@@ -37,6 +37,7 @@ def train_parser(parser):
                        help='The device to load the model')
     group.add_argument('--mode', type=str, default='pretrain', 
                        help='The training mode, currently this argument only change the behavior of dataset')
+    group.add_argument('--from-pretrained', action='store_false')
     
     # --------------------- optimizer -----------------------
     group.add_argument('--diy-optimizer', action='store_true', 
@@ -118,6 +119,7 @@ def train_parser(parser):
     group.add_argument('--seed', type=int, default=None,
                        help='Random seed')
     group.add_argument('--show-loss-step', type=int, default=1)
+    group.add_argument('--show-avg-loss-step', type=int, default=10)
     group.add_argument('--rope-theta', default=10000.0,
                        help='Rope theta')
     group.add_argument('--train-pi', type=int, default=None,
