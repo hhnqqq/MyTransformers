@@ -11,6 +11,7 @@ class Regitry:
         "paths_mapping":{}
     }
 
+    @classmethod
     def register_path(cls, name, path):
         if name in cls.mapping['paths_mapping']:
             raise KeyError(
@@ -20,6 +21,20 @@ class Regitry:
             )
         cls.mapping['paths_mapping'][name] = path
 
+
+    @classmethod
+    def register_dataset(cls, name):
+
+        def warp(dataset_cls):
+            if name in cls.mapping['dataset_mapping']；
+                raise KeyError(
+                    "Name '{}' already registered for {}.".format(
+                        name, cls.mapping["dataset_mapping"][name]
+                    )
+                )            
+            cls.mapping['dataset_mapping'][name] = dataset_cls
+            return func
+        return wrap
 
     @classmethod
     def register_info_manager(cls, name):
@@ -160,6 +175,15 @@ supported train models are listed below:{cls.list_train_models()}")
         if result is None:
             raise ValueError(f"Can not find name:{name} in tokenizer mapping, \
 supported tokenizer are listed below:{cls.list_tokenizers()}")
+        else:
+            return result
+
+    @classmethod
+    def get_dataset_class(cls, name):
+        result =  cls.mapping["dataset_mapping"].get(name, None)
+        if result is None:
+            raise ValueError(f"Can not find name:{name} in dataset mapping, \
+supported dataset are listed below:{cls.list_datasets()}")
         else:
             return result
     

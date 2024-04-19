@@ -5,10 +5,12 @@ import torch
 from tqdm import tqdm
 from typing import Union
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, IterableDataset
 from model.tokenizer import BaseTokenizer
 from common.utils import print_rank_0
+from common.registry import registry
 
+@registry.register_dataset("normal")
 class LongRopeDataset(Dataset):
     """
     A custom PyTorch Dataset class for loading and preprocessing long-text data.
@@ -132,9 +134,27 @@ class LongRopeDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.all_data[idx]
-        
+    
+@registry.register_dataset('iterable')
+class IterableDataset(IterableDataset):
+    def __init__(self):
+        pass
+    def __getitem__(self):
+        pass
+    def __len__(self):
+        pass
+
+@registry.register_dataset('base')
+class BaseDataSet(Dataset):
+    def __init__(self):
+        pass
+    def __getitem__(self):
+        pass
+    def __len__(self):
+        pass
+
 if __name__ == '__main__':
     # Test example.
     z = LongRopeDataset('/home/modelfun/zhaokangkang/mini_LLama/gemma-data/LongQLoRA-SFT-Data-2k.jsonl', 
-                        Tokenizer('/home/modelfun/zhaokangkang/mini_LLama/gemma/tokenizer.model'), 1500, 256, 'pretrain',1000,1)
+                        BaseTokenizer('/home/modelfun/zhaokangkang/mini_LLama/gemma/tokenizer.model'), 1500, 256, 'pretrain',1000,1)
     print(z[0])
