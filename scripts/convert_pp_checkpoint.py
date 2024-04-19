@@ -1,7 +1,7 @@
 import torch
+import argparse
 from pathlib import Path
 from os.path import join
-import argparse
 
 from model import *
 from common.registry import registry
@@ -17,14 +17,25 @@ def convert_model_to_hf(args):
             continue
         small_static_dict = torch.load(path, map_location="cpu")
         layer_i = int(path.name.split('-')[0].replace('layer_', ''))
-        if layer_i == 0:
-            model_static_dict["embedder.weight"] = small_static_dict["embedder.weight"]
-        elif layer_i == n_layers -1 :
-            for k, v in small_static_dict.items():
-                model_static_dict["model.norm.weight"] = v
-        else:
-            for k, v in small_static_dict.items():
-                model_static_dict["model." + k.replace("layer.", "layers.{}.".format(layer_i - 1))] = v
+        if args.model_name == 'gemma':
+            if layer_i == 0:
+                model_static_dict["embedder.weight"] = small_static_dict["embedder.weight"]
+            elif layer_i == n_layers -1 :
+                for k, v in small_static_dict.items():
+                    model_static_dict["model.norm.weight"] = v
+            else:
+                for k, v in small_static_dict.items():
+                    model_static_dict["model." + k.replace("layer.", "layers.{}.".format(layer_i - 1))] = v
+        elif args.model_name == 'llama':
+            if layer_i == 0:
+                model_static_dict["model.tok_embeddings.weight"] = small_static_dict["embedder.weight"]
+            elif layer_i == n_layers -1 :
+                model_static_dict["model.norm.weight"] = small_static_dict["norm.weight"]
+                model_static_dict["model.output.weight"] = small_static_dict["o_proj.weight"]
+            else:
+                for k, v in small_static_dict.items():
+                    model_static_dict["model." + k.replace("layer.", "layers.{}.".format(layer_i - 1))] = v
+
 
     torch.save(model_static_dict, join(args.save_model_dir, "pytorch_model.bin"))
 
