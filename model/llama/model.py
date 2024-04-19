@@ -1,11 +1,14 @@
 import math
-from dataclasses import dataclass
-from typing import Optional, Tuple, Union
 import torch
 import torch.nn.functional as F
+
 from torch import nn
-from model.attention import attention_func
+from dataclasses import dataclass
+from typing import Optional, Tuple, Union, Any
+
 from model.llama.config import *
+from model.attention import attention_func
+from model.tokenizer import BaseTokenizer
 
 
 class RMSNorm(torch.nn.Module):
@@ -110,7 +113,7 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
 
 class Attention(nn.Module):
     """Multi-head attention module."""
-    def __init__(self, args: ModelArgs, is_train:bool=False):
+    def __init__(self, args: ModelArgs):
         """
         Initialize the Attention module.
 
@@ -123,13 +126,10 @@ class Attention(nn.Module):
             n_local_kv_heads (int): Number of local key and value heads.
             n_rep (int): Number of repetitions for local heads.
             head_dim (int): Dimension size of each attention head.
-            wq (ColumnParallelLinear): Linear transformation for queries.
-            wk (ColumnParallelLinear): Linear transformation for keys.
-            wv (ColumnParallelLinear): Linear transformation for values.
-            wo (RowParallelLinear): Linear transformation for output.
-            cache_k (torch.Tensor): Cached keys for attention.
-            cache_v (torch.Tensor): Cached values for attention.
-
+            wq (Linear): Linear transformation for queries.
+            wk (Linear): Linear transformation for keys.
+            wv (Linear): Linear transformation for values.
+            wo (Linear): Linear transformation for output.
         """
         super().__init__()
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
@@ -137,7 +137,6 @@ class Attention(nn.Module):
         self.n_local_kv_heads = self.n_kv_heads 
         self.n_rep = self.n_local_heads // self.n_local_kv_heads
         self.head_dim = args.dim // args.n_heads
-        self.is_train = is_train
 
         self.wq = nn.Linear(
             args.dim,
@@ -160,23 +159,6 @@ class Attention(nn.Module):
             bias=False,
         )
 
-        if not is_train:
-            self.cache_k = torch.zeros(
-                (
-                    args.max_batch_size,
-                    args.max_seq_len,
-                    self.n_local_kv_heads,
-                    self.head_dim,
-                )
-            ).cuda()
-            self.cache_v = torch.zeros(
-                (
-                    args.max_batch_size,
-                    args.max_seq_len,
-                    self.n_local_kv_heads,
-                    self.head_dim,
-                )
-            ).cuda()
 
     def forward(
         self,
@@ -184,7 +166,8 @@ class Attention(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
-        atten_type: str = ''
+        atten_type: str = '',
+        cache_kv = None
     ):
         """
         Forward pass of the attention module.
@@ -194,6 +177,8 @@ class Attention(nn.Module):
             start_pos (int): Starting position for caching.
             freqs_cis (torch.Tensor): Precomputed frequency tensor.
             mask (torch.Tensor, optional): Attention mask tensor.
+            atten_type (str): type of attention function
+            cache_kv (torch.Tensor): cached kv values
 
         Returns:
             torch.Tensor: Output tensor after attention.
@@ -208,15 +193,16 @@ class Attention(nn.Module):
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
-        if not self.is_train:
-            self.cache_k = self.cache_k.to(xq)
-            self.cache_v = self.cache_v.to(xq)
+        if cache_kv is not None:
+            cache_k, cache_v = cache_kv
+            cache_k = self.cache_k.to(xq)
+            cache_v = self.cache_v.to(xq)
 
-            self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
-            self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
+            cache_k.index_copy_(1, start_pos, xk)
+            cache_v.index_copy_(1, start_pos, xv)
 
-            keys = self.cache_k[:bsz, : start_pos + seqlen]
-            values = self.cache_v[:bsz, : start_pos + seqlen]
+            keys = cache_k
+            values = cache_v
         else:
             keys = xk
             values = xv
@@ -258,9 +244,9 @@ class FeedForward(nn.Module):
             ffn_dim_multiplier (float, optional): Custom multiplier for hidden dimension. Defaults to None.
 
         Attributes:
-            w1 (ColumnParallelLinear): Linear transformation for the first layer.
-            w2 (RowParallelLinear): Linear transformation for the second layer.
-            w3 (ColumnParallelLinear): Linear transformation for the third layer.
+            w1 (Linear): Linear transformation for the first layer.
+            w2 (Linear): Linear transformation for the second layer.
+            w3 (Linear): Linear transformation for the third layer.
 
         """
         super().__init__()
@@ -284,7 +270,7 @@ class FeedForward(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, layer_id: int, args: ModelArgs, is_train:bool=False):
+    def __init__(self, layer_id: int, args: ModelArgs):
         """
         Initialize a TransformerBlock.
 
@@ -307,7 +293,7 @@ class TransformerBlock(nn.Module):
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = Attention(args, is_train)
+        self.attention = Attention(args)
         self.feed_forward = FeedForward(
             dim=args.dim,
             hidden_dim=4 * args.dim,
@@ -324,7 +310,8 @@ class TransformerBlock(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
-        atten_type: str = ''
+        atten_type: str = '',
+        cache_kv = None
     ):
         """
         Perform a forward pass through the TransformerBlock.
@@ -340,15 +327,19 @@ class TransformerBlock(nn.Module):
 
         """
         h = x + self.attention(
-            self.attention_norm(x), start_pos, freqs_cis, mask, atten_type
+                self.attention_norm(x), 
+                start_pos, 
+                freqs_cis, 
+                mask, 
+                atten_type, 
+                cache_kv
         )
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
 
 
-@registry.register_model("llama")
 class Transformer(nn.Module):
-    def __init__(self, params: ModelArgs, is_train:bool=False):
+    def __init__(self, params: ModelArgs):
         """
         Initialize a Transformer model.
 
@@ -362,8 +353,7 @@ class Transformer(nn.Module):
             tok_embeddings (ParallelEmbedding): Token embeddings.
             layers (torch.nn.ModuleList): List of Transformer blocks.
             norm (RMSNorm): Layer normalization for the model output.
-            output (ColumnParallelLinear): Linear layer for final output.
-            freqs_cis (torch.Tensor): Precomputed cosine and sine frequencies.
+            output (lLinear): Linear layer for final output.
 
         """
         super().__init__()
@@ -371,27 +361,26 @@ class Transformer(nn.Module):
         self.vocab_size = params.vocab_size
         self.n_layers = params.n_layers
 
+        # can move this to llama attrs, but need to transfrom the pretrained ckpt
         self.tok_embeddings = nn.Embedding(
             params.vocab_size, params.dim
         )
 
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
-            self.layers.append(TransformerBlock(layer_id, params, is_train))
+            self.layers.append(TransformerBlock(layer_id, params))
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
         self.output = nn.Linear(
             params.dim, params.vocab_size, bias=False
         )
 
-        # self.freqs_cis = precompute_freqs_cis(
-        #     # Note that self.params.max_seq_len is multiplied by 2 because the token limit for the Llama 2 generation of models is 4096. 
-        #     # Adding this multiplier instead of using 4096 directly allows for dynamism of token lengths while training or fine-tuning.
-        #     self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
-        # )
-
     @torch.inference_mode()
-    def forward(self, tokens: torch.Tensor, start_pos: int):
+    def forward(self, 
+                tokens: torch.Tensor, 
+                start_pos: int,
+                freqs_cis: torch.Tensor, 
+                cache_kv=None):
         """
         Perform a forward pass through the Transformer model.
 
@@ -405,8 +394,8 @@ class Transformer(nn.Module):
         """
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
-        self.freqs_cis = self.freqs_cis.to(h.device)
-        freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
+        freqs_cis = freqs_cis.to(h.device)
+        freqs_cis = freqs_cis[start_pos : start_pos + seqlen]
 
         mask = None
         if seqlen > 1:
@@ -416,27 +405,146 @@ class Transformer(nn.Module):
 
             mask = torch.triu(mask, diagonal=1)
 
-            # When performing key-value caching, we compute the attention scores
-            # only for the new sequence. Thus, the matrix of scores is of size
-            # (seqlen, cache_len + seqlen), and the only masked entries are (i, j) for
-            # j > cache_len + i, since row i corresponds to token cache_len + i.
             mask = torch.hstack([
                 torch.zeros((seqlen, start_pos), device=tokens.device),
                 mask
             ]).type_as(h)
 
         for layer in self.layers:
-            h = layer(h, start_pos, freqs_cis, mask)
+            h = layer(h, start_pos, freqs_cis, mask, cache_kv)
         h = self.norm(h)
         output = self.output(h).float()
         return output
+    
+@registry.register_model("llama")
+class Llama(nn.Module):
+    def __init__(self, model_args: ModelArgs):
+        super().__init__()
+        self.tokenizer = BaseTokenizer(model_path=model_args.tokenizer)
+        model_args.vocab_size = self.tokenizer.n_words
+        self.model = Transformer(model_args)
+        # remove freqs_cis from transformer attrs
+        self.freqs_cis = precompute_freqs_cis(
+            self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
+        )
 
+    @torch.inference_mode()
+    def generate(
+        self,
+        prompt_tokens: List[List[int]],
+        device,
+        output_len: int,
+        temperature: float = 0.6,
+        top_p: float = 0.9,
+        logprobs: bool = False,
+        echo: bool = False,
+    ) -> Tuple[List[List[int]], Optional[List[List[float]]]]:
+        
+        params = self.model.params
+        bsz = len(prompt_tokens)
+
+        min_prompt_len = min(len(t) for t in prompt_tokens)
+        max_prompt_len = max(len(t) for t in prompt_tokens)
+        total_len = output_len + max_prompt_len
+
+        pad_id = self.tokenizer.pad_id
+        tokens = torch.full((bsz, total_len), pad_id, dtype=torch.long, device=device)
+        for k, t in enumerate(prompt_tokens):
+            tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long, device=device)
+        if logprobs:
+            token_logprobs = torch.zeros_like(tokens, dtype=torch.float)
+
+        prev_pos = 0
+        eos_reached = torch.tensor([False] * bsz, device=device)
+        input_text_mask = tokens != pad_id
+
+        # remove kv cache from attention attrs, for unified API
+        cache_kv = []
+        for _ in range(self.config.num_hidden_layers):
+            size = (bsz, params.max_seq_len, self.config.num_key_value_heads,
+                    self.config.head_dim)
+            dtype = self.config.get_dtype()
+            cache_k = torch.zeros(size=size, dtype=dtype, device=device)
+            cache_v = torch.zeros(size=size, dtype=dtype, device=device)
+            cache_kv.append((cache_k, cache_v))
+
+        if min_prompt_len == total_len:
+            logits = self.model.forward(tokens, 
+                                        prev_pos, 
+                                        freqs_cis=self.freqs_cis,
+                                        cache_kv=cache_kv)
+            token_logprobs = -F.cross_entropy(
+                input=logits.transpose(1, 2),
+                target=tokens,
+                reduction="none",
+                ignore_index=pad_id,
+            )
+
+        for cur_pos in range(min_prompt_len, total_len):
+            logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+            if temperature > 0:
+                probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
+                next_token = self.sample_top_p(probs, top_p)
+            else:
+                next_token = torch.argmax(logits[:, -1], dim=-1)
+
+            next_token = next_token.reshape(-1)
+            # only replace token if prompt has already been generated
+            next_token = torch.where(
+                input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token
+            )
+            tokens[:, cur_pos] = next_token
+            if logprobs:
+                token_logprobs[:, prev_pos + 1 : cur_pos + 1] = -F.cross_entropy(
+                    input=logits.transpose(1, 2),
+                    target=tokens[:, prev_pos + 1 : cur_pos + 1],
+                    reduction="none",
+                    ignore_index=pad_id,
+                )
+            eos_reached |= (~input_text_mask[:, cur_pos]) & (
+                next_token == self.tokenizer.eos_id
+            )
+            prev_pos = cur_pos
+            if all(eos_reached):
+                break
+
+        if logprobs:
+            token_logprobs = token_logprobs.tolist()
+        out_words, out_tokens, out_logprobs = [], [], []
+        for i, toks in enumerate(tokens.tolist()):
+            # cut to max gen len
+            start = 0 if echo else len(prompt_tokens[i])
+            toks = toks[start : len(prompt_tokens[i]) + output_len]
+            probs = None
+            if logprobs:
+                probs = token_logprobs[i][start : len(prompt_tokens[i]) + output_len]
+            # cut to eos tok if any
+            if self.tokenizer.eos_id in toks:
+                eos_idx = toks.index(self.tokenizer.eos_id)
+                toks = toks[:eos_idx]
+                probs = probs[:eos_idx] if logprobs else None
+            out_tokens.append(toks)
+            out_logprobs.append(probs)
+            out_words.append(self.tokenizer.decode(toks))
+        return (out_words, out_tokens, out_logprobs if logprobs else None)
+
+
+    def sample_top_p(self, probs, p):
+        probs_sort, probs_idx = torch.sort(probs, dim=-1, descending=True)
+        probs_sum = torch.cumsum(probs_sort, dim=-1)
+        mask = probs_sum - probs_sort > p
+        probs_sort[mask] = 0.0
+        probs_sort.div_(probs_sort.sum(dim=-1, keepdim=True))
+        next_token = torch.multinomial(probs_sort, num_samples=1)
+        next_token = torch.gather(probs_idx, -1, next_token)
+        return next_token
+    
     def load_weights(self, model_path: str):
         try:
             state_dict = torch.load(
                     model_path
                 )['model_state_dict']
-            self.load_state_dict(
+            self.model.load_state_dict(
                 state_dict,
                 strict=False,
             )
@@ -444,7 +552,7 @@ class Transformer(nn.Module):
             state_dict = torch.load(
                     model_path
                 )
-            self.load_state_dict(
+            self.model.load_state_dict(
                 state_dict,
                 strict=False,
             )    

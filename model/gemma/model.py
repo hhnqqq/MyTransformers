@@ -21,10 +21,11 @@ from typing import Any, List, Optional, Sequence, Tuple, Union
 from transformers.utils.versions import require_version
 from deepspeed.sequence.layer import DistributedAttention
 
-from model.gemma import config as gemma_config
-from model import BaseTokenizer
 import common.utils.parallel_states as parallel_states
+
+from model import BaseTokenizer
 from common.registry import registry
+from model.gemma import config as gemma_config
 
 
 class Sampler(nn.Module):
