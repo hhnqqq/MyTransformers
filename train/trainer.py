@@ -135,15 +135,24 @@ if __name__ == '__main__':
 
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
     fake_dataset = datasets.FakeData(size=100, num_classes=3, transform=transforms.ToTensor())
-    data_loader = DataLoader(fake_dataset, batch_size=10, shuffle=True)
-    
+    test_dataset = datasets.FakeData(size=200, num_classes=3, transform=transforms.ToTensor())
+    data_loader = iter(DataLoader(fake_dataset, batch_size=10, shuffle=True))
+    test_data_loader = iter(DataLoader(test_dataset, batch_size=10, shuffle=True))
+
     # Define forward and backward step functions
     def forward_step(model, data_loader, args, step):
-        for inputs, labels in data_loader:
-            outputs = model(inputs)
-            loss = torch.nn.CrossEntropyLoss()(outputs, labels)
-            metric = {"acc": accuracy(outputs, labels)}
-            return loss, metric
+        inputs, labels = next(data_loader)
+        outputs = model(inputs)
+        loss = torch.nn.CrossEntropyLoss()(outputs, labels)
+        metric = {"acc": accuracy(outputs, labels)}
+        return loss, metric
+
+    def eval_step(model, data_loader, args, step):
+        inputs, labels = next(data_loader)
+        outputs = model(inputs)
+        loss = torch.nn.CrossEntropyLoss()(outputs, labels)
+        return loss.item()
+
 
     def backward_step(_, optimizer, loss):
         optimizer.zero_grad()
@@ -179,10 +188,10 @@ if __name__ == '__main__':
     try:
         trainer.train(model=model, 
                       train_data_loader=data_loader, 
-                      eval_data_loader=None,
+                      eval_data_loader=test_data_loader,
                       optimizer=optimizer, 
                       forward_step=forward_step, 
-                      eval_step=None,
+                      eval_step=eval_step,
                       backward_step=backward_step)
     except:
         traceback_info = traceback.format_exc()
