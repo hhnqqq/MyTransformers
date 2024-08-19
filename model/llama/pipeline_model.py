@@ -3,21 +3,20 @@ from torch.utils.checkpoint import checkpoint
 from deepspeed.pipe import LayerSpec, PipelineModule
 
 from common.registry import registry
+from model.llama.model import LlamaGenerate
 from model.llama.train_model import LLaMaTrainModel
-from model.llama.model import Transformer
 from model.llama.model import precompute_freqs_cis
 
-
 class EmbeddingPipelineLayer(torch.nn.Module):
-    def __init__(self, model: Transformer, args):
+    def __init__(self, model: LlamaGenerate, args):
         super().__init__()
         self.args = args
-        self.embedder = model.tok_embeddings
+        self.embedder = model.model.tok_embeddings
         self.freqs_cis = precompute_freqs_cis(args.head_dim,
-                                         args.max_len,
-                                         theta=args.rope_theta,
-                                         train_pi=args.train_pi,
-                                         train_pipeline=True)
+                                            args.max_len,
+                                            theta=args.rope_theta,
+                                            train_pi=args.train_pi,
+                                            train_pipeline=True)
         # if args.quant:
         #     self.weight_scaler = self.word_embeddings.weight_scaler
 
@@ -35,25 +34,35 @@ class EmbeddingPipelineLayer(torch.nn.Module):
         return hidden_states, freqs_cis, attention_mask, labels
     
 class DecoderPipelineLayer(torch.nn.Module):
-    def __init__(self, model: Transformer, layer_idx, args):
+    def __init__(self, model: LlamaGenerate, layer_idx, args):
         super().__init__()
-        self.layer = model.layers[layer_idx]
+        self.layer = model.model.layers[layer_idx]
         self.args = args
 
     def forward(self, inputs):
         hidden_states, freqs_cis, attention_mask, labels = inputs
         # [batch_size, input_len, hidden_dim]
         if self.args.activation_checkpoint:
-            hidden_states = checkpoint(self.layer,  hidden_states, 0, freqs_cis, attention_mask, self.args.atten_type)
+            hidden_states = checkpoint(self.layer,  
+                                       hidden_states, 
+                                       0, 
+                                       freqs_cis, 
+                                       attention_mask, 
+                                       self.args.atten_type, 
+                                       use_reentrant=False)
         else:
-            hidden_states = self.layer(hidden_states, 0, freqs_cis, attention_mask, self.args.atten_type)
+            hidden_states = self.layer(hidden_states, 
+                                       0, 
+                                       freqs_cis, 
+                                       attention_mask, 
+                                       self.args.atten_type)
         return hidden_states, freqs_cis, attention_mask, labels
     
 class FNormPipelineLayer(torch.nn.Module):
-    def __init__(self, model: Transformer):
+    def __init__(self, model: LlamaGenerate):
         super().__init__()
-        self.final_norm = model.norm
-        self.o_proj = model.output
+        self.final_norm = model.model.norm
+        self.o_proj = model.model.output
 
     def forward(self, inputs):
         hidden_states, _, _, labels = inputs
@@ -73,8 +82,8 @@ class LossPipelineLayer(torch.nn.Module):
         shift_labels = labels[..., 1:].contiguous()
         loss = self.loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.reshape(-1))
         return loss
-    
-@registry.register_pipeline_model("llama")
+
+@registry.register_pipeline_model(["llama", "llama1", "llama2", "llama3"])
 def get_pipeline_model(model, args):
     layers = [LayerSpec(EmbeddingPipelineLayer, model=model, args=args),
             *[LayerSpec(DecoderPipelineLayer, model=model, args=args, layer_idx=idx) for idx in

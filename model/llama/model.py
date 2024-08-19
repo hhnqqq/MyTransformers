@@ -8,51 +8,19 @@ from typing import Optional, Tuple, Union, Any
 
 from model.llama.config import *
 from model.attention import attention_func
-from model.tokenizer import BaseTokenizer
+from model.tokenizer import BaseTokenizer, Llama3Tokenizer
 
 
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
-        """
-        Initialize the RMSNorm normalization layer.
-
-        Args:
-            dim (int): The dimension of the input tensor.
-            eps (float, optional): A small value added to the denominator for numerical stability. Default is 1e-6.
-
-        Attributes:
-            eps (float): A small value added to the denominator for numerical stability.
-            weight (nn.Parameter): Learnable scaling parameter.
-
-        """
         super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
 
     def _norm(self, x):
-        """
-        Apply the RMSNorm normalization to the input tensor.
-
-        Args:
-            x (torch.Tensor): The input tensor.
-
-        Returns:
-            torch.Tensor: The normalized tensor.
-
-        """
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
     def forward(self, x):
-        """
-        Forward pass through the RMSNorm layer.
-
-        Args:
-            x (torch.Tensor): The input tensor.
-
-        Returns:
-            torch.Tensor: The output tensor after applying RMSNorm.
-
-        """
         output = self._norm(x.float()).type_as(x)
         return output * self.weight
 
@@ -159,7 +127,6 @@ class Attention(nn.Module):
             bias=False,
         )
 
-
     def forward(
         self,
         x: torch.Tensor,
@@ -184,6 +151,7 @@ class Attention(nn.Module):
             torch.Tensor: Output tensor after attention.
 
         """
+
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
@@ -195,14 +163,16 @@ class Attention(nn.Module):
 
         if cache_kv is not None:
             cache_k, cache_v = cache_kv
-            cache_k = self.cache_k.to(xq)
-            cache_v = self.cache_v.to(xq)
+            cache_k = cache_k.to(xq)
+            cache_v = cache_v.to(xq)
 
-            cache_k.index_copy_(1, start_pos, xk)
-            cache_v.index_copy_(1, start_pos, xv)
+            # cache_k.index_copy_(1, torch.tensor(start_pos, device=xk.device), xk)
+            # cache_v.index_copy_(1, torch.tensor(start_pos, device=xv.device), xv)
+            cache_k[:bsz, start_pos : start_pos + seqlen] = xk
+            cache_v[:bsz, start_pos : start_pos + seqlen] = xv
 
-            keys = cache_k
-            values = cache_v
+            keys = cache_k[:bsz, : start_pos + seqlen]
+            values = cache_v[:bsz, : start_pos + seqlen]
         else:
             keys = xk
             values = xv
@@ -219,7 +189,7 @@ class Attention(nn.Module):
                                 v=values, 
                                 atten_mask=mask, 
                                 dropout_p=0.0, 
-                                scaling=math.sqrt(self.head_dim),
+                                scaling=1/math.sqrt(self.head_dim),
                                 is_causal=False,
                                 atten_type=atten_type) # (bs, n_local_heads, cache_len + seqlen, head_dim)
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
@@ -327,12 +297,12 @@ class TransformerBlock(nn.Module):
 
         """
         h = x + self.attention(
-                self.attention_norm(x), 
-                start_pos, 
-                freqs_cis, 
-                mask, 
-                atten_type, 
-                cache_kv
+                x=self.attention_norm(x), 
+                start_pos=start_pos, 
+                freqs_cis=freqs_cis, 
+                mask=mask, 
+                atten_type=atten_type, 
+                cache_kv=cache_kv
         )
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
@@ -380,7 +350,9 @@ class Transformer(nn.Module):
                 tokens: torch.Tensor, 
                 start_pos: int,
                 freqs_cis: torch.Tensor, 
-                cache_kv=None):
+                atten_type: str = '',
+                caches_kv=None,
+                is_embed=False):
         """
         Perform a forward pass through the Transformer model.
 
@@ -392,8 +364,12 @@ class Transformer(nn.Module):
             torch.Tensor: Output logits after applying the Transformer model.
 
         """
-        _bsz, seqlen = tokens.shape
-        h = self.tok_embeddings(tokens)
+        if not is_embed:
+            _bsz, seqlen = tokens.shape
+            h = self.tok_embeddings(tokens)
+        else:
+            _bsz, seqlen, hidden_size = tokens.shape
+            h = tokens
         freqs_cis = freqs_cis.to(h.device)
         freqs_cis = freqs_cis[start_pos : start_pos + seqlen]
 
@@ -410,22 +386,27 @@ class Transformer(nn.Module):
                 mask
             ]).type_as(h)
 
-        for layer in self.layers:
-            h = layer(h, start_pos, freqs_cis, mask, cache_kv)
+        for i, layer in enumerate(self.layers):
+            h = layer(x=h, 
+                      start_pos=start_pos, 
+                      freqs_cis=freqs_cis, 
+                      mask=mask, 
+                      atten_type=atten_type,
+                      cache_kv=caches_kv[i] if caches_kv is not None else None)
         h = self.norm(h)
         output = self.output(h).float()
         return output
     
-@registry.register_model("llama")
-class Llama(nn.Module):
+class LlamaGenerate(nn.Module):
     def __init__(self, model_args: ModelArgs):
         super().__init__()
-        self.tokenizer = BaseTokenizer(model_path=model_args.tokenizer)
-        model_args.vocab_size = self.tokenizer.n_words
         self.model = Transformer(model_args)
+        self.model_args = model_args
         # remove freqs_cis from transformer attrs
         self.freqs_cis = precompute_freqs_cis(
-            self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
+            model_args.dim // model_args.n_heads, 
+            model_args.max_seq_len * 2,
+            model_args.rope_theta
         )
 
     @torch.inference_mode()
@@ -438,8 +419,12 @@ class Llama(nn.Module):
         top_p: float = 0.9,
         logprobs: bool = False,
         echo: bool = False,
+        eos: bool = False
     ) -> Tuple[List[List[int]], Optional[List[List[float]]]]:
-        
+        assert hasattr(self, "tokenizer"), "Can inference with out a provieded tokenizer"
+        if isinstance(prompt_tokens, str):
+            prompt_tokens = [prompt_tokens]
+        prompt_tokens = [self.tokenizer.encode(x, eos=eos) for x in prompt_tokens]
         params = self.model.params
         bsz = len(prompt_tokens)
 
@@ -459,20 +444,22 @@ class Llama(nn.Module):
         input_text_mask = tokens != pad_id
 
         # remove kv cache from attention attrs, for unified API
-        cache_kv = []
-        for _ in range(self.config.num_hidden_layers):
-            size = (bsz, params.max_seq_len, self.config.num_key_value_heads,
-                    self.config.head_dim)
-            dtype = self.config.get_dtype()
+        caches_kv = []
+        for _ in range(params.num_hidden_layers):
+            n_kv_heads = params.n_kv_heads if params.n_kv_heads else params.n_heads
+            size = (bsz, params.max_seq_len, n_kv_heads,
+                    params.head_dim)
+            dtype = params.get_dtype()
             cache_k = torch.zeros(size=size, dtype=dtype, device=device)
             cache_v = torch.zeros(size=size, dtype=dtype, device=device)
-            cache_kv.append((cache_k, cache_v))
+            caches_kv.append((cache_k, cache_v))
 
         if min_prompt_len == total_len:
-            logits = self.model.forward(tokens, 
-                                        prev_pos, 
+            logits = self.model.forward(tokens=tokens, 
+                                        start_pos=prev_pos, 
                                         freqs_cis=self.freqs_cis,
-                                        cache_kv=cache_kv)
+                                        atten_type='',
+                                        caches_kv=caches_kv)
             token_logprobs = -F.cross_entropy(
                 input=logits.transpose(1, 2),
                 target=tokens,
@@ -481,7 +468,11 @@ class Llama(nn.Module):
             )
 
         for cur_pos in range(min_prompt_len, total_len):
-            logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+            logits = self.model.forward(tokens=tokens[:, prev_pos:cur_pos], 
+                                        start_pos=prev_pos, 
+                                        freqs_cis=self.freqs_cis, 
+                                        atten_type='',
+                                        caches_kv=caches_kv)
             if temperature > 0:
                 probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
                 next_token = self.sample_top_p(probs, top_p)
@@ -546,13 +537,37 @@ class Llama(nn.Module):
                 )['model_state_dict']
             self.model.load_state_dict(
                 state_dict,
-                strict=False,
+                strict=True,
             )
         except:
             state_dict = torch.load(
                     model_path
                 )
+            import re
+            state_dict = {re.sub('module.','',k):v for k, v in state_dict.items()}
+            state_dict = {re.sub('embedder.','tok_embeddings.',k):v for k, v in state_dict.items()}
             self.model.load_state_dict(
                 state_dict,
-                strict=False,
+                strict=True,
             )    
+
+@registry.register_model(["llama", "llama1", "llama2"])
+class Llama(LlamaGenerate):
+    def __init__(self, model_args: ModelArgs):
+        try:
+            self.tokenizer = BaseTokenizer(model_args.tokenizer)
+            model_args.vocab_size = self.tokenizer.n_words
+        except:
+            pass
+        super().__init__(model_args=model_args)
+
+@registry.register_model("llama3")
+class Llama3(LlamaGenerate):
+    def __init__(self, model_args: ModelArgs):
+        try:
+            self.tokenizer = Llama3Tokenizer(model_args.tokenizer)
+            model_args.vocab_size = self.tokenizer.n_words
+        except:
+            pass
+        super().__init__(model_args=model_args)
+

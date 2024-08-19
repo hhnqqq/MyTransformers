@@ -1,35 +1,57 @@
 #! /bin/bash
-base_options="--dataset-name dna_pretrain \
---model-name llama \
+
+base_options="--train-dataset-name ruozhi \
+--model-name gemma \
 --tokenizer-name base \
---output-path /workspace/dnallama \
+--output-path /home/bingxing2/ailab/scx6mh7/workspace/dnallama/output \
+--ckpt-path /home/bingxing2/ailab/scx6mh7/workspace/gemma/gemma-2b.ckpt \
+--tb-log-dir /home/bingxing2/ailab/scx6mh7/workspace/dnallama/tb_files/new_runs \
 "
 
+enable_list=("weight_a" "weight_b" "norm")
+
 options="$base_options \
-    --experiment-name train_pi_test \
+    --experiment-name lora_test \
     --show-loss-step 1 \
+    --show-avg-loss-step 1 \
+    --mode sft \
+    --from-pretrained \
     --epochs 3 \
-    --batch-size-per-gpu 1 \
-    --fp16 \
-    --gradient-accumulation-steps 2 \
-    --warmup 0.02 \
+    --batch-size-per-gpu 16 \
+    --eval-batch-size-per-gpu 96 \
+    --eval-interval 100000 \
+    --save-interval 500000 \
+    --bf16 \
+    --warmup 0.03 \
+    --variant 2b \
     --device cuda \
-    --num-pp-stages 3 \
-    --max-len 1024 \
-    --max-src-len 512 \
+    --max-len 600 \
+    --max-src-len 650 \
+    --eval-max-len 410 \
+    --eval-max-src-len 400 \
     --seed 42 \
-    --read-nums 100 \
-    --ds-config-path /workspace/dnallama/ds_config/pp_config.json \
+    --ds-config-path /home/bingxing2/ailab/scx6mh7/workspace/dnallama/ds_config/pp_config.json \
     --lr 1e-5 \
-    --warmup-min-lr 1e-6 \
-    --warmup-max-lr 2e-5 \
-    --lora-rank 128 \
+    --lr-decay-ratio 0.1 \
+    --auto-warmup-steps 50 \
+    --auto-warmup-rate 0.05 \
+    --use-lora \
+    --lora-rank 16 \
     --activation-checkpoint \
     --atten-type flash_atten \
     --tensorboard \
+    --diy-optimizer \
+    --save-trainable \
+    --test-code \
+    --enable-list \
     "
+
+
+for item in "${enable_list[@]}"; do
+    options+=" \"$item\""
+done
     
-run_cmd="deepspeed --include localhost:0,1,2 --master_port 16666 /workspace/dnallama/train/pp_train.py ${options}"
+run_cmd="deepspeed --include localhost:0 --master_port 16666 /home/bingxing2/ailab/scx6mh7/workspace/dnallama/train/u_train.py ${options}"
 echo ${run_cmd}
 eval ${run_cmd}
 

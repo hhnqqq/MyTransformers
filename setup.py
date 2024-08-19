@@ -24,10 +24,10 @@ def get_requirements() -> List[str]:
 
 
 setuptools.setup(
-    name="dnallama",
+    name="MyTransformers",
     version="0.1",
     author="haonan he, yucheng ren",
-    description=("dnallama model implementation"),
+    description=("MyTransformers library implementation"),
     long_description_content_type="text/markdown",
     classifiers=[
         "Programming Language :: Python :: 3.8",

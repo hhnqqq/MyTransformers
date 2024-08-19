@@ -27,8 +27,11 @@ sdist/
 var/
 wheels/
 runs/
+sbatch_files/
+tb_files/
 share/python-wheels/
 *.egg-info/
+log/
 .installed.cfg
 *.egg
 MANIFEST

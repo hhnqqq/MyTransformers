@@ -19,15 +19,7 @@ import torch
 from typing import Optional, List
 from common.registry import registry
 from dataclasses import dataclass, field
-
-
-# Keep a mapping from dtype strings to the supported torch dtypes.
-_STR_DTYPE_TO_TORCH_DTYPE = immutabledict.immutabledict({
-    'float16': torch.float16,
-    'float': torch.float32,
-    'float32': torch.float32,
-    'bfloat16': torch.bfloat16,
-})
+from common.utils.utils import STR_DTYPE_TO_TORCH_DTYPE
 
 
 @dataclass
@@ -37,13 +29,13 @@ class GemmaConfig:
     # The maximum sequence length that this model might ever be used with.
     max_position_embeddings: int = 8192
     # The number of blocks in the model.
-    num_hidden_layers: int = 28
+    n_layers: int = 28
     # The number of attention heads used in the attention layers of the model.
-    num_attention_heads: int = 16
+    n_heads: int = 16
     # The number of key-value heads for implementing attention.
     num_key_value_heads: int = 16
     # The hidden size of the model.
-    hidden_size: int = 3072
+    dim: int = 3072
     # The dimension of the MLP representations.
     intermediate_size: int = 24576
     # The number of head dimensions.
@@ -56,11 +48,12 @@ class GemmaConfig:
     quant: bool = False
     # The path to the model tokenizer.
     tokenizer: Optional[str] = ''
-    lora_layers: List[str] = field(default_factory=lambda: ["qkv_proj"])
+    rope_theta: float = 100000.0
+    lora_layers: List[str] = field(default_factory=lambda: ["qkv_proj", "o_proj", "gate_proj", "down_proj", "up_proj"])
 
     def get_dtype(self) -> Optional[torch.dtype]:
         """Gets the torch dtype from the config dtype string."""
-        return _STR_DTYPE_TO_TORCH_DTYPE.get(self.dtype, None)
+        return STR_DTYPE_TO_TORCH_DTYPE.get(self.dtype, None)
 
 
 @registry.register_model_config("gemma_7b")
@@ -70,20 +63,20 @@ def get_config_for_7b() -> GemmaConfig:
 @registry.register_model_config("gemma_2b")
 def get_config_for_2b() -> GemmaConfig:
     return GemmaConfig(
-        num_hidden_layers=18,
-        num_attention_heads=8,
+        n_layers=18,
+        n_heads=8,
         num_key_value_heads=1,
-        hidden_size=2048,
+        dim=2048,
         intermediate_size=16384
     )
 
 @registry.register_model_config("gemma_test")
 def get_config_for_test() -> GemmaConfig:
     return GemmaConfig(
-        num_hidden_layers=6,
-        num_attention_heads=4,
+        n_layers=6,
+        n_heads=4,
         num_key_value_heads=1,
-        hidden_size=256,
+        dim=256,
         intermediate_size=2048,
         dtype='float16'
     )

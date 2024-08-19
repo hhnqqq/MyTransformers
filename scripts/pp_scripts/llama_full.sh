@@ -16,7 +16,7 @@ options="$base_options \
     --gradient-accumulation-steps 2 \
     --warmup 0.02 \
     --device cuda \
-    --num-pp-stages 3 \
+    --num-pp-stages 1 \
     --max-len 1024 \
     --max-src-len 512 \
     --seed 42 \
@@ -30,7 +30,7 @@ options="$base_options \
     --tensorboard \
     "
     
-run_cmd="deepspeed --include localhost:0,1,2 --master_port 16666 /workspace/dnallama/train/pp_train.py ${options}"
+run_cmd="deepspeed --include localhost:0 --master_port 16666 /workspace/dnallama/train/pp_train.py ${options}"
 echo ${run_cmd}
 eval ${run_cmd}
 

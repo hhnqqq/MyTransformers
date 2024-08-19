@@ -4,11 +4,13 @@ from transformers.utils.versions import require_version
 from deepspeed.sequence.layer import DistributedAttention
 import common.utils.parallel_states as parallel_states
 
+from typing import Optional
+
 def naive_attention_func(
    q: torch.Tensor,
    k: torch.Tensor,
    v: torch.Tensor,
-   atten_mask: torch.Tensor,
+   atten_mask: Optional[torch.Tensor],
    dropout_p: float,
    scaling: float,
    is_causal: bool
@@ -50,7 +52,7 @@ def attention_func(
    q: torch.Tensor,
    k: torch.Tensor,
    v: torch.Tensor,
-   atten_mask: torch.Tensor,
+   atten_mask: Optional[torch.Tensor],
    dropout_p: float,
    scaling: float,
    is_causal: bool,

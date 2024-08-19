@@ -1,4 +1,6 @@
 import os
+from typing import Union, List
+
 class Regitry:
     mapping = {
         "model_mapping":{},
@@ -26,15 +28,15 @@ class Regitry:
     def register_dataset(cls, name):
 
         def warp(dataset_cls):
-            if name in cls.mapping['dataset_mapping']；
+            if name in cls.mapping['dataset_mapping']:
                 raise KeyError(
                     "Name '{}' already registered for {}.".format(
                         name, cls.mapping["dataset_mapping"][name]
                     )
                 )            
             cls.mapping['dataset_mapping'][name] = dataset_cls
-            return func
-        return wrap
+            return dataset_cls
+        return warp
 
     @classmethod
     def register_info_manager(cls, name):
@@ -51,60 +53,73 @@ class Regitry:
         return wrap
 
     @classmethod
-    def register_model(cls, name):
+    def register_model(cls, model_names: Union[List[str], str]):
+        if isinstance(model_names, str):
+            model_names = [model_names]
         def wrap(model_cls):
-            if model_cls in cls.mapping['model_mapping']:
-                raise KeyError(
-                    "Name '{}' already registered for {}.".format(
-                        name, cls.mapping["model_mapping"][name]
+            for model_name in model_names:
+                if model_name in cls.mapping['model_mapping']:
+                    raise KeyError(
+                        "Name '{}' already registered for {}.".format(
+                            model_name, cls.mapping["model_mapping"][model_name]
+                        )
                     )
-                )
-            cls.mapping['model_mapping'][name] = model_cls
+                cls.mapping['model_mapping'][model_name] = model_cls
             return model_cls
         return wrap
     
     @classmethod
-    def register_pipeline_model(cls, name):
+    def register_pipeline_model(cls, model_names: Union[List[str], str]):
+        if isinstance(model_names, str):
+            model_names = [model_names]
         def wrap(model_cls):
-            if model_cls in cls.mapping['pipeline_model_mapping']:
-                raise KeyError(
-                    "Name '{}' already registered for {}.".format(
-                        name, cls.mapping["pipeline_model_mapping"][name]
+            for model_name in model_names:
+                if model_name in cls.mapping['pipeline_model_mapping']:
+                    raise KeyError(
+                        "Name '{}' already registered for {}.".format(
+                            model_name, cls.mapping["pipeline_model_mapping"][model_name]
+                        )
                     )
-                )
-            cls.mapping['pipeline_model_mapping'][name] = model_cls
+                cls.mapping['pipeline_model_mapping'][model_name] = model_cls
             return model_cls
         return wrap
 
     @classmethod
-    def register_model_config(cls, name):
+    def register_train_model(cls, model_names: Union[List[str], str]):
+        if isinstance(model_names, str):
+            model_names = [model_names]
 
         def wrap(model_cls):
-            if model_cls in cls.mapping['model_mapping']:
-                raise KeyError(
-                    "Name '{}' already registered for {}.".format(
-                        name, cls.mapping["model_config_mapping"][name]
+            for model_name in model_names:
+                # assert(issubclass(model_cls, BaseModel))
+                if model_cls in cls.mapping['model_mapping']:
+                    raise KeyError(
+                        "Name '{}' already registered for {}.".format(
+                            model_name, cls.mapping["train_model_mapping"][model_name]
+                        )
                     )
-                )
-            cls.mapping['model_config_mapping'][name] = model_cls
+                cls.mapping['train_model_mapping'][model_name] = model_cls
             return model_cls
         return wrap
+
 
     @classmethod
-    def register_train_model(cls, name):
-        from model.base_model import BaseModel
+    def register_model_config(cls, model_names: Union[List[str], str]):
+        if isinstance(model_names, str):
+            model_names = [model_names]
+
         def wrap(model_cls):
-            assert(issubclass(model_cls, BaseModel))
-            if model_cls in cls.mapping['model_mapping']:
-                raise KeyError(
-                    "Name '{}' already registered for {}.".format(
-                        name, cls.mapping["train_model_mapping"][name]
+            for model_name in model_names:
+                if model_name in cls.mapping['model_mapping']:
+                    raise KeyError(
+                        "Name '{}' already registered for {}.".format(
+                            model_name, cls.mapping["model_config_mapping"][model_name]
+                        )
                     )
-                )
-            cls.mapping['train_model_mapping'][name] = model_cls
+                cls.mapping['model_config_mapping'][model_name] = model_cls
             return model_cls
         return wrap
-
+    
     @classmethod
     def register_info_manager(cls, name):
 
@@ -200,10 +215,16 @@ supported dataset are listed below:{cls.list_datasets()}")
                 paths_mapping[k] = None
         tokenizer_name = "tokenizer_" + args.model_name
         model_name = "model_"  + '_'.join([args.model_name, args.variant])
-        dataset_name = "dataset_" + args.dataset_name
+        args.eval_dataset_name = '' if args.eval_dataset_name is None else args.eval_dataset_name
+        train_dataset_name = "train_dataset_" + args.train_dataset_name
+        eval_dataset_name = "eval_dataset_" + args.eval_dataset_name
         args.tokenizer_path = args.tokenizer_path if args.tokenizer_path else paths_mapping.get(tokenizer_name, None)
-        args.dataset_path = args.dataset_path if args.dataset_path else paths_mapping.get(dataset_name, None)
+        args.train_dataset_path = args.train_dataset_path if args.train_dataset_path else paths_mapping.get(train_dataset_name, None)
+        args.eval_dataset_path = args.eval_dataset_path if args.eval_dataset_path else paths_mapping.get(eval_dataset_name, None)
         args.ckpt_path = args.ckpt_path if args.ckpt_path else paths_mapping.get(model_name, None)
+        if args.train_dataset_path is None:
+            raise ValueError(f"Can not find name:{train_dataset_name} in paths mapping, \
+supported paths are listed below:{cls.list_paths()}")
         return args
     
     @classmethod
@@ -228,7 +249,7 @@ supported dataset are listed below:{cls.list_datasets()}")
     
     @classmethod
     def list_datasets(cls):
-        return sorted(cls.mapping["datasets_mapping"].keys())
+        return sorted(cls.mapping["dataset_mapping"].keys())
     
     @classmethod
     def list_info_managers(cls):

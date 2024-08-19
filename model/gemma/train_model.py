@@ -11,15 +11,14 @@ class GemmaTrainModel(BaseModel):
     """
     Trainer class for Gemma, responsible for handling input and output during training.
     """
-    def __init__(self, model:GemmaForCausalLM, args, pad_id):
+    def __init__(self, model:GemmaForCausalLM, args):
         """
         Initializes basic attributes for the trainer class and precomputes fixed values.
 
         param model: Gemma model with pretrained weight.
         param args: Arguments from argument parser.
-        param pad_id: Pad index of the tokenizer, used to set ignore index for loss function.
         """
-        super().__init__(args, pad_id)
+        super().__init__(args)
         self.model = model.model
         self.embedder = model.embedder
         self.emb_weight = model.embedder.weight
@@ -29,8 +28,8 @@ class GemmaTrainModel(BaseModel):
                                          theta=args.rope_theta,
                                          train_pi=args.train_pi)
     
-    def forward(self, input_ids, labels):
-        return super().forward(input_ids, labels)
+    def forward(self, **kwargs):
+        return super().forward(**kwargs)
     
     def embedding(self, input_ids):
         hidden_states = F.embedding(input_ids, self.emb_weight)
@@ -38,13 +37,24 @@ class GemmaTrainModel(BaseModel):
         attention_mask = self.attention_mask.to(hidden_states.device).to(hidden_states.dtype)
         return hidden_states, attention_mask
     
-    def model_forward(self, hidden_states, freqs_cis, attention_mask):
+    def model_forward(self, logits, freqs_cis, attention_mask):
         # Using activation checkpoint to reduce memory consumption or not.
         if self.args.activation_checkpoint:
-            logits = checkpoint(self.model, hidden_states, freqs_cis, attention_mask, self.args.atten_type)
+            for i in range(len(self.model.layers)):
+                logits = checkpoint(self.model.layers[i], 
+                                    logits, 
+                                    freqs_cis, 
+                                    attention_mask, 
+                                    self.args.atten_type, 
+                                    use_reentrant=False)
         else:
-            logits = self.model(hidden_states=hidden_states, freqs_cis=freqs_cis, mask=attention_mask, atten_type=self.args.atten_type)
-        logits = torch.matmul(logits, self.emb_weight.t().to(hidden_states.device).to(hidden_states.dtype))
+            for i in range(len(self.model.layers)):
+                logits = self.model.layers[i](hidden_states=logits, 
+                                    freqs_cis=freqs_cis, 
+                                    mask=attention_mask, 
+                                    atten_type=self.args.atten_type)
+        logits = self.model.norm(logits)
+        logits = torch.matmul(logits, self.emb_weight.t().to(logits.device).to(logits.dtype))
         return logits
 
     @staticmethod

@@ -52,7 +52,8 @@ class DecoderPipelineLayer(nn.Module):
                                        hidden_states, 
                                        freqs_cis, 
                                        attention_mask, 
-                                       self.args.atten_type)
+                                       self.args.atten_type,
+                                       use_reentrant=False)
         else:
             hidden_states = self.layer(hidden_states, 
                                        freqs_cis, 

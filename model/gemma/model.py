@@ -26,6 +26,7 @@ import common.utils.parallel_states as parallel_states
 from model import BaseTokenizer
 from common.registry import registry
 from model.gemma import config as gemma_config
+from model.attention import attention_func
 
 
 class Sampler(nn.Module):
@@ -46,7 +47,7 @@ class Sampler(nn.Module):
         embedding_bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         # Select the last element for each sequence.
-        # (batch_size, input_len, hidden_size) -> (batch_size, hidden_size)
+        # (batch_size, input_len, dim) -> (batch_size, dim)
         hidden_states = hidden_states.index_select(
             1, output_positions).squeeze(dim=1)
         logits = torch.matmul(hidden_states, embedding.t())
@@ -114,6 +115,9 @@ def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
     x_ = torch.view_as_complex(
         torch.stack(torch.chunk(x.transpose(1, 2).float(), 2, dim=-1),
                     dim=-1))
+
+    if x_.shape[2] != freqs_cis.shape[0]:
+        freqs_cis = freqs_cis[:x_.shape[2]]
     x_out = torch.view_as_real(x_ * freqs_cis).type_as(x)
     x_out = torch.cat(torch.chunk(x_out, 2, dim=-1), dim=-2)
     x_out = x_out.reshape(x_out.shape[0], x_out.shape[1], x_out.shape[2],
@@ -200,14 +204,14 @@ class GemmaMLP(nn.Module):
 
     def __init__(
         self,
-        hidden_size: int,
+        dim: int,
         intermediate_size: int,
         quant: bool,
     ):
         super().__init__()
-        self.gate_proj = Linear(hidden_size, intermediate_size, quant)
-        self.up_proj = Linear(hidden_size, intermediate_size, quant)
-        self.down_proj = Linear(intermediate_size, hidden_size, quant)
+        self.gate_proj = Linear(dim, intermediate_size, quant)
+        self.up_proj = Linear(dim, intermediate_size, quant)
+        self.down_proj = Linear(intermediate_size, dim, quant)
 
     def forward(self, x):
         gate = self.gate_proj(x)
@@ -217,36 +221,11 @@ class GemmaMLP(nn.Module):
         outputs = self.down_proj(fuse)
         return outputs
 
-def naive_attention_func(
-        q: torch.Tensor,
-        k: torch.Tensor,
-        v: torch.Tensor,
-        atten_mask: torch.Tensor,
-        dropout_p: float,
-        scaling: float,
-        is_causal: bool
-    ):
-    """The origin scaled dot product attention implemented by gemma"""
-    L,S = q.size(-2), k.size(-2)
-    scores = torch.matmul(q, k.transpose(2, 3)) * scaling
-    atten_bias = torch.zeros(L, S, dtype=q.dtype)
-    if is_causal:
-        assert atten_mask is None
-        temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=0)
-        atten_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
-        atten_bias.to(q.dtype)
-    scores = scores + atten_mask
-    scores = F.softmax(scores.float(), dim=-1).type_as(q)
-    scores = torch.dropout(scores, dropout_p, train=True)
-    # [batch_size, n_local_heads, input_len, head_dim]
-    output = torch.matmul(scores, v)
-    return output
-    
 class GemmaAttention(nn.Module):
 
     def __init__(
         self,
-        hidden_size: int,
+        dim: int,
         num_heads: int,
         num_kv_heads: int,
         head_dim: int,
@@ -260,7 +239,7 @@ class GemmaAttention(nn.Module):
         assert self.num_heads % self.num_kv_heads == 0
         self.num_queries_per_kv = self.num_heads // self.num_kv_heads
 
-        self.hidden_size = hidden_size
+        self.dim = dim
         self.head_dim = head_dim
 
         self.q_size = self.num_heads * self.head_dim
@@ -269,12 +248,12 @@ class GemmaAttention(nn.Module):
         self.scaling = self.head_dim**-0.5
 
         self.qkv_proj = Linear(
-            self.hidden_size,
+            self.dim,
             (self.num_heads + 2 * self.num_kv_heads) * self.head_dim,
             quant=quant)
         self.o_proj = Linear(
             self.num_heads * self.head_dim,
-            self.hidden_size,
+            self.dim,
             quant=quant)
 
     def forward(
@@ -330,27 +309,14 @@ class GemmaAttention(nn.Module):
         k = key.transpose(1, 2)
         v = value.transpose(1, 2)
 
-        if atten_type == 'flash_atten':
-            require_version("torch>=2.0.0")
-            with torch.backends.cuda.sdp_kernel(enable_flash=True):
-                output = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
-        elif atten_type == 'ulysses_flash_atten':
-            require_version("torch>=2.0.0")
-            with torch.backends.cuda.sdp_kernel(enable_flash=True):
-                flash_atten = F.scaled_dot_product_attention
-                dist_atten = DistributedAttention(flash_atten, 
-                                                  parallel_states.get_sequence_parallel_group(),
-                                                  scatter_idx=1,
-                                                  gather_idx=2)
-                output = dist_atten(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
-        elif atten_type == 'ulysses_atten':
-            dist_atten = DistributedAttention(naive_attention_func, 
-                                              parallel_states.get_sequence_parallel_group(),
-                                              scatter_idx=1,
-                                              gather_idx=2)
-            output = dist_atten(q, k, v, atten_mask=mask, dropout_p=0.0, scaling=self.scaling, is_causal=False)
-        else:
-            output = naive_attention_func(q, k, v, atten_mask=mask, dropout_p=0.0, scaling=self.scaling, is_causal=False)
+        output = attention_func(q=q, 
+                                k=k, 
+                                v=v, 
+                                atten_mask=mask, 
+                                dropout_p=0.0, 
+                                scaling=self.scaling, 
+                                is_causal=False,
+                                atten_type=atten_type)
         output = (output.transpose(1, 2).contiguous().view(batch_size, input_len, -1))
         output = self.o_proj(output)
         return output
@@ -364,20 +330,20 @@ class GemmaDecoderLayer(nn.Module):
     ):
         super().__init__()
         self.self_attn = GemmaAttention(
-            hidden_size=config.hidden_size,
-            num_heads=config.num_attention_heads,
+            dim=config.dim,
+            num_heads=config.n_heads,
             num_kv_heads=config.num_key_value_heads,
             head_dim=config.head_dim,
             quant=config.quant,
         )
         self.mlp = GemmaMLP(
-            hidden_size=config.hidden_size,
+            dim=config.dim,
             intermediate_size=config.intermediate_size,
             quant=config.quant,
         )
-        self.input_layernorm = RMSNorm(config.hidden_size,
+        self.input_layernorm = RMSNorm(config.dim,
                                        eps=config.rms_norm_eps)
-        self.post_attention_layernorm = RMSNorm(config.hidden_size,
+        self.post_attention_layernorm = RMSNorm(config.dim,
                                                 eps=config.rms_norm_eps)
 
     def forward(
@@ -419,9 +385,9 @@ class GemmaModel(nn.Module):
         self.vocab_size = config.vocab_size
 
         self.layers = nn.ModuleList()
-        for _ in range(config.num_hidden_layers):
+        for _ in range(config.n_layers):
             self.layers.append(GemmaDecoderLayer(config))
-        self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = RMSNorm(config.dim, eps=config.rms_norm_eps)
 
     def forward(
         self,
@@ -450,19 +416,21 @@ class GemmaForCausalLM(nn.Module):
 
     def __init__(
         self,
-        config: gemma_config.GemmaConfig,
-        is_train: bool = False
+        config: gemma_config.GemmaConfig
     ):
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         super().__init__()
         self.config = config
-        assert config.hidden_size % config.num_attention_heads == 0
+        assert config.dim % config.n_heads == 0
 
         max_seq_len = config.max_position_embeddings
         head_dim = config.head_dim
         vocab_size = config.vocab_size
-
-        self.tokenizer = BaseTokenizer(config.tokenizer)
-        self.embedder = Embedding(vocab_size, config.hidden_size, config.quant)
+        try:
+            self.tokenizer = BaseTokenizer(config.tokenizer)
+        except:
+            pass
+        self.embedder = Embedding(vocab_size, config.dim, config.quant)
         self.model = GemmaModel(config)
         self.sampler = Sampler(vocab_size)
 
@@ -470,7 +438,7 @@ class GemmaForCausalLM(nn.Module):
         rope_theta = getattr(config, 'rope_theta', 10000)
         self.freqs_cis = precompute_freqs_cis(head_dim,
                                          max_seq_len * 2,
-                                         theta=rope_theta).to('cuda')
+                                         theta=rope_theta).to(device)
         # self.register_buffer('freqs_cis', freqs_cis)
 
     @torch.no_grad()
@@ -487,14 +455,15 @@ class GemmaForCausalLM(nn.Module):
         top_ks: torch.Tensor,
         **kwargs,
     ) -> torch.Tensor:
+        assert hasattr(self, "tokenizer")
         # 按照input_positions来筛选freqs_cis
         freqs_cis = self.freqs_cis.index_select(0, input_positions)
         kv_write_indices = input_positions
 
-        # [batch_size, input_len, hidden_size]
+        # [batch_size, input_len, dim]
         hidden_states = self.embedder(input_token_ids)
-        # Gemma normalizes the embedding by sqrt(hidden_size).
-        hidden_states = hidden_states * (self.config.hidden_size**0.5)
+        # Gemma normalizes the embedding by sqrt(dim).
+        hidden_states = hidden_states * (self.config.dim**0.5)
 
         hidden_states = self.model(
             hidden_states=hidden_states,
@@ -541,7 +510,7 @@ class GemmaForCausalLM(nn.Module):
 
         # build KV caches
         kv_caches = []
-        for _ in range(self.config.num_hidden_layers):
+        for _ in range(self.config.n_layers):
             size = (batch_size, max_seq_len, self.config.num_key_value_heads,
                     self.config.head_dim)
             dtype = self.config.get_dtype()
@@ -633,7 +602,7 @@ class GemmaForCausalLM(nn.Module):
                 )['model_state_dict']
             self.load_state_dict(
                 state_dict,
-                strict=True,
+                strict=False,
             )
         except:
             state_dict = torch.load(

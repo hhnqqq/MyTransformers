@@ -1,19 +1,15 @@
 """please insert all paths into the paths dict"""
+import os
+import json
 from common.registry import registry
 
-paths = {"model":{
-    "llama_7b":"path_of_model",
-    "gemma_2b":"/workspace/gemma-2b-it.ckpt",
-    "gemma_7b":"path_of_model"
-}, 
-"tokenizer":{
-    "llama":"/workspace/tokenizer.model",
-    "gemma":"/workspace/tokenizer.model"
-},
-"dataset":{
-    "dna_pretrain":"/workspace/longtext-2k-clean.jsonl"
-}}
-
+mt_dir = os.path.split(os.getcwd())[0]
+paths_file_path = os.path.join(mt_dir, "paths.json")
+if not os.path.isfile(paths_file_path):
+    raise FileNotFoundError("Please config paths in MyTransformers/paths.json!")
+else:
+    paths = json.load(open(paths_file_path, "r"))
+    
 for key, value in paths.items():
     for sub_k, sub_v in value.items():
         name = '_'.join([key, sub_k])

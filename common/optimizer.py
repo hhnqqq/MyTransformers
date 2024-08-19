@@ -1,39 +1,50 @@
-import warnings
+import logging
 import torch.optim as optim
 from common.utils import print_rank_0
 from common.scheduler import AnnealingLR
 from transformers.utils.versions import require_version
 from deepspeed.ops.adam.fused_adam import FusedAdam
 
-def get_optimizer(ds_config, args, model):
-    # TODO: Add support to PLoRA and so no ...
-    if args.diy_optimizer:
+def get_optimizer_type(args, ds_config):
+    if args.optim_type is not None:
+        return args.optim_type.lower()
+    elif 'optimizer' in ds_config:
+        return ds_config['optimizer'].get('type', 'adamw').lower()
+    return None
 
-        # Acquire optimizer type.
-        if args.optim_type is not None:
-            optim_type = args.optim_type.lower()
-        elif 'optimizer' in ds_config:
-            optim_type = ds_config['optimizer'].get('type', 'adamw').lower()
+def get_optimizer_instance(optim_type, args, model):
+    if args.use_galore:
+        message = 'galore cannot be used with the current DeepSpeed version, and running it will result in an error.'
+        print_rank_0(message, level=logging.ERROR)
+        return get_galore_optimizer(optim_type, args, model)
+    else:
+        return get_regular_optimizer(optim_type, args, model)
 
-        # Acquire optimizer.
-        if args.use_galore:
-            message = 'galore cannot be used with the current DeepSpeed version, and running it will result in an error.'
-            warnings.warn(message, UserWarning)
-            isSuccess, optimizer =  get_galore_optimizer(optim_type, args, model)
-        else:    
-            isSuccess, optimizer =  get_regular_optimizer(optim_type, args, model)
+def get_optimizer(ds_config, args, model, optimizer_sd = None, lr_scheduler_sd = None):
+    if not args.diy_optimizer:
+        return None, None
 
-        # If successful acquire optimizer, overwrite the default setting in the ds config.
-        if isSuccess:
+    optim_type = get_optimizer_type(args, ds_config)
+    isSuccess, optimizer = get_optimizer_instance(optim_type, args, model)
+
+    if isSuccess:
+        if 'optimizer' in ds_config:
             del ds_config['optimizer']
-            print_rank_0(F'--->deepspeed optimizer setting have been overwritten', args.global_rank)
-        else:
-            print_rank_0(f'--->try to use diy optimizer failed, use the ds setting', args.global_rank)
+        print_rank_0(f'--->Deepspeed optimizer setting has been overwritten', args.global_rank)
+    else:
+        print_rank_0(f'--->Try to use diy optimizer failed, use the ds setting', args.global_rank)
+        return None, None
 
-        lr_scheduler = get_learning_rate_scheduler(optimizer, 0, args)
-        return optimizer, lr_scheduler
+    lr_scheduler = get_learning_rate_scheduler(optimizer, 0, args)
+
+    if all([optimizer, lr_scheduler, optimizer_sd, lr_scheduler_sd]):
+        optimizer.load_state_dict(optimizer_sd)
+        lr_scheduler.load_state_dict(lr_scheduler_sd)
+    elif any([optimizer_sd, lr_scheduler_sd]):
+        print_rank_0(f'--->Optimizer state dict and lr scheduler state dict have not been loaded as optimizer or lr scheduler is None', args.global_rank)
+
+    return optimizer, lr_scheduler
     
-    return None, None
 
 def get_galore_optimizer(optim_type, args, model):
     try:

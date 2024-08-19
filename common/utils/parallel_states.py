@@ -54,9 +54,12 @@ def initialize_model_parallel(
     global DATA_PARALLEL_GROUP
     all_data_parallel_groups = []
     for i in range(pipeline_model_parallel_size):
+        # (0,4) (0, 2) (1, 3)
         start_rank, end_rank = (_ * num_pipeline_parallel_groups for _ in [i, i+1])
+        # 0
         tp_or_sp_size = sequence_data_pallel_size if sequence_parallel_enabled else tensor_model_parallel_size
         for j in range(tp_or_sp_size):
+            # (0,1,2,3)
             ranks = range(start_rank+j, end_rank, tp_or_sp_size)
             group = dist.new_group(ranks)
             all_data_parallel_groups.append(list(ranks))
@@ -217,3 +220,6 @@ def get_tensor_model_parallel_rank():
 def get_model_parallel_rank():
     assert get_pipeline_model_parallel_world_size() == 1, "legacy get_model_parallel_rank is only supported if PP is disabled"
     return get_tensor_model_parallel_rank()
+
+def get_data_parallel_rank():
+    return dist.get_rank(group=get_data_parallel_group())   
