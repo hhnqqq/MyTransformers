@@ -11,4 +11,6 @@
 
 
 ## 详细的文档：
-[MyTransformer使用文档](https://github.com/hhnqqq/MyTransformers/blob/main/MyTransformers%E9%A1%B9%E7%9B%AE%E4%BB%A3%E7%A0%81%E4%BD%BF%E7%94%A8%E6%96%87%E6%A1%A3.pdf)
+[MyTransformer使用文档](https://github.com/hhnqqq/MyTransformers/blob/main/MyTransformers_document.pdf)
+## 多机多卡训练
+[sacc](https://github.com/hhnqqq/sacc_beijingcloud)
