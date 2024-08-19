@@ -1,6 +1,6 @@
-.ckpt
-.json
-.jsonl
+*.ckpt
+*.json
+*.jsonl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
