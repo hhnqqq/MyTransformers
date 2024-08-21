@@ -16,10 +16,10 @@ base_options="--train-dataset-name dna_pretrain_2k \
 --eval-dataset-name gue_human \
 --model-name llama2 \
 --tokenizer-name base \
---output-path /home/bingxing2/ailab/scx6mh7/workspace/dnallama/output \
+--output-path /home/bingxing2/ailab/scx6mh7/workspace/MyTransformers/output \
 --tokenizer-path /home/bingxing2/ailab/scx6mh7/workspace/dnabert2/merged_tokenizer.model \
 --ckpt-path /home/bingxing2/ailab/scx6mh7/workspace/llama/llama2.pth \
---tb-log-dir /home/bingxing2/ailab/scx6mh7/workspace/dnallama/tb_files/new_runs_1 \
+--tb-log-dir /home/bingxing2/ailab/scx6mh7/workspace/MyTransformers/tb_files/new_runs_1 \
 --partial-ckpt-path /home/bingxing2/ailab/scx6mh7/workspace/dnabert2/merged_embedding.ckpt \
 "
 
@@ -45,7 +45,7 @@ options="$base_options \
     --eval-max-len 700 \
     --eval-max-src-len 700 \
     --seed 42 \
-    --ds-config-path /home/bingxing2/ailab/scx6mh7/workspace/dnallama/ds_config/pp_config.json \
+    --ds-config-path /home/bingxing2/ailab/scx6mh7/workspace/MyTransformers/ds_config/pp_config.json \
     --lr 1e-4 \
     --lr-decay-ratio 0.1 \
     --auto-warmup-steps 100 \
@@ -66,7 +66,7 @@ for item in "${enable_list[@]}"; do
     options+=" \"$item\""
 done
     
-run_cmd="deepspeed --include localhost:0,1,2,3 --master_port 16666 /home/bingxing2/ailab/scx6mh7/workspace/dnallama/train/u_train.py ${options}"
+run_cmd="deepspeed --include localhost:0,1,2,3 --master_port 16666 /home/bingxing2/ailab/scx6mh7/workspace/MyTransformers/train/u_train.py ${options}"
 echo ${run_cmd}
 eval ${run_cmd}
 

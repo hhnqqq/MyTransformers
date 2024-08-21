@@ -1,8 +1,7 @@
-import gc
-import torch
+import os
 
 from common.utils import print_rank_0
-from common.lora import LinearWithLoRA
+from common.lora_modules import LinearWithLoRA
 
 def format_param_count(num_params):
     if num_params >= 1e9:
@@ -82,6 +81,9 @@ def refresh_config(ds_config, args):
         ds_config["fp16"]["enabled"] = False
         ds_config["bf16"]["enabled"] = True
     return ds_config
+
+def set_up_multi_nodes_traning():
+    pass
 
 def set_up_model_config_from_args(model_config, args, arg_names):
     arg_names = [arg_name.replace('-',"_") for arg_name in arg_names]

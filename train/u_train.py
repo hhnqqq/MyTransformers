@@ -12,7 +12,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 import common.utils.parallel_states as parallel_states
 from model import *
-from common.lora import *
+from common.lora_modules import *
 from train.trainer import Trainer
 from common.registry import registry
 from common.optimizer import get_optimizer

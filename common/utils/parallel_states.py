@@ -1,5 +1,4 @@
 import torch.distributed as dist
-from typing import Optional
 
 # parallel group define（which group current rank is belong to）
 PIPELINE_MODEL_PARALLEL_GROUP = None

@@ -16,8 +16,6 @@ import typing
 import pkg_resources
 import traceback
 
-import PySimpleGUI as sg
-
 from inspect import signature
 from functools import wraps, partial
 from traceback import format_exc

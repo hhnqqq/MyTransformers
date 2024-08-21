@@ -8,7 +8,7 @@ from os.path import join
 from model import *
 from common.registry import registry
 from common.utils import get_merged_state_dict
-from common.lora import switch_to_lora, LinearWithLoRA
+from common.lora_modules import switch_to_lora, LinearWithLoRA
 
 
 def convert_model_to_hf(args):

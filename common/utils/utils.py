@@ -235,15 +235,19 @@ def set_random_seed(seed):
         seed_set = True
 
 def init_dist(args):
+    if int(os.environ.get('SLURM_NNODES', 1)) > 1:
+        local_rank = int(os.environ['RANK']) % int(os.environ['SLURM_GPUS_ON_NODE'])
+        args.local_rank = local_rank
+        os.environ['LOCAL_RANK'] = str(local_rank)
     if args.device == 'cuda':
         if args.local_rank == -1:
             device = torch.device("cuda")
         else:
-            torch.cuda.set_device(args.local_rank)
-            device = torch.device("cuda", args.local_rank)
             deepspeed.init_distributed(dist_backend="nccl")
             args.world_size = dist.get_world_size()
             args.global_rank = dist.get_rank()
+            torch.cuda.set_device(args.local_rank)
+            device = torch.device("cuda", args.local_rank)
     else:
         device = 'cpu'
     if args.num_sp_stages:

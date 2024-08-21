@@ -10,7 +10,7 @@ from functools import partial
 
 from model import *
 from common.registry import registry
-from common.lora import switch_to_lora
+from common.lora_modules import switch_to_lora
 from common.utils import set_random_seed, load_ckpt
 from common.utils.utils import set_default_tensor_type
 from common.utils import parallel_states as parallel_states

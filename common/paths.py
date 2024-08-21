@@ -3,10 +3,10 @@ import os
 import json
 from common.registry import registry
 
-mt_dir = os.path.split(os.getcwd())[0]
+mt_dir = os.path.dirname(os.path.dirname(__file__))
 paths_file_path = os.path.join(mt_dir, "paths.json")
 if not os.path.isfile(paths_file_path):
-    raise FileNotFoundError("Please config paths in MyTransformers/paths.json!")
+    raise FileNotFoundError(f"Please config paths in {paths_file_path}!")
 else:
     paths = json.load(open(paths_file_path, "r"))
     
