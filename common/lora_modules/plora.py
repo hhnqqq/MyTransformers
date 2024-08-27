@@ -29,6 +29,7 @@ class LinearWithPLoRA(LinearWithLoRA):
         self.plora_counter = 0
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # TODO:清空优化器状态
         # Every plora stage, we merge the origin lora weight and reset new lora weight.:
         self.plora_counter += 1
         if self.plora_counter == self.plora_steps:

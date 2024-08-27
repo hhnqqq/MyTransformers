@@ -9,31 +9,26 @@ from common.lora_modules.plora import LinearWithPLoRA
 from common.lora_modules.lora_ga import LinearWithLoRAGA
 from common.lora_modules.mos_lora import LinearWithMosLoRA
 
-def get_lora_layer(args, lora_config):
+def get_lora_layer_class(args):
+    variant_config = {}
     if args.use_dora:
-        variant = 'DoRA'
-        lora_layer = LinearWithDoRA(**lora_config)
+        lora_layer_class = LinearWithDoRA
     elif args.plora_steps:
-        variant = 'PloRA'
-        lora_layer = LinearWithPLoRA(plora_steps=args.plora_steps, 
-                               **lora_config)
+        lora_layer_class = LinearWithPLoRA
+        variant_config = dict(plora_steps=args.plora_steps)
     elif args.use_mos_lora:
-        variant = 'MosLoRA'
-        lora_layer = LinearWithMosLoRA(weight_ab_mixer_init_method=args.weight_ab_mixer_init_method,
-                                **lora_config)
+        lora_layer_class = LinearWithMosLoRA
+        variant_config = dict(weight_ab_mixer_init_method=args.weight_ab_mixer_init_method)
     elif args.use_me_lora:
-        variant = 'MELoRA'
-        lora_layer = LinearWithMELoRA(me_lora_n_split=args.me_lora_n_split,
-                                **lora_config)
+        lora_layer_class = LinearWithMELoRA
+        variant_config = dict(me_lora_n_split=args.me_lora_n_split)
     elif args.use_lora_ga:
-        variant = 'LoRAGA'
-        lora_layer = LinearWithLoRAGA(**lora_config)
+        lora_layer_class = LinearWithLoRAGA
     else:
-        variant = 'LoRA'
-        lora_layer = LinearWithLoRA(**lora_config)
+        lora_layer_class = LinearWithLoRA
 
-    print_rank_0(f'Using lora variant: {variant}', rank=args.global_rank)
-    return lora_layer
+    print_rank_0(f'Using lora variant: {lora_layer_class.__name__}', rank=args.global_rank)
+    return lora_layer_class, variant_config
 
 def switch_to_lora(model: nn.Module, 
                    args: Namespace,
@@ -55,6 +50,7 @@ def switch_to_lora(model: nn.Module,
         plora_steps: The steps to merge and reset lora weight.
     """
     assert replace_names is not None, 'Replace names can not be None'
+    lora_layer_class, variant_config = get_lora_layer_class(args)
     for name, module in model.named_modules():
         replace_tag = False
         for replace_name in replace_names:
@@ -72,7 +68,7 @@ def switch_to_lora(model: nn.Module,
                                         in_features=module.in_features, 
                                         out_features=module.out_features, 
                                         quant=quant)
-                        lora_layer = get_lora_layer(args, lora_config)
+                        lora_layer = lora_layer_class(**lora_config, **variant_config)
                         # Copy the original weight to the LoRA layer.
                         if transposition:
                             lora_layer.weight = nn.Parameter(module.weight.data.T)

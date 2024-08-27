@@ -28,11 +28,23 @@ class LinearWithDoRA(LinearWithLoRA):
         return F.linear(x, weight)
     
     def _apply_dora(self, weight: torch.Tensor) -> torch.Tensor:
-        weight_norm = torch.norm(weight, p=2, dim=0, keepdim=True)
+        origin_magnitude = torch.norm(weight, p=2, dim=0, keepdim=True)
         lora_weight = self._compute_lora_weight()
-        weight = weight + lora_weight
-        lora_weight_norm = torch.norm(weight, p=2, dim=0, keepdim=True)
-        weight = weight_norm * (weight/ lora_weight_norm)
+        weight = weight + lora_weight * self.lora_scaler
+        new_magnitude = torch.norm(weight, p=2, dim=0, keepdim=True)
+        # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
+        # "[...] we suggest treating ||V +∆V ||_c in
+        # Eq. (5) as a constant, thereby detaching it from the gradient
+        # graph. This means that while ||V + ∆V ||_c dynamically
+        # reflects the updates of ∆V , it won’t receive any gradient
+        # during backpropagation"
+        new_magnitude = new_magnitude.detach()
+
+        # In peft. This should be added on top of the base layer output.:
+        # result_dora = (mag_norm_scale - 1) * (
+        # F.linear(x, transpose(weight, self.fan_in_fan_out))
+        # ) + mag_norm_scale * lora_result * scaling
+        weight = (origin_magnitude / new_magnitude) * weight
         return weight
 
     def _merge_lora(self) -> bool:
