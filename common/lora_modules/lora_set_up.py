@@ -1,14 +1,47 @@
+from argparse import Namespace
+from typing import Union, List
+
+from common.utils import print_rank_0
 from common.lora_modules.lora import *
+from common.lora_modules.dora import LinearWithDoRA
+from common.lora_modules.melora import LinearWithMELoRA
+from common.lora_modules.plora import LinearWithPLoRA
+from common.lora_modules.lora_ga import LinearWithLoRAGA
+from common.lora_modules.mos_lora import LinearWithMosLoRA
+
+def get_lora_layer(args, lora_config):
+    if args.use_dora:
+        variant = 'DoRA'
+        lora_layer = LinearWithDoRA(**lora_config)
+    elif args.plora_steps:
+        variant = 'PloRA'
+        lora_layer = LinearWithPLoRA(plora_steps=args.plora_steps, 
+                               **lora_config)
+    elif args.use_mos_lora:
+        variant = 'MosLoRA'
+        lora_layer = LinearWithMosLoRA(weight_ab_mixer_init_method=args.weight_ab_mixer_init_method,
+                                **lora_config)
+    elif args.use_me_lora:
+        variant = 'MELoRA'
+        lora_layer = LinearWithMELoRA(me_lora_n_split=args.me_lora_n_split,
+                                **lora_config)
+    elif args.use_lora_ga:
+        variant = 'LoRAGA'
+        lora_layer = LinearWithLoRAGA(**lora_config)
+    else:
+        variant = 'LoRA'
+        lora_layer = LinearWithLoRA(**lora_config)
+
+    print_rank_0(f'Using lora variant: {variant}', rank=args.global_rank)
+    return lora_layer
 
 def switch_to_lora(model: nn.Module, 
+                   args: Namespace,
                    replace_names: Optional[Union[str, List[str]]] = None, 
                    rank: int = 4, 
                    lora_scaler: int = 32, 
                    lora_dropout: Optional[float] = None,
-                   transposition: bool = False, 
-                   use_dora: bool = False, 
-                   use_mos_lora: bool = False,
-                   plora_steps: Optional[int] = None):
+                   transposition: bool = False):
     """
     Switch function for lora, responsible for replacing Linear layer with LinearWithLoRA layer
 
@@ -33,15 +66,13 @@ def switch_to_lora(model: nn.Module,
                 elif isinstance(module, nn.Module):
                     if  all(hasattr(module, attr) for attr in ["in_features", "out_features", "weight"]):
                         quant = getattr(module, "quant", False)
-                        lora_layer = LinearWithLoRA(lora_rank=rank, 
-                                                    lora_scaler=lora_scaler, 
-                                                    lora_dropout=lora_dropout,
-                                                    in_features=module.in_features, 
-                                                    out_features=module.out_features, 
-                                                    use_dora=use_dora, 
-                                                    use_mos_lora=use_mos_lora,
-                                                    quant=quant,
-                                                    plora_steps=plora_steps)
+                        lora_config = dict(lora_rank=rank, 
+                                        lora_scaler=lora_scaler, 
+                                        lora_dropout=lora_dropout,
+                                        in_features=module.in_features, 
+                                        out_features=module.out_features, 
+                                        quant=quant)
+                        lora_layer = get_lora_layer(args, lora_config)
                         # Copy the original weight to the LoRA layer.
                         if transposition:
                             lora_layer.weight = nn.Parameter(module.weight.data.T)
@@ -61,12 +92,11 @@ def setup_lora(model, args, model_config):
         if args.replace_modules is None:
             args.replace_modules = model_config.lora_layers
         switch_to_lora(model, 
+                       args,
                        args.replace_modules, 
                        rank=args.lora_rank, 
-                       use_dora=args.use_dora,
-                       use_mos_lora=args.use_mos_lora,
-                       lora_dropout=args.lora_dropout,
-                       plora_steps=args.plora_steps)
+                       lora_scaler=args.lora_scaler,
+                       lora_dropout=args.lora_dropout)
         if args.lora_fa:
             lora_weight = ['weight_b', 'weight_ab_mixer']
         else:
@@ -92,7 +122,7 @@ def recover_linear(model: nn.Module):
                                      bias=False,
                                      dtype=module.weight.dtype,
                                      device=module.weight.dtype)
-            linear.weight.data = module.weight.data
+            linear_layer.weight.data = module.weight.data
             parent = get_parent_model(model, module)
             setattr(parent, list(parent._modules.items())[list(parent._modules.values()).index(module)][0], linear_layer)
             

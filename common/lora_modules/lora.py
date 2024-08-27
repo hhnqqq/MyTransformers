@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from functools import partial
-from typing import Union, Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 
 class LinearWithLoRA(nn.Linear):
     def __init__(
@@ -20,13 +20,9 @@ class LinearWithLoRA(nn.Linear):
         lora_rank: int = 4,
         lora_scaler: float = 32.0,
         lora_dropout: Optional[float] = None,
-        use_dora: bool = False,
-        use_mos_lora: bool = False,
         quant: bool = False,
-        plora_steps: Union[int, None] = None,
         weight_a_init_method: Optional[str] = None,
-        weight_b_init_method: Optional[str] = None,
-        weight_ab_mixer_init_method: Optional[str] = None
+        weight_b_init_method: Optional[str] = None
     ):
         """
         Initialize the LinearWithLoRA layer.
@@ -45,19 +41,10 @@ class LinearWithLoRA(nn.Linear):
         self.lora_rank = lora_rank
         self.lora_scaler = lora_scaler / lora_rank
         self.quant = quant
-        self.dora = use_dora
-        self.mos_lora = use_mos_lora
         self.weight_a_init_method = weight_a_init_method
         self.weight_b_init_method = weight_b_init_method
-        self.weight_ab_mixer_init_method = weight_ab_mixer_init_method
-
 
         self._init_lora_weights()
-        # Enable plora, if plora_steps is not None.
-        self.plora = plora_steps is not None
-        if plora_steps:
-            self.plora_steps = plora_steps
-            self.plora_counter = 0
         if lora_dropout:
             self.lora_dropout = nn.Dropout(lora_dropout)
         else:
@@ -65,24 +52,18 @@ class LinearWithLoRA(nn.Linear):
         
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Every plora stage, we merge the origin lora weight and reset new lora weight.
-        if self.plora:
-            self.plora_counter += 1
-            if self.plora_counter == self.plora_steps:
-                self.merge_and_reset()
-                self.plora_counter = 0
-
         # The origin weight of Linear layer.
         weight = self._quantize_weight(self.weight, self.weight_quantizer)
+        result = F.linear(x, weight)
+        return self._lora_forward(x, result)
 
-        lora_weight = None
-        # If lora attrs are exist, compute the lora weight and plus it to full rank weight
-        if self.has_lora_weights:
-            lora_weight = self._compute_lora()
-            weight = weight + lora_weight
+    def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
+        weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
+        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
+        lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b)
 
-        return F.linear(x, weight) + F.linear(self.lora_dropout(x), lora_weight)
-
+        return result + self.lora_scaler * lora_result
+    
     def _quantize_weight(self, weight: torch.Tensor, quantizer: Optional[torch.Tensor]) -> torch.Tensor:
         if self.quant and quantizer is not None:
             return weight * quantizer.unsqueeze(-1)
@@ -99,82 +80,23 @@ class LinearWithLoRA(nn.Linear):
             self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
             self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
 
-        if self.mos_lora:
-            self.weight_ab_mixer = nn.Parameter(torch.empty((self.lora_rank, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
-            if self.quant:
-                self.weight_ab_mixer_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
-            self._init_weight('weight_ab_mixer')
-
         self._init_weight('weight_a')
         self._init_weight('weight_b')
-
-    def _init_weight(self, weight_name: str):
-        weight = getattr(self, weight_name)
-        init_method = getattr(self, f"{weight_name}_init_method")
-        init_kwargs = self.get_weight_init_kwargs(weight_name, init_method)
-        self.get_weight_init_method(**init_kwargs)(weight)
-
-    def get_weight_init_kwargs(self, weight_name: str, method: Optional[str] = None) -> Dict[str, Any]:
-        init_configs = {
-            'weight_a': {None:{'std': 1 / (self.in_features ** 0.5), 'mean': 0.0}},
-            'weight_b': {None:{'method':'zeros'},
-                         'guassian':{'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0},
-                         'unit':{'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0}}
-            ,
-            'weight_ab_mixer': {
-                None: {'method': 'kaiming', 'a': 5**0.5, 'mode': 'fan_in'},
-                'gaussian': {'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0}
-            }
-        }
-
-        if weight_name in init_configs:
-            return init_configs[weight_name].get(method, init_configs[weight_name][None])
-        
-        raise ValueError(f"Unknown weight name: {weight_name}")
-
-    def get_weight_init_method(self, **init_kwargs) -> Any:
-        method = init_kwargs.get('method', None)
-        
-        init_methods = {
-            None: partial(nn.init.normal_, mean=init_kwargs.get('mean', 0), 
-                          std=init_kwargs.get('std', 1)),
-            'kaiming': partial(nn.init.kaiming_uniform_, a=init_kwargs.get('a', 5**0.5), 
-                               mode=init_kwargs.get('mode', 'fan_in')),
-            'xavier': nn.init.xavier_normal_,
-            'zeros': nn.init.zeros_,
-            'unit': partial(nn.init.normal_, std=init_kwargs.get('std', 1), 
-                            mean=init_kwargs.get('mean', 0)),
-            'orthogonal': nn.init.orthogonal_
-        }
-
-        if method in init_methods:
-            return init_methods[method]
-        
-        raise ValueError(f"Unknown initialization method: {method}")
             
-    def _compute_lora(self): 
+    def _compute_lora_weight(self): 
         if self.has_lora_weights:
             # Compute lora weight.
             weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
             weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
-            if self.mos_lora:
-                # When using vanilla lora, the ab mixer is a identical matrix
-                weight_ab_mixer = self._quantize_weight(self.weight_ab_mixer, self.weight_ab_quantizer)
-                weight_a_forward = torch.matmul(weight_ab_mixer, weight_a)
-                lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a_forward)
-            else:
-                lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
+            lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
             return lora_weight
         
     def _merge_lora(self) -> bool:
         # Merge the lora weight into full rank weight if possible.
         if self.has_lora_weights:
             # Compute lora weight.
-            lora_weight = self._compute_lora()
-            if self.dora:
-                self.weight.data = self._apply_dora(self.weight, lora_weight)
-            else:
-                self.weight.data += lora_weight
+            lora_weight = self._compute_lora_weight()
+            self.weight.data += lora_weight
             return True
         return False
 
@@ -186,9 +108,8 @@ class LinearWithLoRA(nn.Linear):
             self._init_lora_weights()
         else:
             if self._merge_lora():
-                std = (1 / self.in_features)**0.5
-                nn.init.normal_(self.weight_a, mean=0, std=std)
-                nn.init.zeros_(self.weight_b)
+                self._init_weight('weight_a')
+                self._init_weight('weight_b')
                 if self.quant:
                     self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
                     self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
@@ -233,88 +154,51 @@ class LinearWithLoRA(nn.Linear):
             is_not_None = self.weight_a is not None and self.weight_b is not None
         return has_attr and is_not_None
 
+    def _init_weight(self, weight_name: str):
+        weight = getattr(self, weight_name)
+        init_method = getattr(self, f"{weight_name}_init_method")
+        init_kwargs = self.get_weight_init_kwargs(weight_name, init_method)
+        self.get_weight_init_method(**init_kwargs)(weight)
+
+    def get_weight_init_kwargs(self, weight_name: str, method: Optional[str] = None) -> Dict[str, Any]:
+        init_configs = {
+            'weight_a': {None:{'std': 1 / (self.in_features ** 0.5), 'mean': 0.0}},
+            'weight_b': {None:{'method':'zeros'},
+                         'guassian':{'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0},
+                         'unit':{'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0}}
+            ,
+            'weight_ab_mixer': {
+                None: {'method': 'kaiming', 'a': 5**0.5, 'mode': 'fan_in'},
+                'gaussian': {'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0}
+            }
+        }
+
+        if weight_name in init_configs:
+            return init_configs[weight_name].get(method, init_configs[weight_name][None])
+        
+        raise ValueError(f"Unknown weight name: {weight_name}")
+
+    def get_weight_init_method(self, **init_kwargs) -> Any:
+        method = init_kwargs.get('method', None)
+        
+        init_methods = {
+            None: partial(nn.init.normal_, mean=init_kwargs.get('mean', 0), 
+                          std=init_kwargs.get('std', 1)),
+            'kaiming': partial(nn.init.kaiming_uniform_, a=init_kwargs.get('a', 5**0.5), 
+                               mode=init_kwargs.get('mode', 'fan_in')),
+            'xavier': nn.init.xavier_normal_,
+            'zeros': nn.init.zeros_,
+            'unit': partial(nn.init.normal_, std=init_kwargs.get('std', 1), 
+                            mean=init_kwargs.get('mean', 0)),
+            'orthogonal': nn.init.orthogonal_
+        }
+
+        if method in init_methods:
+            return init_methods[method]
+        
+        raise ValueError(f"Unknown initialization method: {method}")
+    
     def print_details(self) -> None:
         print(f"LinearWithLoRA Layer: in_features={self.in_features}, out_features={self.out_features}")
-        print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, Quantized: {self.quant}, DoRA: {self.dora}")
+        print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, Quantized: {self.quant}")
             
-
-if __name__ == '__main__':
-    from common.lora_modules.lora_set_up import switch_to_lora
-    
-    use_dora = False
-    plora_steps = None
-    # initialize test
-    linear = LinearWithLoRA(in_features=2048, 
-                            out_features=2048, 
-                            lora_rank=8, 
-                            lora_scaler=32, 
-                            use_dora=use_dora,
-                            use_mos_lora=True, 
-                            quant=False, 
-                            plora_steps=plora_steps)
-    linear.weight.data = torch.randn(2048,2048)
-    # linear.weight_b.data = torch.randn(2048, 8)
-
-    print(linear.weight)
-    linear.merge_and_reset()
-    print(linear.weight)
-
-    # forward test
-    print(linear(torch.randn(2048,2048)))
-    linear.print_details()
-
-    model = nn.Transformer(num_encoder_layers=0)
-    print(model)
-    switch_to_lora(model, ['linear'], transposition=False)
-    for name, module in model.named_modules():
-        if isinstance(module, LinearWithLoRA):
-            module.merge_and_reset()
-            print(module.in_features, module.out_features, module.weight.shape)
-    # switch_to_lora(model, ['norm'], transposition=True) # result in a assert error 
-
-    # backward test
-    class TestModel(nn.Module):
-        def __init__(self, in_features, out_features, lora_rank, lora_scaler, lora_dropout, use_dora, quant, plora_steps):
-            super().__init__()
-            self.linear = LinearWithLoRA(in_features, out_features, lora_rank, lora_scaler, lora_dropout, use_dora, quant, plora_steps)
-
-        def forward(self, x):
-            return self.linear(x)
-
-    def test_lora_gradient():
-        # Set up the model
-        in_features = 64
-        out_features = 64
-        lora_rank = 4
-        lora_scaler = 32.0
-        lora_dropout = 0.1
-        use_dora = True
-        quant = False
-        plora_steps = None
-
-        model = TestModel(in_features, out_features, lora_rank, lora_scaler, lora_dropout, use_dora, quant, plora_steps)
-        # model.linear.merge_and_del()
-
-        # Generate some random input and target
-        input_data = torch.randn(32, in_features)
-        target_data = torch.randn(32, out_features)
-
-        # Forward pass
-        output = model(input_data)
-
-        # Compute the loss
-        loss = nn.MSELoss()(output, target_data)
-
-        # Backward pass
-        loss.backward()
-
-        # Check if the gradients are not None
-        for name, param in model.named_parameters():
-            if param.grad is None:
-                print(f"{name}'s gradient is None")
-
-        print("Test passed: Gradients are not None.")
-
-    test_lora_gradient()
-
-
