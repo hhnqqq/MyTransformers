@@ -1,10 +1,4 @@
-# @author: haonan he
-# @date: 2024-04-02
-""" Implements LORA with multiple techniques such as DORA. 
-To merge the LORA weight with full rank weight for faster inference, 
-locate every LinearWithLoRA layer and call the merge_and_del method. 
-Afterward, the LinearWithLoRA will function similarly to a normal Linear layer, 
-eliminating the need to replace LinearWithLoRA with Linear. """
+""" Implements VeRA"""
 import torch
 import torch.nn as nn
 
