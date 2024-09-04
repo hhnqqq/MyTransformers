@@ -58,7 +58,7 @@ def main(args):
         floder_path = os.path.dirname(args.ckpt)
     else:
         floder_path = os.path.dirname(args.pretrained_ckpt)
-    if os.path.isdir(floder_path):
+    if os.path.exists(floder_path) and os.path.isdir(floder_path):
         config_path = os.path.join(floder_path, 'config.json')
         training_config = Namespace(**json.load(open(config_path, 'r')))
     else:
@@ -73,7 +73,8 @@ def main(args):
     else:
         model_config.dtype = "fp32"
     model_config.quant = args.quant
-    model_config.tokenizer = training_config.tokenizer_path if training_config is not None else args.tokenizer
+    # model_config.tokenizer = args.tokenizer
+    model_config.tokenizer = args.tokenizer if args.tokenizer is not None else training_config.tokenizer_path 
     print(model_config.tokenizer)    
 
     # Seed random.
@@ -87,12 +88,11 @@ def main(args):
         if args.use_lora:
             print("Replacing model with lora layers")
             switch_to_lora(model, 
+            args=training_config,
             replace_names=training_config.replace_modules if training_config is not None else model_config.lora_layers, 
-            rank=training_config.lora_rank, 
-            use_dora=training_config.use_dora,
-            use_mos_lora=args.use_mos_lora)
+            rank=training_config.lora_rank, )
 
-        if args.ckpt is not None:
+        if args.pretrained_ckpt or args.ckpt is not None:
             print("load checkpoint")
             load_ckpt(model=model.model, ckpt_path=args.pretrained_ckpt, partial_ckpt_path=args.ckpt)
             print(f"loaded weight at{args.ckpt}")
@@ -105,6 +105,12 @@ def main(args):
     print(f'The dtype of the model is {model_config.dtype}')
     print('======================================')
     # Print the prompts and results.
+
+    if training_config:
+        args.meta_prompt = training_config.meta_prompt
+        args.prefix = training_config.prefix
+        args.postfix = training_config.postfix
+    print(f'Using meta prompt {args.meta_prompt}, prefix {args.prefix}, postfix {args.postfix}')
 
     if args.prompt is not None:
         result = model.generate(args.prompt, device, output_len=512)
@@ -131,8 +137,8 @@ def main(args):
         with tqdm(range(iter_start, iter_end, args.batch_size), desc='runing dataset', disable=disable) as tbar:
             for i in tbar:
                 start, end = i, i+(args.batch_size-1)
-                inputs = df.loc[start:end, 'input'].to_list()
-                results = model.generate(inputs ,device, output_len=args.output_len, eos=True)[0]
+                inputs = df.loc[start:end, 'input'].apply(lambda x: args.meta_prompt + args.prefix + x + args.post_fix).to_list()
+                results = model.generate(inputs ,device, output_len=args.output_len, eos=False)[0]
                 results = [result.strip("<|begin_of_text|>") for result in results]
                 for idx, result in enumerate(results):
                     if result == df.loc[i+idx, 'output']:
@@ -170,8 +176,9 @@ Enter clear() to clear meta prompt and prefix:'''))
                 args.prefix = ''
                 args.meta_prompt = ''
             else:
-                prompt = args.meta_prompt + args.prefix + user_input + args.prefix
-                result = model.generate(prompt, device, output_len=args.output_len, eos=True)
+                # Make sure the meta prompt is correct.
+                prompt = args.meta_prompt + args.prefix + user_input +args.postfix
+                result = model.generate(prompt, device, output_len=args.output_len, eos=False)
                 print('======================================')
                 print(f'RESULT: {result}')
                 print('======================================')
@@ -185,17 +192,18 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained_ckpt", type=str, default=None)
     # parser.add_argument("--ckpt", type=str, default=None)
     parser.add_argument("--tokenizer", type=str, default='/home/bingxing2/ailab/scx6mh7/workspace/llama/llama2_tokenizer.model')
-    parser.add_argument("--meta_prompt", type=str, default="Our objective is to learn how to accurately identify splice sites within DNA sequences, including acceptor site, donor site, or non-splice site. please carefully identify the splice site for the follow dna surrended by special word:")
+    parser.add_argument("--meta_prompt", type=str, default='')
     parser.add_argument("--dataset_path", type=str, default=None)
     parser.add_argument("--read_num", type=int, default=None)
     parser.add_argument('--tqdm', action='store_true')
-    parser.add_argument("--prefix", type=str, default=r"%dna%")
-    parser.add_argument("--model-name",
+    parser.add_argument("--prefix", type=str, default='<|start_header_id|>user<|end_header_id|>\n\n')
+    parser.add_argument("--postfix", type=str, default='<|start_header_id|>assistant<|end_header_id|>\n\n')
+    parser.add_argument("--model_name",
                         type=str,
-                        default="llama2")
+                        default="llama3")
     parser.add_argument("--variant",
                         type=str,
-                        default="7b",
+                        default="8b",
                         choices=["test","2b", "7b", "8b"])
     parser.add_argument("--device",
                         type=str,
@@ -206,7 +214,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_mos_lora', action='store_true')
     parser.add_argument("--use_dora", action='store_true')
     parser.add_argument("--lora_rank", type=int, default=4)
-    parser.add_argument("--output_len", type=int, default=32)
+    parser.add_argument("--output_len", type=int, default=128)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--quant", action='store_true')
     parser.add_argument("--prompt", type=str, default=None)
