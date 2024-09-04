@@ -22,6 +22,8 @@ def base_parser():
                         help='This argument is useful when train model base on previous trainable params from previous experiment.')
     parser.add_argument('--tb-log-dir', type=str, default=None,
                         help='Path of tensorboard log dir')
+    parser.add_argument('--profile-log-dir', type=str, default=None,
+                        help='Path of profiler log dir')
     parser.add_argument('--dataset-class-name', type=str, default='iterable')
     return parser
 
@@ -147,6 +149,9 @@ def dataset_parser(parser):
                        help='The prefix added to the input')
     group.add_argument('--postfix', type=str, default=None,
                        help='The postfix added to the input')
+    group.add_argument('--prompt-path', type=str, default=None)
+    group.add_argument('--batching-stretegy', type=str, default='padding', choices=['padding', 'packing'],
+                       help='The stretegy for batching dataset')
     
     return parser
 
@@ -164,6 +169,8 @@ def peft_parser(parser):
                        help='Whether to use LoRA+')
     group.add_argument('--use-mos-lora', action='store_true',
                        help='Whether to use mos lora')
+    group.add_argument('--use-me-lora', action='store_true',
+                       help='Whether to use me lora')
     group.add_argument('--lora-fa', action='store_true',
                        help='Whether to use LoRA FA')
     group.add_argument('--lora-rank', type=int, default=8,
@@ -270,6 +277,12 @@ def get_args():
     if args.multimodal:
         if args.multimodal_projector_type == 'mlp':
             assert args.multimodal_projector_layers > 1, 'Mlp module layer count must greater than 1'
+
+    if args.prompt_path:
+        prompt_info = json.load(open(args.prompt_path, 'r'))
+        args.meta_prompt = prompt_info['meta_prompt']
+        args.prefix = prompt_info['prefix']
+        args.postfix = prompt_info['postfix']
     return args
 
 def overwrite_args_by_dict(args, overwrite_args={}):
