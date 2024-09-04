@@ -1,10 +1,5 @@
-# @author: haonan he
+# @author: haoyuan li
 # @date: 2024-04-02
-""" Implements LORA with multiple techniques such as DORA. 
-To merge the LORA weight with full rank weight for faster inference, 
-locate every LinearWithLoRA layer and call the merge_and_del method. 
-Afterward, the LinearWithLoRA will function similarly to a normal Linear layer, 
-eliminating the need to replace LinearWithLoRA with Linear. """
 import torch
 import torch.nn as nn
 
@@ -17,13 +12,9 @@ class LinearWithVeRA(LinearWithLoRA):
         lora_rank: int = 4,
         lora_scaler: float = 32.0,
         lora_dropout: Optional[float] = None,
-        use_dora: bool = False,
-        use_mos_lora: bool = False,
         quant: bool = False,
-        plora_steps: Union[int, None] = None,
         weight_a_init_method: Optional[str] = None,
         weight_b_init_method: Optional[str] = None,
-        weight_ab_mixer_init_method: Optional[str] = None,
         scaling_vector_b_init_method: str = 'zero',
         scaling_vector_d_init_method: str = 'ones'
     ):
@@ -47,13 +38,9 @@ class LinearWithVeRA(LinearWithLoRA):
                          lora_rank,
                          lora_scaler,
                          lora_dropout,
-                         use_dora,
-                         use_mos_lora,
                          quant,
-                         plora_steps,
                          weight_a_init_method,
-                         weight_b_init_method,
-                         weight_ab_mixer_init_method)
+                         weight_b_init_method)
         self._init_scaling_vectors(scaling_vector_b_init_method, scaling_vector_d_init_method)
     
     def _init_lora_weights(self):
@@ -61,18 +48,12 @@ class LinearWithVeRA(LinearWithLoRA):
         requires_grad = not self.quant
 
         # Initialize shared matrix a and b, and frozen them.
-        self.weight_a = nn.Parameter(torch.randn((self.lora_rank, self.in_features), dtype=dtype), requires_grad=False)
-        self.weight_b = nn.Parameter(torch.randn((self.out_features, self.lora_rank), dtype=dtype), requires_grad=False)
+        self.weight_a = nn.Parameter(torch.randn((self.lora_rank, self.in_features), dtype=dtype), requires_grad=requires_grad)
+        self.weight_b = nn.Parameter(torch.randn((self.out_features, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
 
         if self.quant:
             self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
             self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
-
-        if self.mos_lora:
-            self.weight_ab_mixer = nn.Parameter(torch.empty((self.lora_rank, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
-            if self.quant:
-                self.weight_ab_mixer_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
-            self._init_weight('weight_ab_mixer')
 
         self._init_weight('weight_a')
         self._init_weight('weight_b')

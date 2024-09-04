@@ -1,6 +1,6 @@
 # @author: haonan he
 # @date: 2024-04-02
-""" Implements LORA with multiple techniques such as DORA. 
+""" Implements LORA with powerful methods like merge_and_reset. 
 To merge the LORA weight with full rank weight for faster inference, 
 locate every LinearWithLoRA layer and call the merge_and_del method. 
 Afterward, the LinearWithLoRA will function similarly to a normal Linear layer, 
@@ -32,10 +32,9 @@ class LinearWithLoRA(nn.Linear):
             out_features (int): Number of output features.
             lora_rank (int, optional): Rank of LoRA decomposition. Default is 4.
             lora_scaler (float, optional): Scaler for LoRA weights. Default is 32.0.
-            use_dora (bool, optional): Whether to use DoRA (Weight-Decomposed Low-Rank Adaptation). Default is False.
-            use_mos_lora (bool, optional): Whether to use MosLoRA (Mixture-of-Subspaces in Low-Rank Adaptation). Default is False.
             quant (bool, optional): Whether to apply weight quantization. Default is False.
-            plora_steps (Union(int, None), optional): Steps to merge and reset lora weight.  Deault is None.
+            weight_a_init_method (str, optional): The init method for weight_a.
+            weight_b_init_method (str, optional): The init method for weight_b.
         """
         super().__init__(in_features, out_features, bias=False)
         self.lora_rank = lora_rank
@@ -143,9 +142,6 @@ class LinearWithLoRA(nn.Linear):
     def weight_b_quantizer(self) -> Optional[torch.Tensor]:
         return getattr(self, "weight_b_scaler", None)
     
-    @property
-    def weight_ab_quantizer(self) -> Optional[torch.Tensor]:
-        return getattr(self, "weight_ab_scaler", None)
     
     @property
     def has_lora_weights(self):
@@ -199,6 +195,6 @@ class LinearWithLoRA(nn.Linear):
         raise ValueError(f"Unknown initialization method: {method}")
     
     def print_details(self) -> None:
-        print(f"LinearWithLoRA Layer: in_features={self.in_features}, out_features={self.out_features}")
+        print(f"{self.__class__.__name__} Layer: in_features={self.in_features}, out_features={self.out_features}")
         print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, Quantized: {self.quant}")
             

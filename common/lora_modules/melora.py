@@ -15,15 +15,18 @@ class LinearWithMELoRA(LinearWithLoRA):
         weight_a_init_method: Optional[str] = None,
         weight_b_init_method: Optional[str] = None,
         me_lora_n_split: int = 2):
-        self.melora_n_split = me_lora_n_split
-        self.lora_rank = lora_rank
-        self.in_features = in_features
-        self.out_features = out_features
+        """
+        Initialize the LinearWithMosLoRA layer.
 
-        self._check_exact_division()
-        self.mini_lora_rank = int(self.lora_rank / self.melora_n_split)
-        self.mini_in_features = int(self.in_features / self.melora_n_split)
-        self.mini_out_features = int(self.out_features / self.melora_n_split)
+        Args:
+            me_lora_n_split int: Number of groups of LoRA weight.
+
+        Note:
+            For detailed explanations of in_features, out_features, lora_rank, lora_scaler, 
+            lora_dropout, quant, weight_a_init_method, and weight_b_init_method, 
+            please refer to the parent class LinearWithLoRA.
+        """
+        self._prepare_melora_attrs(me_lora_n_split, lora_rank, in_features, out_features)
         super().__init__(in_features,
                          out_features,
                          lora_rank,
@@ -34,6 +37,17 @@ class LinearWithMELoRA(LinearWithLoRA):
                          weight_b_init_method)
         if quant:
             print(f'Currently MELoRA is incompatible with quant, skipped quant')
+
+    def _prepare_melora_attrs(self, me_lora_n_split, lora_rank, in_features, out_features):
+        self.melora_n_split = me_lora_n_split
+        self.lora_rank = lora_rank
+        self.in_features = in_features
+        self.out_features = out_features
+
+        self._check_exact_division()
+        self.mini_lora_rank = int(self.lora_rank / self.melora_n_split)
+        self.mini_in_features = int(self.in_features / self.melora_n_split)
+        self.mini_out_features = int(self.out_features / self.melora_n_split)
 
     def _check_exact_division(self):
         if self.lora_rank % self.melora_n_split != 0:
