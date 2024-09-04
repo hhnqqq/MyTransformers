@@ -1,5 +1,4 @@
-# @author: haoyuan li
-# @date: 2024-04-02
+""" Implements VeRA"""
 import torch
 import torch.nn as nn
 
@@ -26,10 +25,7 @@ class LinearWithVeRA(LinearWithLoRA):
             out_features (int): Number of output features.
             lora_rank (int, optional): Rank of LoRA decomposition. Default is 4.
             lora_scaler (float, optional): Scaler for LoRA weights. Default is 32.0.
-            use_dora (bool, optional): Whether to use DoRA (Weight-Decomposed Low-Rank Adaptation). Default is False.
-            use_mos_lora (bool, optional): Whether to use MosLoRA (Mixture-of-Subspaces in Low-Rank Adaptation). Default is False.
             quant (bool, optional): Whether to apply weight quantization. Default is False.
-            plora_steps (Union(int, None), optional): Steps to merge and reset lora weight.  Deault is None.
             scaling_vector_b_init_method (str, optional): Initialization method for scaling vector b. ['zero', 'ones', 'small_constant', 'random']. Default is 'zeros'.
             scaling_vector_d_init_method (str, optional): Initialization method for scaling vector d. ['zero', 'ones', 'small_constant', 'random']. Default is 'ones'.
         """
@@ -45,7 +41,6 @@ class LinearWithVeRA(LinearWithLoRA):
     
     def _init_lora_weights(self):
         dtype = torch.int8 if self.quant else None
-        requires_grad = not self.quant
 
         # Initialize shared matrix a and b, and frozen them.
         self.weight_a = nn.Parameter(torch.randn((self.lora_rank, self.in_features), dtype=dtype), requires_grad=requires_grad)
@@ -97,12 +92,8 @@ class LinearWithVeRA(LinearWithLoRA):
             # Compute lora weights.
             weight_a = self._quantize_weight(adapted_weight_a, self.weight_a_quantizer)
             weight_b = self._quantize_weight(adapted_weight_b, self.weight_b_quantizer)
-            if self.mos_lora:
-                # When using vanilla lora, the ab mixer is a identical matrix
-                weight_ab_mixer = self._quantize_weight(self.weight_ab_mixer, self.weight_ab_quantizer)
-                weight_a_forward = torch.matmul(weight_ab_mixer, weight_a)
-                lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a_forward)
-            else:
-                lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
+
+            lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
 
             return lora_weight
+        
