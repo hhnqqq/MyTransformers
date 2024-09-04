@@ -1,5 +1,8 @@
 # @Author: haonan he
 # @modified by: zhijian jiang
+"""
+THIS FILE IS NO LONGER GEING USED!!!
+"""
 import re
 import json
 import math
@@ -89,14 +92,19 @@ class BaseDataset(Dataset):
         self.tokenizer = tokenizer
         self.max_len = max_len
         self.max_src_len = max_src_len
-        self.meta_prompt = self.tokenizer.encode(meta_prompt, bos=True, eos=False) if meta_prompt is not None else []
-        self.prefix = self.tokenizer.encode(prefix, bos=False, eos=False) if prefix is not None else []
-        self.postfix = self.tokenizer.encode(postfix, bos=False, eos=True) if postfix is not None else []
+        self.has_meta_prompt = meta_prompt and prefix and postfix
+        if self.has_meta_prompt:
+            self.meta_prompt = self.tokenizer.encode(meta_prompt, bos=True, eos=False)
+            self.prefix = self.tokenizer.encode(prefix, bos=False, eos=False)
+            self.postfix = self.tokenizer.encode(postfix, bos=False, eos=True)
+        else:
+            self.meta_prompt = self.prefix = self.postfix = []
         self.train_token_count = 0 
         self.global_rank = global_rank
         self.data_path = data_path
         self.cal_metric_pos = cal_metric_pos
         self.encode_single_gene = encode_single_gene
+
         print_rank_0(f'--->using dataset: {data_path}', global_rank)
         print_rank_0(f'--->training mode: {mode}', global_rank)
         print_rank_0(f'--->tokenizer name: {type(tokenizer).__name__}', global_rank)
@@ -131,37 +139,37 @@ class BaseDataset(Dataset):
         output_ids (list): The preprocessed output sequence.
         """
         if isinstance(sample, dict) and "input_ids" in sample.keys():
+            # In case input ids has been provided in the data file.
             if isinstance(sample["input_ids"], str):
                 input_ids = eval(sample["input_ids"])
             else:
                 input_ids = sample["input_ids"]
-            input_ids = self.meta_prompt + self.prefix + input_ids + self.postfix
             self.train_token_count += len(input_ids)
             output_ids = []
         else:
             if self.mode == 'sft':
-                # In the case of sft, the input sample mast be a instance of dict.
+                # In the case of sft, the input sample must be a instance of dict.
                 input_text = sample["input"] 
                 output_text = sample["output"]
                 input_ids = (self.tokenizer.encode(input_text, bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
-                             if self.meta_prompt != [] else 
+                             if self.has_meta_prompt else 
                              self.tokenizer.encode(input_text, eos=True, bos=True, encode_single_gene=self.encode_single_gene))
                 input_ids = self.meta_prompt + self.prefix + input_ids + self.postfix
-                output_ids = self.tokenizer.encode(output_text, eos=True, encode_single_gene=self.encode_single_gene)
+                output_ids = self.tokenizer.encode(output_text, bos=True, eos=True, encode_single_gene=self.encode_single_gene)
                 self.train_token_count += len(output_ids)
             else:
                 # In the case of pretrain, the input sample can be a single string.
                 if isinstance(sample, dict):
                     assert "input" in sample.keys(), "Can not find input information in the dataset"
                     input_ids = (self.tokenizer.encode(sample["input"], bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
-                                 if self.meta_prompt != [] else 
+                                 if self.has_meta_prompt else 
                                  self.tokenizer.encode(sample["input"], eos=True, bos=True, encode_single_gene=self.encode_single_gene))
                     input_ids = self.meta_prompt + self.prefix + input_ids + self.postfix
-                    input_ids += self.tokenizer.encode(sample["output"], eos=True, encode_single_gene=self.encode_single_gene) if "output" in sample.keys() else []
+                    input_ids += self.tokenizer.encode(sample["output"], bos=True, eos=True, encode_single_gene=self.encode_single_gene) if "output" in sample.keys() else []
                 elif isinstance(sample, str):
                     input_ids = (self.tokenizer.encode(sample, bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
-                                 if self.meta_prompt != [] else 
-                                 self.tokenizer.encode(sample, eos=True, bos=False, encode_single_gene=self.encode_single_gene))
+                                 if self.has_meta_prompt else 
+                                 self.tokenizer.encode(sample, bos=True, eos=True, encode_single_gene=self.encode_single_gene))
                     input_ids = self.meta_prompt + self.prefix + input_ids + self.postfix
                 else:
                     raise ValueError("You are using a not supported file format, please use jsonl or txt.")
@@ -353,7 +361,7 @@ class MultimodalDNADataSet(BaseDataset):
         if self.mode == 'sft':
             input_text, output_text = self._extract_texts(sample)
             self._process_text(input_text, input_ids, dna_ids, dna_ids_indicater, pos, pattern, first_text_piece_tag)
-            output_ids = self.tokenizer.encode(output_text, eos=True, encode_single_gene=self.encode_single_gene)
+            output_ids = self.tokenizer.encode(output_text, bos=True, eos=True, encode_single_gene=self.encode_single_gene)
             input_ids += self.postfix
         else:
             input_text, output_text = self._extract_texts(sample)
@@ -418,7 +426,7 @@ class MultimodalDNADataSet(BaseDataset):
             if pos < start:
                 if first_text_piece_tag:
                     word_ids = (self.tokenizer.encode(input_text[pos:start], bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
-                                if self.meta_prompt != [] else 
+                                if self.has_meta_prompt else 
                                 self.tokenizer.encode(input_text[pos:start], bos=True, eos=False, encode_single_gene=self.encode_single_gene))
                     word_ids = self.meta_prompt + self.prefix + word_ids
                     first_text_piece_tag = False
