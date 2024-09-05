@@ -368,6 +368,6 @@ if __name__ == '__main__':
         # When any error occurs during the training process, log the error.
         traceback_info = traceback.format_exc()
         if args.global_rank == 0:
-            print(traceback_info, args.global_rank, logging.ERROR)
-        else:
             print(traceback_info)
+        else:
+            print_rank_0(traceback_info, args.global_rank, logging.ERROR)
