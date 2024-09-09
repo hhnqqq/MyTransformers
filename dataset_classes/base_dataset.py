@@ -1,6 +1,8 @@
 # @Author: haonan he
+import os
 import json
 import torch
+import logging
 from tqdm import tqdm
 from typing import Optional
 
@@ -72,6 +74,7 @@ class BaseDataset(Dataset):
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False
     ):
+    
         with open(data_path, "r", encoding="utf-8") as fh:
             if read_nums is None:
                 read_nums = sum(1 for _ in fh)
@@ -87,6 +90,11 @@ class BaseDataset(Dataset):
         self.max_src_len = max_src_len
         self.has_meta_prompt = meta_prompt and prefix and postfix
         self.has_prefix_postfix = prefix and postfix
+        self.train_token_count = 0 
+        self.global_rank = global_rank
+        self.data_path = data_path
+        self.cal_metric_pos = cal_metric_pos
+        self.encode_single_gene = encode_single_gene
         if self.has_meta_prompt:
             # eos id is only use for end the output of model.
             self.meta_prompt = self.tokenizer.encode(meta_prompt, bos=True, eos=False)
@@ -97,11 +105,15 @@ class BaseDataset(Dataset):
             self.postfix = self.tokenizer.encode(postfix, bos=False, eos=False) 
         else:
             self.meta_prompt = self.prefix = self.postfix = []
-        self.train_token_count = 0 
-        self.global_rank = global_rank
-        self.data_path = data_path
-        self.cal_metric_pos = cal_metric_pos
-        self.encode_single_gene = encode_single_gene
+        
+        if max_src_len > max_len:
+            # To ensure the assertion error would not be triggered.
+            self.max_len = max_src_len
+            self.max_src_len = max_len
+            print_rank_0(f'--->max_src_len is greater than max_len, swraped', global_rank)
+        else:
+            self.max_len = max_len
+            self.max_src_len = max_src_len
 
         print_rank_0(f'--->using dataset: {data_path}', global_rank)
         print_rank_0(f'--->training mode: {mode}', global_rank)
@@ -109,6 +121,7 @@ class BaseDataset(Dataset):
         print_rank_0(f'--->using meta prompt: {meta_prompt}, prefix: {prefix}, postfix: {postfix}', global_rank)
 
     def process_data_file(self):
+        # Enable a tqdm progress bar.
         with open(self.data_path, "r", encoding="utf-8") as fh:
             with tqdm(fh, total=self.read_nums, desc='loading the dataset', disable=(self.global_rank != 0), mininterval=self.mininterval) as tbar:
                     for i, line in enumerate(tbar):
@@ -174,15 +187,16 @@ class BaseDataset(Dataset):
                 self.train_token_count += len(output_ids)
             else:
                 # In the case of pretrain, the input sample can be a single string.:
-                input_ids += self.tokenizer.encode(output_text, bos=False, eos=True, encode_single_gene=self.encode_single_gene) if "output" in sample.keys() else []
+                # Make sure that the output text can be tokenized.
+                input_ids += self.tokenizer.encode(output_text, bos=False, eos=True, encode_single_gene=self.encode_single_gene) if output_text is not None else []
                 self.train_token_count += len(input_ids)
                 output_ids = []
 
         if len(input_ids) > self.max_src_len:
-            print_rank_0(f'--->Length of source data excceed: required length: {len(input_ids)} while max source length: {self.max_src_len}, cuttfing off', self.global_rank)
+            print(f'--->Length of source data excceed at rank {self.global_rank}: required length: {len(input_ids)} while max source length: {self.max_src_len}, cuttfing off')
             input_ids = input_ids[:self.max_src_len]
         if len(output_ids) > (self.max_len - len(input_ids)):
-            print_rank_0(f'--->Length of entire data instance excceed, cuttfing off', self.global_rank)
+            print(f'--->Length of entire data instance excceed at rank {self.global_rank}, cuttfing off')
             output_ids = output_ids[:(self.max_len - len(input_ids))]
         input_len = len(input_ids)
         output_len = len(output_ids)
@@ -211,6 +225,8 @@ class BaseDataset(Dataset):
 
     def _extract_texts(self, sample):
         if self.mode == 'sft':
+            if not isinstance(sample, dict):
+                print_rank_0(r'--->Error! Traning mode is sft while sample is not a dict.', self.global_rank, logging.ERROR)
             return sample["input"], sample["output"]
         else:
             if isinstance(sample, dict):
