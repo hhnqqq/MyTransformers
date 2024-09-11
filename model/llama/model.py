@@ -441,11 +441,12 @@ class LlamaGenerate(nn.Module):
 
         prev_pos = 0
         eos_reached = torch.tensor([False] * bsz, device=device)
+        eot_reached = torch.tensor([False] * bsz, device=device)
         input_text_mask = tokens != pad_id
 
         # remove kv cache from attention attrs, for unified API
         caches_kv = []
-        for _ in range(params.num_hidden_layers):
+        for _ in range(params.n_layers):
             n_kv_heads = params.n_kv_heads if params.n_kv_heads else params.n_heads
             size = (bsz, params.max_seq_len, n_kv_heads,
                     params.head_dim)
@@ -495,8 +496,11 @@ class LlamaGenerate(nn.Module):
             eos_reached |= (~input_text_mask[:, cur_pos]) & (
                 next_token == self.tokenizer.eos_id
             )
+            eot_reached |= (~input_text_mask[:, cur_pos]) & (
+                next_token == self.tokenizer.eot_id
+            )
             prev_pos = cur_pos
-            if all(eos_reached):
+            if all(eos_reached) or all(eot_reached):
                 break
 
         if logprobs:
@@ -514,6 +518,10 @@ class LlamaGenerate(nn.Module):
                 eos_idx = toks.index(self.tokenizer.eos_id)
                 toks = toks[:eos_idx]
                 probs = probs[:eos_idx] if logprobs else None
+            if self.tokenizer.eot_id in toks:
+                eot_idx = toks.index(self.tokenizer.eot_id)
+                toks = toks[:eot_idx]
+                probs = probs[:eot_idx] if logprobs else None
             out_tokens.append(toks)
             out_logprobs.append(probs)
             out_words.append(self.tokenizer.decode(toks))
@@ -559,6 +567,7 @@ class Llama(LlamaGenerate):
             model_args.vocab_size = self.tokenizer.n_words
         except:
             pass
+        self.tokenizer.eos_id = 1000000
         super().__init__(model_args=model_args)
 
 @registry.register_model("llama3")
