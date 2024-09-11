@@ -161,24 +161,19 @@ class BaseDataset(Dataset):
             output_ids = []
         else:
             """
-            Be careful for the use of eos_id and bos_id. 
+            Be careful for the use of special tokens and input format. 
+            Fine-tuning a chat model must exactly reproduced the official format.
             e.g. for Llama3.1-instruct: 
-            single turn:
-                input: <|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\nuser_input
-                output: <|start_header_id|>assistant<|end_header_id|>\n\nmodel_output<|end_of_text|>
-            multi turns:
-                input: <|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\nuser_input
-                output: <|start_header_id|>assistant<|end_header_id|>\n\nmodel_output<|eot_id|>           
-                input: <|start_header_id|>user<|end_header_id|>\n\nuser_input
-                output: <|start_header_id|>assistant<|end_header_id|>\n\nmodel_output<|eot_id|>
-                <eot_id> stands for end of a turn
-
+            <|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{{ system_prompt }}<|eot_id|>
+            <|start_header_id|>user<|end_header_id|>\n\n{{ user_msg_1 }}<|eot_id|>
+            <|start_header_id|>assistant<|end_header_id|>\n\n{{ model_answer_1 }}<|eot_id|>
             In this code base:
                 set: 
-                prefix=<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n and use bos to encode
-                postfix=<|start_header_id|>assistant<|end_header_id|>\n\n
+                meta_prompt=<|start_header_id|>system<|end_header_id|>\n\n{{ system_prompt }}<|eot_id|>
+                prefix=<|start_header_id|>user<|end_header_id|>\n\n
+                postfix=<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n
 
-                and only use eos in output ids
+                The final input ids list will equals to [bos id] + meta_prompt + prefix + input + postfix + output + [eot id]
             """
             input_text, output_text = self._extract_texts(sample)
             input_ids = self._process_text(input_text)
