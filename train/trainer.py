@@ -3,6 +3,7 @@ import json
 import math
 import torch
 import logging
+import deepspeed.comm as comm
 
 from typing import Callable
 from argparse import Namespace
@@ -36,6 +37,7 @@ class Trainer:
               eval_data_loader:DataLoader = None,
               backward_step: Callable = None,
               eval_step: Callable = None,
+              profiler: Callable = None,
               log_loss: bool = False):
         """
         Training loop for the model.
@@ -63,15 +65,21 @@ class Trainer:
                 loss, metric = forward_step(model, train_data_loader, self.args, step)   
                 # Accumulate loss and metric for gradient accumulation.
                 if loss.isnan() or loss.isinf():
-                    print_rank_0('Skipping backward and optimizer step for nan or inf in forwarding loss!', self.args.global_rank)
+                    print(f'Skipping backward and optimizer step for nan or inf in forwarding loss at rank {self.args.global_rank}!')
                     self.all_loss += 0.0
                     self.all_metric.append({})
                 else:
-                    self.all_loss += loss.item()
+                    if 'loss_reduced' in metric.keys():
+                        # If we have reduced loss, then report it rather than loss at rank 0.
+                        self.all_loss += metric['loss_reduced'].item()
+                    else:
+                        self.all_loss += loss.item()
                     self.all_metric.append(metric)            
                     # Execute the backward step if provided (optional) to update model parameters.
                     if backward_step:
-                        backward_step(model, optimizer, loss)          
+                        backward_step(model, optimizer, loss)     
+                    if profiler:
+                        profiler.step()     
                 # Manage and print training information. 
                 # Evaluate the model at intervals specified by eval_interval.
                 if (step + 1) % self.args.eval_interval == 0 and eval_step is not None:
@@ -124,7 +132,7 @@ class Trainer:
                     avg_loss = self.all_loss / self.args.show_avg_loss_step
                     remaining_time = timer.calculate_remaining_time()
                     # Prepare the string to print with step number, average loss, and time.
-                    print_str = f"--->step={self.global_step}, avg_loss={avg_loss:.4f}, avg_time={avg_time:.2f}s"
+                    print_str = f"--->step={self.global_step}, avg_loss={avg_loss:.8f}, avg_time={avg_time:.2f}s"
                     print_time_str = f", remaining_time={remaining_time}, remaining_steps:{self.args.num_update_steps - step}"
 
                     # Log the average loss to Tensorboard.
@@ -141,14 +149,14 @@ class Trainer:
                     self.all_loss = 0.0
                     self.all_metric = []
 
-            if (step + 1) % self.args.eval_interval == 0 and self.eval_loss != 0.0:
+            if (step + 1) % self.args.eval_interval == 0 and self.eval_loss:
                 if self.eval_loss is None:
                     print_str = "Eval loss is None!"
                 else:
                     print_str = f"--->step={self.global_step}, eval_loss={self.eval_loss:.4f}"
                 if self.get_task_print and self.eval_loss is not None:
                     print_str += self.get_task_print(self.eval_metric, self.args)   
-                print_rank_0(print_str)
+                print_rank_0(print_str, self.args.global_rank, loss_level)
                 if self.writer is not None and self.args.global_rank == 0:
                     self.writer.add_scalar('eval_loss', self.eval_loss, self.global_step)
                 self.eval_loss = 0.0
