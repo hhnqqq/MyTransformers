@@ -23,6 +23,7 @@ class MultimodalDNADataSet(BaseDataset):
         postfix: str = 'A:',
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False,
+        padding: bool = True,
         multimodal_tokenizer = None,
         *args,
         **kwargs):
@@ -40,7 +41,8 @@ class MultimodalDNADataSet(BaseDataset):
         prefix,
         postfix,
         cal_metric_pos,
-        encode_single_gene
+        encode_single_gene,
+        padding
         )
         self.dna_tokenizer = multimodal_tokenizer
         self.project_token_num = kwargs.get('multimodal_k_tokens', 32)

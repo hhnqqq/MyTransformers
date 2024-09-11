@@ -1,6 +1,6 @@
 import json
 import math
-import random
+import numpy as np
 from typing import Optional
 
 from dataset_classes import BaseDataset
@@ -11,6 +11,21 @@ from common.registry import registry
 
 @registry.register_dataset('iterable')
 class BaseIterableDataset(IterableDataset, BaseDataset):
+    """
+    BaseIterableDataset is an iterable dataset class that inherits from both IterableDataset and BaseDataset.
+    It is registered under the name 'iterable' in the registry.
+
+
+    Args:
+        shuffle (bool, optional): Whether to shuffle the dataset. Defaults to False.
+        num_dp_ranks (Optional[int], optional): Number of data parallel ranks. Defaults to None.
+        dp_rank (Optional[int], optional): Data parallel rank. Defaults to None.
+        *args: Additional positional arguments.
+        **kwargs: Additional keyword arguments.
+
+    Note:
+        For detailed explanations of other parameters, please refer to the parent class BaseDataset.
+    """
     def __init__(
         self,
         data_path: str,
@@ -28,6 +43,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         dp_rank: Optional[int] = None,
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False,
+        padding: bool = True,
         *args,
         **kwargs
     ):
@@ -44,28 +60,63 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         prefix,
         postfix,
         cal_metric_pos,
-        encode_single_gene
+        encode_single_gene,
+        padding
     )
+        self.init_parallel(shuffle, num_dp_ranks, dp_rank, read_nums)
+
+    def init_parallel(self, shuffle, num_dp_ranks, dp_rank, read_nums):
+        """
+        Initialize parallel processing settings for the dataset.
+
+
+        Args:
+            shuffle (bool): Whether to shuffle the dataset.
+            num_dp_ranks (Optional[int]): Number of data parallel ranks.
+            dp_rank (Optional[int]): Data parallel rank.
+            read_nums (Optional[int]): Number of samples to read.
+        """
         self.shuffle = shuffle
+
         if num_dp_ranks and dp_rank is not None:
-            self.dp = True
+            """
+            For instance:
+                Assume data parallel group [0, 1, 2, 3], training with a dataset composed of 1000 samples.
+                In this case, read_nums_per_rank=1000/4=250 
+                rank0 read range is [0:250], rank1 read range is [250:500] and so on
+            """
+            # Calculate the number of samples to read per rank
             read_nums_per_rank = math.ceil(self.read_nums / num_dp_ranks)
             self.start = read_nums_per_rank * dp_rank
             self.end = min(read_nums_per_rank * (dp_rank + 1), self.read_nums)
             print_rank_0(f'--->global rank:{self.global_rank} read range [{self.start}:{self.end}]', self.global_rank, force_print=True)
         else:
+            # If no data parallel ranks are specified, read all samples
             self.start = 0
             self.end = self.read_nums
+
         if shuffle:
             # Make sure random seed has been set
-            dataset_rng = random.Random(42)
-            read_indices = list(range(self.read_nums))
+            print_rank_0(f'--->Dataset shuffle is enabled', self.global_rank)
+            dataset_rng = np.random.default_rng(42)
             if read_nums is not None:
-                read_indices = dataset_rng.sample(read_indices, read_nums)
+                # Randomly select indices for reading
+                read_indices = dataset_rng.choice(self.read_nums, size=read_nums, replace=False)
             else:
-                dataset_rng.shuffle(read_indices)
-            self.read_indices = read_indices[self.start:self.end]
-        
+                """
+                Equals to:
+                    read_indices = list(range(self.read_nums))
+                    random.shuffle(read_indices)
+                This code will shuffle the read indices first, then split them to respective parallel rank.
+                """
+                read_indices = dataset_rng.permutation(self.read_nums)
+        else:
+            # If no shuffling, use sequential indices
+            read_indices = list(range(self.read_nums))
+
+        # Slice the read indices based on the calculated start and end positions
+        self.read_indices = read_indices[self.start:self.end]
+
     def _load_sample(self, i, line):
         try:
             sample = json.loads(line.strip())

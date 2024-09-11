@@ -1,15 +1,66 @@
 import json
-import math
-import random
+import mmap
 import bisect
+import subprocess
 from typing import Optional, List
 
 from collections.abc import Iterable
 from model.tokenizer import BaseTokenizer
 from common.utils import print_rank_0
 from common.registry import registry
+from common.utils import print_rank_0
 from dataset_classes.base_dataset import BaseDataset
 from dataset_classes.iterable_dataset import BaseIterableDataset
+
+def get_line_count(file_path):
+    result = subprocess.run(['wc', '-l', file_path], capture_output=True, text=True)
+    return int(result.stdout.split()[0])
+
+class MmapDataset:
+    """A dataset class that uses memory-mapped file for efficient line access.
+
+
+    Attributes:
+        filename (str): The path to the file to be memory-mapped.
+        file (file object): The file object opened in read-binary mode.
+        mm (mmap.mmap): The memory-mapped file object.
+        line_offsets (list of int): The list of offsets for the start of each line in the file.
+    """
+    def __init__(self, filename):
+        """Initializes MmapDataset with the given filename.
+        
+        Args:
+            filename (str): The path to the file to be memory-mapped.
+        """
+        self.filename = filename
+        self.file = open(filename, 'r+b')
+        self.mm = mmap.mmap(self.file.fileno(), 0)
+        self.line_offsets = self._index_lines()
+
+    def _index_lines(self):
+        """Indexes the starting offset of each line in the memory-mapped file.
+    
+        Returns:
+            list of int: The list of offsets for the start of each line in the file.
+        """
+        offsets = [0]
+        self.mm.seek(0)
+        for line in iter(self.mm.readline, b''):
+            offsets.append(self.mm.tell())
+        return offsets[:-1]
+
+    def __getitem__(self, idx):
+        if idx < 0 or idx >= len(self.line_offsets):
+            raise IndexError("Index out of range")
+        self.mm.seek(self.line_offsets[idx])
+        return self.mm.readline().decode().strip()
+
+    def __len__(self):
+        return len(self.line_offsets)
+
+    def __del__(self):
+        self.mm.close()
+        self.file.close()
 
 @registry.register_dataset('concat')
 class ConcatDataset(BaseDataset):
@@ -23,10 +74,11 @@ class ConcatDataset(BaseDataset):
     """
 
     @staticmethod
-    def cumsum(sequence, weights):
+    def cumsum(dataset_paths, weights):
         r, s = [], 0
-        for i, e in enumerate(sequence):
-            l = int(len(e) * weights[i])
+        for i, e in enumerate(dataset_paths):
+            dataset_len = get_line_count(e)
+            l = int(dataset_len * weights[i])
             r.append(l + s)
             s += l
         return r
@@ -52,6 +104,7 @@ class ConcatDataset(BaseDataset):
         postfix: str='A:',
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False,
+        padding: bool = True,
         weights: Optional[List[int]] = None,
         *args,
         **kwargs
@@ -69,12 +122,13 @@ class ConcatDataset(BaseDataset):
         postfix,
         cal_metric_pos,
         encode_single_gene,
+        padding,
         weights
     )
         self.process_data_file()
 
     def build_data(self, 
-        data_paths: str, 
+        data_paths: List[str], 
         tokenizer: BaseTokenizer, 
         max_len: int, 
         max_src_len: int, 
@@ -86,10 +140,12 @@ class ConcatDataset(BaseDataset):
         postfix: str = 'A:', 
         cal_metric_pos: int | None = None, 
         encode_single_gene: bool = False,
+        padding: bool = True,
         weights: Optional[List[int]] = None):
-        temp_read_nums = read_nums
+        if isinstance(data_paths, str):
+            data_paths = [data_paths]
         self.validate_data_paths(data_paths)
-        super().build_data(data_paths[0], # Avoid error in the base dataset class.
+        super().build_data(data_paths, # Avoid error in the base dataset class.
                            tokenizer, 
                            max_len, 
                            max_src_len, 
@@ -100,20 +156,24 @@ class ConcatDataset(BaseDataset):
                            prefix, 
                            postfix, 
                            cal_metric_pos, 
-                           encode_single_gene)
-        self.datasets = [open(data_path, 'r').readlines() for data_path in data_paths]
+                           encode_single_gene,
+                           padding)
+        self.datasets = [MmapDataset(data_path) for data_path in data_paths]
         if weights is None:
             self.weights = [1] * len(self.datasets)
         else:
+            print_rank_0(f'Using dataset weights: {weights}', self.global_rank)
             self.weights = weights
-        self.cumulative_sum = self.cumsum(self.datasets, self.weights)
-        if temp_read_nums is None:
+        self.cumulative_sum = self.cumsum(data_paths, self.weights)
+        if read_nums is None:
+            # reset read nums to the last item of cumulative sum
+            # None -> cumulative sum. else self.read_nums = read_nums
             self.read_nums = self.cumulative_sum[-1]
 
 
     def process_data_file(self):
         count = 0
-        stop = False  # 添加一个标志变量
+        stop = False  
 
         for weight, dataset_lines in zip(self.weights, self.datasets):
             for repeat in range(weight):
@@ -144,7 +204,7 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
     
     def __init__(
         self,
-        data_paths: str,
+        data_paths: List[str],
         tokenizer: BaseTokenizer,
         max_len: int,
         max_src_len: int,
@@ -159,6 +219,7 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
         dp_rank: Optional[int] = None,
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False,
+        padding: bool = True,
         weights: Optional[List[int]] = None,
         *args,
         **kwargs):
@@ -176,37 +237,32 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
         postfix,
         cal_metric_pos,
         encode_single_gene,
+        padding,
         weights
     )
-        self.shuffle = shuffle
-        if num_dp_ranks and dp_rank is not None:
-            self.dp = True
-            read_nums_per_rank = math.ceil(self.read_nums / num_dp_ranks)
-            self.start = read_nums_per_rank * dp_rank
-            self.end = min(read_nums_per_rank * (dp_rank + 1), self.read_nums)
-            print_rank_0(f'--->global rank:{self.global_rank} read range [{self.start}:{self.end}]', self.global_rank, force_print=True)
-        else:
-            self.start = 0
-            self.end = self.read_nums
-        if shuffle:
-            # Make sure random seed has been set
-            dataset_rng = random.Random(42)
-            read_indices = list(range(self.read_nums))
-            if read_nums is not None:
-                read_indices = dataset_rng.sample(read_indices, read_nums)
-            else:
-                dataset_rng.shuffle(read_indices)
-            self.read_indices = read_indices[self.start:self.end]
+        BaseIterableDataset.init_parallel(self, shuffle, num_dp_ranks, dp_rank, read_nums)
     
     def __iter__(self):
         for read_idx in self.read_indices:
+            # Determine the dataset to be chosen based on the read index.
+            # For example, with three datasets of sizes: [1000, 2000, 3000], the cumulative sum is [1000, 3000, 6000].
+            # If the read index is 1500, the dataset_index will be 1, since 1500 falls between 1000 and 3000.
+            # pre_length is set to self.cumulative_sum[1-1] = 1000.
+            # Thus, the 500th data point in the 2sd dataset will be accessed.
             dataset_index = bisect.bisect_right(self.cumulative_sum, read_idx)
             dataset = self.datasets[dataset_index]
 
-            line = dataset[read_idx-self.cumulative_sum[dataset_index]]
+            pre_length = 0 if dataset_index == 0 else self.cumulative_sum[dataset_index-1]
+            adjusted_read_idx = read_idx - pre_length
+            if self.weights[dataset_index] > 1:
+                adjusted_read_idx = adjusted_read_idx % len(dataset)
+            line = dataset[adjusted_read_idx]
             if line:
                 sample = BaseIterableDataset._load_sample(self, read_idx, line)
                 yield BaseIterableDataset.process_sample(self, sample)
+
+    def __len__(self):       
+        return self.read_nums
 
 
 if __name__ == "__main__":
@@ -217,25 +273,30 @@ if __name__ == "__main__":
     from torch.utils.data import DataLoader
     from model.tokenizer import Llama3Tokenizer
     from deepspeed.utils import RepeatingLoader
+    from dataset_classes.packing_dataset import IterablePackingDataset
 
     set_random_seed(114514)
     os.environ['NO_LOG_FILE'] = 'true'
-    file_path = ['/home/bingxing2/ailab/group/ai4bio/public/qatext/dna-train.jsonl',
-                 '/home/bingxing2/ailab/group/ai4bio/public/qatext/dna-test.jsonl']
+    file_path = ["/home/bingxing2/ailab/group/ai4bio/public/multi-omics/RNA/pretraining/rnalm/human/nocoding/noncoding_rna_human_single_tag.txt",
+                "/home/bingxing2/ailab/group/ai4bio/public/multi-omics/protein/pretrain/uniref50_2m.txt",
+                "/home/bingxing2/ailab/group/ai4bio/renyuchen/pretraining_data/human8k/GRCh38_2k.txt"]
     tokenizer_path = '/home/bingxing2/ailab/scx6mh7/workspace/llama/llama3_tokenizer.model'
     tokenizer = Llama3Tokenizer(tokenizer_path)
     data_collator = DataCollator(tokenizer)
 
     iterable_dataset = IterableConcatDataset(file_path,
                                        tokenizer,
-                                       max_len=650,
-                                       max_src_len=600,
-                                       mode='sft',
-                                       prefix='<|start_header_id|>user<|end_header_id|>\n\n',
-                                       postfix='<|start_header_id|>assistant<|end_header_id|>\n\n',
-                                       meta_prompt='<|start_header_id|>system<|end_header_id|>\n\nYou are a knowledgeable and helpful biology assistant. Please answer my biology sequence-related questions in a clear and concise manner.',
-                                       shuffle=True)
+                                       max_len=1100,
+                                       max_src_len=1100,
+                                       mode='pretrain',
+                                       prefix=None,
+                                       postfix=None,
+                                       meta_prompt=None,
+                                       shuffle=True,
+                                       padding=False,
+                                       weights=[2,1,1])
         
+    iterable_dataset = IterablePackingDataset(iterable_dataset, 1100)
     g = torch.Generator()
     dataloader = RepeatingLoader(DataLoader(iterable_dataset,
                             collate_fn=data_collator,
@@ -245,4 +306,5 @@ if __name__ == "__main__":
                             generator=g))
     
     for i, data in enumerate(dataloader):
+        # pass
         print(data)

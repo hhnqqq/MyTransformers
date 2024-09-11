@@ -9,6 +9,7 @@ When using packed datasets, different samples are concatenated into a fixed-size
 This strategy helps to avoid excessive padding IDs in training data, especially when sample lengths vary widely.
 """
 
+import torch
 from tqdm import tqdm
 
 from torch.utils.data import Dataset, IterableDataset
@@ -46,19 +47,35 @@ class IterablePackingDataset(IterableDataset):
         self.chunk_size = chunk_size
 
         self.buffer = {
-            "input_ids": [],
-            "attention_mask": [],
-            "labels": [],
+            "input_ids": torch.LongTensor([]),
+            # "attention_mask": [],
+            "labels": torch.LongTensor([]),
+            # "cal_metric_pos": []
             }
         
     def __iter__(self):
         for sample in self.dataset:
-            self.buffer = {k: v + sample[k] for k,v in self.buffer.items()}
+            for k, v in self.buffer.items():
+                sample_val = sample.get(k)
+                if sample_val is not None:
+                    if isinstance(v, torch.Tensor):
+                        if not isinstance(sample_val, torch.Tensor):
+                            sample_val = torch.tensor(sample_val)
+                        self.buffer[k] = torch.cat((v, sample_val), dim=-1)
+                    else:
+                        self.buffer[k] += sample_val
+                # If sample_val is None, skip updating the buffer for this key
 
-            while len(next(iter(self.buffer.values()))) > self.chunk_size:
-                sample = ({k: v[:self.chunk_size] for k,v in self.buffer.items()})
-                self.buffer = {k: v[self.chunk_size:] for k,v in self.buffer.items()}
-                yield sample
+            buffer_values = [v for v in self.buffer.values() if v is not None]
+            buffer_length = len(next(iter(buffer_values))) if buffer_values else 0
+            while buffer_length > self.chunk_size:
+                chunk = {k: v[:self.chunk_size] for k, v in self.buffer.items() if v is not None}
+                self.buffer = {k: v[self.chunk_size:] for k, v in self.buffer.items() if v is not None}
+                yield chunk
 
-    def __len__(self):       
+                buffer_values = [v for v in self.buffer.values() if v is not None]
+                buffer_length = len(next(iter(buffer_values))) if buffer_values else 0
+
+
+    def __len__(self):
         return len(self.dataset)
