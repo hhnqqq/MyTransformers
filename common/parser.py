@@ -22,7 +22,7 @@ def base_parser():
                         help='This argument is useful when train model base on previous trainable params from previous experiment.')
     parser.add_argument('--tb-log-dir', type=str, default=None,
                         help='Path of tensorboard log dir')
-    parser.add_argument('--profile-log-dir', type=str, default=None,
+    parser.add_argument('--profile-log-dir', type=str, default=None,   
                         help='Path of profiler log dir')
     parser.add_argument('--dataset-class-name', type=str, default='iterable')
     return parser
@@ -152,6 +152,7 @@ def dataset_parser(parser):
     group.add_argument('--prompt-path', type=str, default=None)
     group.add_argument('--batching-stretegy', type=str, default='padding', choices=['padding', 'packing'],
                        help='The stretegy for batching dataset')
+    group.add_argument('--dataset-weights', type=str, default=None)
     
     return parser
 
