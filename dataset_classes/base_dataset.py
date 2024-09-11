@@ -179,18 +179,22 @@ class BaseDataset(Dataset):
             input_ids = self._process_text(input_text)
             if self.mode == 'sft':
                 # In the case of sft, the input sample must be a instance of dict.
-                output_ids = self.tokenizer.encode(output_text, bos=False, eos=True, encode_single_gene=self.encode_single_gene)
+                output_ids = self.tokenizer.encode(output_text, bos=False, eos=False, encode_single_gene=self.encode_single_gene)
                 self.train_token_count += len(output_ids)
             else:
                 # In the case of pretrain, the input sample can be a single string.:
                 # Make sure that the output text can be tokenized.
-                input_ids += self.tokenizer.encode(output_text, bos=False, eos=True, encode_single_gene=self.encode_single_gene) if output_text is not None else []
+                input_ids += [] if output_text is None else self.tokenizer.encode(output_text, bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
                 self.train_token_count += len(input_ids)
                 output_ids = []
 
-        if not output_text:
+        if self.mode == 'pretrain':
             # Make sure that the last token id is eos id
             input_ids.append(self.tokenizer.eos_id)
+        else:
+            # In the case of sft, try to acquire eot id (Only exist in Llama3Tokenzier class)
+            output_ids.append(getattr(self.tokenizer, "eot_id", self.tokenizer.eos_id))
+
         if len(input_ids) > self.max_src_len:
             print(f'--->Length of source data excceed at rank {self.global_rank}: required length: {len(input_ids)} while max source length: {self.max_src_len}, cuttfing off')
             input_ids = input_ids[:self.max_src_len]
