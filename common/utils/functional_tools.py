@@ -18,7 +18,6 @@ import traceback
 
 from inspect import signature
 from functools import wraps, partial
-from traceback import format_exc
 
 def print_progress_bar(iteration=None, 
                        total=None, 

@@ -1,7 +1,5 @@
-import os
-
 from common.utils import print_rank_0
-from common.lora_modules import LinearWithLoRA
+from common.lora import LinearWithLoRA
 
 def format_param_count(num_params):
     if num_params >= 1e9:

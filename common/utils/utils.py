@@ -192,7 +192,7 @@ class DataCollator():
         for instance in examples:
             input_ids = instance["input_ids"]
             labels = instance["labels"]
-            cal_metric_pos = instance["cal_metric_pos"]
+            cal_metric_pos = instance.get("cal_metric_pos", None)
             dna_ids = instance.get("dna_ids", None)
             before_dna= instance.get("before_dna", None)
             input_ids_list.append(input_ids) 
@@ -251,7 +251,7 @@ def init_dist(args):
     else:
         device = 'cpu'
     if args.num_sp_stages:
-        assert args.atten_type == 'ulysses_atten', 'when using sequence parallism, the attention type must be `ulysses_atten`'
+        assert 'ulysses' in args.atten_type, 'when using sequence parallism, the attention type must be `ulysses_atten`'
         parallel_states.initialize_model_parallel(sequence_model_parallel_size=args.num_sp_stages)
     elif args.num_pp_stages:
         parallel_states.initialize_model_parallel(pipeline_model_parallel_size=args.num_pp_stages)
