@@ -30,6 +30,9 @@ if args.test_code:
 args = registry.get_paths(args)
 set_random_seed(args.seed)
 
+print_rank_0(f'--->Data parallel world size: {parallel_states.get_data_parallel_world_size()}', args.global_rank)
+print_rank_0(f'--->Sequence parallel world size: {parallel_states.get_sequence_parallel_world_size()}', args.global_rank)
+print_rank_0(f'--->Pipeline parallel world size: {parallel_states.get_pipeline_model_parallel_world_size()}', args.global_rank)
 print_rank_0('--->loading the model', args.global_rank)
 print_rank_0(f'--->registry contains {registry.list_all()}', args.global_rank)
 
@@ -70,6 +73,8 @@ def load_local_model(args):
     if args.multimodal:
         set_up_multimodal_config(model_config, args)
         return_dataset_kwargs['multimodal_k_tokens'] = args.multimodal_k_tokens
+    if 'concat' in args.dataset_class_name and args.dataset_weights is not None:
+        return_dataset_kwargs['weights'] = [int(i) for i in args.dataset_weights.split('_')]
     print_rank_0(f'--->Using model config: {config_type}', args.global_rank)
     model_config.vocab_size = tokenizer.n_words
     model = registry.get_model_class(args.model_name)(model_config)
@@ -128,10 +133,23 @@ dataset_kargs = dict(mode=args.mode,
                     meta_prompt=args.meta_prompt,
                     prefix=args.prefix,
                     postfix=args.postfix,
+                    padding=(args.batching_stretegy == 'padding'),
                     **return_dataset_kwargs)
 
 dataset_class = registry.get_dataset_class(args.dataset_class_name)
 print_rank_0(f'--->Using dataset class: {args.dataset_class_name}', args.global_rank)
+"""
+GPUs=8 sp=4 pp=1 tp=1 dp=2
+In this case rank group [0,1,2,3] share the same data sample, and split on BaseModel.cut_sequence()
+
+GPUs=8 sp=1 pp=1 tp=1 dp=8
+In this case non of the ranks share the same data sample.
+
+dp_rank parameter controls who share same data sample.
+"""
+dp_rank = parallel_states.get_data_parallel_rank()
+num_dp_rank = parallel_states.get_data_parallel_world_size()
+
 train_dataset = dataset_class(args.train_dataset_path, 
                                 tokenizer, 
                                 max_len=args.max_len, 
@@ -139,14 +157,14 @@ train_dataset = dataset_class(args.train_dataset_path,
                                 read_nums=args.read_nums,
                                 shuffle=True,
                                 encode_single_gene=args.encode_single_gene,
-                                num_dp_ranks=parallel_states.get_data_parallel_world_size(),
-                                dp_rank=parallel_states.get_data_parallel_rank(),
+                                num_dp_ranks=num_dp_rank,
+                                dp_rank=dp_rank,
                                 **dataset_kargs)
 if args.batching_stretegy == 'packing':
     if isinstance(train_dataset, IterableDataset):
-        train_dataset = IterablePackingDataset(train_dataset)
+        train_dataset = IterablePackingDataset(train_dataset, chunk_size=args.max_len)
     else:
-        train_dataset = PackingDataset(train_dataset)
+        train_dataset = PackingDataset(train_dataset, chunk_size=args.max_len)
 
 g = torch.Generator()
 train_dataloader = DataLoader(train_dataset,
@@ -174,7 +192,7 @@ if args.eval_dataset_path is not None:
 
     if args.batching_stretegy == 'packing':
         if isinstance(eval_dataset, IterableDataset):
-            eval_dataset = IterablePackingDataset(eval_dataset)
+            eval_dataset = IterablePackingDataset(eval_dataset, chunk_size=args.eval_max_len)
         else:
             eval_dataset = PackingDataset(eval_dataset)
             
@@ -266,7 +284,7 @@ if __name__ == '__main__':
         with record_function("get_data"):
             batch = next(data_loader)
             batch = to_device(batch, args.device)
-            print(batch)
+            
         with record_function("forward_path"):
             if args.huggingface:
                 loss = model(**batch).loss
@@ -366,8 +384,9 @@ if __name__ == '__main__':
                         log_loss=True)
     except Exception as e:
         # When any error occurs during the training process, log the error.
+        # Note that only the error occured in the rank 0 will be logged into file.
         traceback_info = traceback.format_exc()
         if args.global_rank == 0:
-            print(traceback_info)
-        else:
             print_rank_0(traceback_info, args.global_rank, logging.ERROR)
+        else:
+            print(traceback_info)
