@@ -27,7 +27,7 @@ class BaseModel(nn.Module):
         seq_parallel_world_rank = parallel_states.get_sequence_parallel_rank()
         if self.args.atten_type is not None and 'ulysses' in self.args.atten_type:
             assert self.args.max_len % seq_parallel_world_size == 0, 'Max input length is not divisble by sequence parallel stages.'
-            assert self.args.head_nums % seq_parallel_world_size == 0, 'Attention head num is not divisble by sequence parallel stages.'
+            assert self.args.head_num % seq_parallel_world_size == 0, 'Attention head num is not divisble by sequence parallel stages.'
             # Split the input ids and lables and freqs cis for deepspeed-ulysses.
             seq_len_per_group = self.args.max_len // seq_parallel_world_size
             local_seq_start = seq_parallel_world_rank * seq_len_per_group
