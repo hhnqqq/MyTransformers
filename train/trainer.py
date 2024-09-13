@@ -240,14 +240,17 @@ class Trainer:
 
         if isinstance(dataloader, RepeatingLoader):
             dataset = dataloader.data_iter.dataset
-            trained_token_count = dataloader.trained_token_count 
+            train_token_count = dataloader.train_token_count 
             if isinstance(dataset, BaseDataset):
-                trained_token_count += dataset.train_token_count
+                train_token_count += dataset.train_token_count
+        else:
+            train_token_count = 0
+
         if optimizer and lr_scheduler:
             ckpt_to_save = {'model_state_dict':model_state_dict,
                             'optimizer_state_dict':optimizer.state_dict(),
                             'lr_scheduler_state_dict':lr_scheduler.state_dict(),
-                            'trained_token_count':trained_token_count}
+                            'trained_token_count':train_token_count}
         else:
             ckpt_to_save = model_state_dict
         torch.save(ckpt_to_save, save_path)
