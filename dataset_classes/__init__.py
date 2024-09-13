@@ -4,9 +4,11 @@ from dataset_classes.iterable_dataset import IterableDataset
 from dataset_classes.packing_dataset import PackingDataset, IterablePackingDataset
 from dataset_classes.dna_multimodal_dataset import MultimodalDNADataSet    
 
+from torch.utils.data import DataLoader
+
 class RepeatingLoader:
 
-    def __init__(self, loader):
+    def __init__(self, loader: DataLoader):
         """Wraps an iterator to allow for infinite iteration. This is especially useful
         for DataLoader types that we wish to automatically restart upon completion.
 
@@ -15,6 +17,7 @@ class RepeatingLoader:
         """
         self.loader = loader
         self.data_iter = iter(self.loader)
+        self.trained_token_count = 0
 
     def __iter__(self):
         return self
@@ -23,6 +26,8 @@ class RepeatingLoader:
         try:
             batch = next(self.data_iter)
         except StopIteration:
+            if isinstance(self.loader.dataset, BaseDataset):
+                self.trained_token_count += self.data_iter.dataset.trained_token_count
             print("--->Start a new iteration for repeating loader.")
             self.data_iter = iter(self.loader)
             batch = next(self.data_iter)
