@@ -8,7 +8,7 @@ from typing import Callable
 from argparse import Namespace
 from torch.utils.data import DataLoader
 
-from dataset_classes import RepeatingLoader
+from dataset_classes import RepeatingLoader, BaseDataset
 from common.utils import parallel_states as parallel_states
 from common.utils import Timer, print_rank_0, ensure_directory_exists
 
@@ -238,7 +238,11 @@ class Trainer:
             model_state_dict = model.module.state_dict()
         
 
-        trained_token_count = 0 if not isinstance(dataloader, RepeatingLoader) else dataloader.trained_token_count 
+        if isinstance(dataloader, RepeatingLoader):
+            dataset = dataloader.data_iter.dataset
+            trained_token_count = dataloader.trained_token_count 
+            if isinstance(dataset, BaseDataset):
+                trained_token_count += dataset.train_token_count
         if optimizer and lr_scheduler:
             ckpt_to_save = {'model_state_dict':model_state_dict,
                             'optimizer_state_dict':optimizer.state_dict(),
