@@ -6,16 +6,16 @@ import torch
 import deepspeed
 import torch.distributed
 from datetime import datetime
-from torch.utils.data import DataLoader, IterableDataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from torch.utils.data import DataLoader, IterableDataset, DistributedSampler
 
-import common.utils.parallel_states as parallel_states
 from model import *
-from train.trainer import Trainer
 from common.lora_modules import *
+from train.trainer import Trainer
+from common.parser import get_args
 from common.registry import registry
 from common.optimizer import get_optimizer
-from common.parser import get_args
+import common.utils.parallel_states as parallel_states
 from dataset_classes import PackingDataset, IterablePackingDataset, RepeatingLoader
 from common.utils.params_manager import refresh_config, set_up_trainable_param, set_up_multimodal_config
 from common.utils import (
@@ -129,12 +129,12 @@ else:
 setup_lora(model, args, model_config)
 data_collator = PipeLine_Datacollator(tokenizer) if args.num_pp_stages else DataCollator(tokenizer)
 dataset_kargs = dict(mode=args.mode, 
-                    global_rank=args.global_rank,
-                    meta_prompt=args.meta_prompt,
-                    prefix=args.prefix,
-                    postfix=args.postfix,
-                    padding=(args.batching_stretegy == 'padding'),
-                    **return_dataset_kwargs)
+                     global_rank=args.global_rank,
+                     meta_prompt=args.meta_prompt,
+                     prefix=args.prefix,
+                     postfix=args.postfix,
+                     padding=(args.batching_stretegy == 'padding'),
+                     **return_dataset_kwargs)
 
 dataset_class = registry.get_dataset_class(args.dataset_class_name)
 print_rank_0(f'--->Using dataset class: {args.dataset_class_name}', args.global_rank)
@@ -151,15 +151,17 @@ dp_rank = parallel_states.get_data_parallel_rank()
 num_dp_rank = parallel_states.get_data_parallel_world_size()
 
 train_dataset = dataset_class(args.train_dataset_path, 
-                                tokenizer, 
-                                max_len=args.max_len, 
-                                max_src_len=args.max_src_len,
-                                read_nums=args.read_nums,
-                                shuffle=True,
-                                encode_single_gene=args.encode_single_gene,
-                                num_dp_ranks=num_dp_rank,
-                                dp_rank=dp_rank,
-                                **dataset_kargs)
+                              tokenizer, 
+                              max_len=args.max_len, 
+                              max_src_len=args.max_src_len,
+                              read_nums=args.read_nums,
+                              shuffle=True,
+                              dp_rank=dp_rank,
+                              num_dp_ranks=num_dp_rank,
+                              encode_single_gene=args.encode_single_gene,
+                              **dataset_kargs)
+is_iterable_dataset = isinstance(train_dataset, IterableDataset)
+dataset_sampler = None if is_iterable_dataset else DistributedSampler
 if args.batching_stretegy == 'packing':
     if isinstance(train_dataset, IterableDataset):
         train_dataset = IterablePackingDataset(train_dataset, chunk_size=args.max_len)
@@ -171,6 +173,7 @@ train_dataloader = DataLoader(train_dataset,
                               collate_fn=data_collator,
                               shuffle=False,
                               drop_last=True,
+                              sampler=dataset_sampler,
                               batch_size=args.batch_size_per_gpu,
                               generator=g)
 print_rank_0(f"--->TRAIN DATALOADER LENGTH: len(train_dataloader) = {len(train_dataloader)}", args.global_rank)
@@ -180,15 +183,15 @@ train_dataloader_iter = (RepeatingLoader(train_dataloader))
 
 if args.eval_dataset_path is not None:
     eval_dataset = dataset_class(args.eval_dataset_path, 
-                                    tokenizer, 
-                                    max_len=args.eval_max_len,
-                                    max_src_len=args.eval_max_src_len,
-                                    read_nums=args.eval_read_nums,
-                                    shuffle=True,
-                                    encode_single_gene=args.encode_single_gene,
-                                    num_dp_ranks=parallel_states.get_data_parallel_world_size(),
-                                    dp_rank=parallel_states.get_data_parallel_rank(),
-                                    **dataset_kargs)
+                                 tokenizer, 
+                                 max_len=args.eval_max_len,
+                                 max_src_len=args.eval_max_src_len,
+                                 read_nums=args.eval_read_nums,
+                                 shuffle=True,
+                                 encode_single_gene=args.encode_single_gene,
+                                 num_dp_ranks=num_dp_rank,
+                                 dp_rank=dp_rank,
+                                 **dataset_kargs)
 
     if args.batching_stretegy == 'packing':
         if isinstance(eval_dataset, IterableDataset):
@@ -197,11 +200,12 @@ if args.eval_dataset_path is not None:
             eval_dataset = PackingDataset(eval_dataset)
             
     eval_dataloader = DataLoader(eval_dataset,
-                            collate_fn=data_collator,
-                            shuffle=False,
-                            drop_last=True,
-                            batch_size=args.eval_batch_size_per_gpu,
-                            generator=g)
+                                 collate_fn=data_collator,
+                                 shuffle=False,
+                                 drop_last=True,
+                                 sampler=dataset_sampler,
+                                 batch_size=args.eval_batch_size_per_gpu,
+                                 generator=g)
     print_rank_0(f"--->EVAL DATALOADER LENGTH: len(eval_dataloader) = {len(eval_dataloader)}", args.global_rank)
     print_rank_0(f"--->EVAL DATASET LENGTH: = {len(eval_dataset)}", args.global_rank)
     print_rank_0(f"--->EVAL BATCH SIZE PER GPU: args.eval_batch_size_per_gpu = {args.eval_batch_size_per_gpu}", args.global_rank)
@@ -214,13 +218,16 @@ ds_config = refresh_config(ds_config, args)
 
 assert args.train_iters is not None or args.epochs is not None, 'train_iters and epochs can not be None at the same time'
 if args.epochs is not None:
-    update_steps_one_epoch = math.ceil(len(train_dataloader)/parallel_states.get_data_parallel_world_size())
-    args.num_update_steps = args.epochs * (math.ceil(update_steps_one_epoch / (args.gradient_accumulation_steps)))
+    update_steps_denominator = num_dp_rank if is_iterable_dataset else 1
+    micro_update_steps_one_epoch = math.ceil(len(train_dataloader) / update_steps_denominator)
+    args.num_micro_update_steps = args.epochs * (math.ceil(micro_update_steps_one_epoch))
 else:
-    args.num_update_steps = args.train_iters/args.gradient_accumulation_steps
-args.num_warmup_steps = int(args.num_update_steps * args.warmup) + 1
+    args.num_micro_update_steps = args.train_iters
+args.num_warmup_steps = int(args.num_micro_update_steps * args.warmup) + 1
+args.num_global_update_steps = math.ceil(args.num_micro_update_steps / args.gradient_accumulation_steps)
 ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = args.num_warmup_steps
-print_rank_0(f"--->NUMBER OF UPDATE STEPS: args.num_update_steps = {args.num_update_steps}", args.global_rank)
+print_rank_0(f"--->NUMBER OF MICRO UPDATE STEPS: args.num_micro_update_steps = {args.num_micro_update_steps}", args.global_rank)
+print_rank_0(f"--->NUMBER OF GLOBAL UPDATE STEPS: args.num_global_update_steps = {args.num_global_update_steps}", args.global_rank)
 print_rank_0(f"--->NUMBER OF WARMUP STEPS: args.num_warmup_steps = {args.num_warmup_steps}", args.global_rank)
 print_rank_0(f"--->Base learning rate is {args.lr}", args.global_rank)
 # start tranning
@@ -261,14 +268,14 @@ if __name__ == '__main__':
         # if args.wandb:
         #     wandb.init(project=args.experiment_name,
         #                config=args,
-        #                entiry='Shanghai AI Lab',
+        #                entity='Shanghai AI Lab',
         #                sync_tensorboard=True)
         if args.tensorboard and not args.test_code:
             try:
                 from torch.utils.tensorboard import SummaryWriter
             except ImportError:
                 from tensorboard import SummaryWriter
-            log_dir = os.path.join(args.tb_log_dir, args.experiment_name + datetime.now().strftime('%y-%m-%d'))
+            log_dir = os.path.join(args.tb_log_dir, args.experiment_name + datetime.now().strftime('%y-%m-%d_%H-%M'))
             return SummaryWriter(log_dir=log_dir)
         return None
 
@@ -281,33 +288,38 @@ if __name__ == '__main__':
             return model.eval_batch(data_loader).item()
 
     def forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
-        with record_function("get_data"):
+        with torch.profiler.record_function("get_data"):
             batch = next(data_loader)
             batch = to_device(batch, args.device)
-            
-        with record_function("forward_path"):
+
+        with torch.profiler.record_function("forward_path"):
             if args.huggingface:
                 loss = model(**batch).loss
                 metric = {}
             else:
                 loss, metric = model(**batch)
+
             if args.all_reduce_loss:
-                # this all reduce loss is not for backward, but only for average loss print.
-                # deepspeed backward the model base on on-chip loss.
-                # after acquire the on-chip gradient, all reduce to acquire the average gradient.
+                # Reduce loss for average loss print, not for backpropagation.
+                # DeepSpeed uses on-chip loss for backpropagation and all-reduces gradients afterwards.
                 loss_reduced = loss.detach().clone()
                 torch.distributed.all_reduce(loss_reduced.data)
                 loss_reduced /= args.world_size
                 metric['loss_reduced'] = loss_reduced
+
             return loss, metric
         
     def backward_step_deepspeed(model: DeepSpeedEngine, optimizer, loss):
         with record_function("backward_path"):
             model.backward(loss)
             if not args.not_clip_grad_norm:
+                # this should be disabled if deepspeep already config cliping.
+                # deepspeed/runtime/engine.py ##line 2068
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 
                                             args.clip_grad_max_norm, 
                                             args.clip_grad_norm_type)
+            # deepspeed/runtime/engine.py ##line 2134
+            # Only update model when self.is_gradient_accumulation_boundary()
             model.step()
             return model
 
@@ -343,7 +355,6 @@ if __name__ == '__main__':
 
     trainer = Trainer(args, writer)
     trainer.register_task_print(task_print)
-    args.gradient_accumulation_steps = 1  # For correctly print info.
 
     try:
         if args.profile_log_dir:
