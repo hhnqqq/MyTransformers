@@ -102,11 +102,12 @@ def get_regular_optimizer(optim_type, args, model):
             params = [p for p in model.parameters() if p.requires_grad]
 
         optimizer_class = {
-            'adamw': partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=True),
-            'adam': partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=False),
+            'adamw': partial(ds_optim.adam.FusedAdam, adamw_mode=True),
+            'adam': partial(ds_optim.adam.FusedAdam, adamw_mode=False),
+            'cpuadam':partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=True),
+            'cpuadamw':partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=True),
             'adamax': optim.Adamax,
-            'sparseadam': optim.SparseAdam,
-            'fusedadamw':optim.adam.FusedAdam
+            'sparseadam': optim.SparseAdam
         }.get(optim_type)
         
         if optimizer_class is None:
