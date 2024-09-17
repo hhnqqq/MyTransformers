@@ -1,9 +1,11 @@
 import logging
 import torch.optim as optim
+from functools import partial
+import deepspeed.ops as ds_optim
+
 from common.utils import print_rank_0
 from common.scheduler import AnnealingLR
 from transformers.utils.versions import require_version
-from deepspeed.ops.adam.fused_adam import FusedAdam
 
 def get_optimizer_type(args, ds_config):
     if args.optim_type is not None:
@@ -100,17 +102,17 @@ def get_regular_optimizer(optim_type, args, model):
             params = [p for p in model.parameters() if p.requires_grad]
 
         optimizer_class = {
-            'adamw': optim.AdamW,
-            'adam': optim.Adam,
+            'adamw': partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=True),
+            'adam': partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=False),
             'adamax': optim.Adamax,
             'sparseadam': optim.SparseAdam,
-            'fusedadamw':FusedAdam
+            'fusedadamw':optim.adam.FusedAdam
         }.get(optim_type)
         
         if optimizer_class is None:
             raise NotImplementedError('only support adam and its variants for now')
         
-        optimizer = optimizer_class(params=params,
+        optimizer = optimizer_class(params,
                                     lr=args.lr,
                                     weight_decay=args.weight_decay,
                                     eps=args.eps,
@@ -127,7 +129,7 @@ def get_learning_rate_scheduler(optimizer, iteration, args):
         lr_scheduler = AnnealingLR(optimizer,
                                 start_lr=args.lr,
                                 warmup_iter=args.num_warmup_steps,
-                                num_iters=args.num_update_steps,
+                                num_iters=args.num_micro_update_steps,
                                 decay_style=args.lr_decay_style,
                                 last_iter=init_step,
                                 decay_ratio=args.lr_decay_ratio,
