@@ -8,14 +8,14 @@ from os.path import join
 from model import *
 from common.registry import registry
 from common.utils import get_merged_state_dict
-from common.lora_modules import switch_to_lora, LinearWithLoRA
+from common.lora import switch_to_lora, LinearWithLoRA
 
 
 def convert_model_to_hf(args):
     model_config = registry.get_model_config_class(name='_'.join([args.model_name, args.variant]))()
     model_config.tokenizer = args.tokenizer
     # Number of layers of model, plus 2 additional pipeline layers
-    n_layers = model_config.num_hidden_layers + 2
+    n_layers = model_config.n_layers + 2
     if args.save_name is None:
         args.save_name = args.model_path.split('/')[-1] + '.ckpt'
     if '.ckpt' not in args.save_name:
@@ -92,14 +92,14 @@ def convert_model_to_hf(args):
 
 def set_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--pretrained_model_path',default='/home/bingxing2/ailab/scx6mh7/workspace/llama/llama2.pth', type=str, help='')
-    parser.add_argument('--model_path',default='/home/bingxing2/ailab/scx6mh7/workspace/dnallama/output/llama2_gue_pretrain_2k/final.ckpt', type=str, help='')
+    parser.add_argument('--pretrained_model_path',default='/home/bingxing2/ailab/scx6mh7/workspace/llama-3.1-chat/consolidated.00.pth', type=str, help='')
+    parser.add_argument('--model_path',default='/home/bingxing2/ailab/scx6mh7/workspace/MyTransformers/output/llama3.1_pretrain_exp_2/final.ckpt', type=str, help='')
     parser.add_argument('--pipeline_model', action='store_true')
-    parser.add_argument('--save_model_dir', default='/home/bingxing2/ailab/scx6mh7/workspace/dnallama/output/llama2_gue_pretrain_2k/', type=str, help='')
-    parser.add_argument('--tokenizer', default='/home/bingxing2/ailab/scx6mh7/workspace/llama/llama2_tokenizer.model',type=str)
+    parser.add_argument('--save_model_dir', default='/home/bingxing2/ailab/scx6mh7/workspace/MyTransformers/output/llama3.1_pretrain_exp_2/', type=str, help='')
+    parser.add_argument('--tokenizer', default='/home/bingxing2/ailab/scx6mh7/workspace/log',type=str)
     parser.add_argument('--save_name', default='final_full', type=str, help='')
-    parser.add_argument('--model_name', default='llama2', type=str, help='')
-    parser.add_argument('--variant', default='7b', type=str, help='')
+    parser.add_argument('--model_name', default='llama3', type=str, help='')
+    parser.add_argument('--variant', default='8b', type=str, help='')
     parser.add_argument('--rm_origin', action='store_true')
     parser.add_argument('--not_merge_lora', action='store_true')
     parser.add_argument('--fp16', action='store_true')
