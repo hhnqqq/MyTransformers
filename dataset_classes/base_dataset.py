@@ -9,6 +9,7 @@ from torch.utils.data import Dataset
 from model.tokenizer import BaseTokenizer
 from common.utils import print_rank_0
 from common.registry import registry
+from dataset_classes.dataset_tools import get_line_count
 
 @registry.register_dataset("normal")
 class BaseDataset(Dataset):
@@ -85,11 +86,14 @@ class BaseDataset(Dataset):
     
         self.mininterval=0.1
         if isinstance(data_path ,str):
-            with open(data_path, "r", encoding="utf-8") as fh:
-                if read_nums is None:
-                    read_nums = sum(1 for _ in fh)
+            line_count = get_line_count(data_path)
+            if read_nums is None:
+                    read_nums = line_count
             if read_nums > 10000:
                 self.mininterval=10
+        else:
+            line_count = None
+        self.line_count = line_count
         self.read_nums = read_nums
         self.all_data = []
         self.mode = mode
@@ -196,6 +200,7 @@ class BaseDataset(Dataset):
             output_ids.append(getattr(self.tokenizer, "eot_id", self.tokenizer.eos_id))
 
         if len(input_ids) > self.max_src_len:
+            print(input_text)
             print(f'--->Length of source data excceed at rank {self.global_rank}: required length: {len(input_ids)} while max source length: {self.max_src_len}, cuttfing off')
             input_ids = input_ids[:self.max_src_len]
         if len(output_ids) > (self.max_len - len(input_ids)):

@@ -17,7 +17,7 @@ class RepeatingLoader:
         """
         self.loader = loader
         self.data_iter = iter(self.loader)
-        self.train_token_count = 0
+        # self.train_token_count = 0
 
     def __iter__(self):
         return self
@@ -26,8 +26,8 @@ class RepeatingLoader:
         try:
             batch = next(self.data_iter)
         except StopIteration:
-            if isinstance(self.loader.dataset, BaseDataset):
-                self.train_token_count += self.data_iter.dataset.train_token_count
+            # if isinstance(self.loader.dataset, BaseDataset):
+            #     self.train_token_count += self.data_iter.dataset.train_token_count
             print("--->Start a new iteration for repeating loader.")
             self.data_iter = iter(self.loader)
             batch = next(self.data_iter)

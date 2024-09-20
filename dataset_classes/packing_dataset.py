@@ -78,4 +78,7 @@ class IterablePackingDataset(IterableDataset):
 
 
     def __len__(self):
+        # This dataset length is inaccurate for the origin dataset has been compressed.
+        # Training steps = epochs * (dataset_len // (batch_size*data_parallel_world_size))
+        # When training a model with epoch, this might cause extra training steps.
         return len(self.dataset)

@@ -1,7 +1,8 @@
 import json
-import mmap
+import math
 import bisect
-import subprocess
+import itertools
+import numpy as np
 from typing import Optional, List
 
 from collections.abc import Iterable
@@ -11,56 +12,8 @@ from common.registry import registry
 from common.utils import print_rank_0
 from dataset_classes.base_dataset import BaseDataset
 from dataset_classes.iterable_dataset import BaseIterableDataset
+from dataset_classes.dataset_tools import get_line_count, MmapDataset
 
-def get_line_count(file_path):
-    result = subprocess.run(['wc', '-l', file_path], capture_output=True, text=True)
-    return int(result.stdout.split()[0])
-
-class MmapDataset:
-    """A dataset class that uses memory-mapped file for efficient line access.
-
-
-    Attributes:
-        filename (str): The path to the file to be memory-mapped.
-        file (file object): The file object opened in read-binary mode.
-        mm (mmap.mmap): The memory-mapped file object.
-        line_offsets (list of int): The list of offsets for the start of each line in the file.
-    """
-    def __init__(self, filename):
-        """Initializes MmapDataset with the given filename.
-        
-        Args:
-            filename (str): The path to the file to be memory-mapped.
-        """
-        self.filename = filename
-        self.file = open(filename, 'r+b')
-        self.mm = mmap.mmap(self.file.fileno(), 0)
-        self.line_offsets = self._index_lines()
-
-    def _index_lines(self):
-        """Indexes the starting offset of each line in the memory-mapped file.
-    
-        Returns:
-            list of int: The list of offsets for the start of each line in the file.
-        """
-        offsets = [0]
-        self.mm.seek(0)
-        for line in iter(self.mm.readline, b''):
-            offsets.append(self.mm.tell())
-        return offsets[:-1]
-
-    def __getitem__(self, idx):
-        if idx < 0 or idx >= len(self.line_offsets):
-            raise IndexError("Index out of range")
-        self.mm.seek(self.line_offsets[idx])
-        return self.mm.readline().decode().strip()
-
-    def __len__(self):
-        return len(self.line_offsets)
-
-    def __del__(self):
-        self.mm.close()
-        self.file.close()
 
 @registry.register_dataset('concat')
 class ConcatDataset(BaseDataset):
@@ -165,10 +118,13 @@ class ConcatDataset(BaseDataset):
             print_rank_0(f'Using dataset weights: {weights}', self.global_rank)
             self.weights = weights
         self.cumulative_sum = self.cumsum(data_paths, self.weights)
+        self.line_count = self.cumulative_sum[-1]
         if read_nums is None:
             # reset read nums to the last item of cumulative sum
             # None -> cumulative sum. else self.read_nums = read_nums
-            self.read_nums = self.cumulative_sum[-1]
+            self.read_nums = self.line_count
+        else:
+            self.read_nums = read_nums
 
 
     def process_data_file(self):
@@ -199,6 +155,8 @@ class ConcatDataset(BaseDataset):
     def __len__(self):
         return self.read_nums
     
+
+    
 @registry.register_dataset('concat_iterable')
 class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
     
@@ -221,6 +179,8 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
         encode_single_gene: bool = False,
         padding: bool = True,
         weights: Optional[List[int]] = None,
+        read_sequential: bool = False,
+        start_step: int = 0,
         *args,
         **kwargs):
         ConcatDataset.build_data(
@@ -240,10 +200,47 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
         padding,
         weights
     )
-        BaseIterableDataset.init_parallel(self, shuffle, num_dp_ranks, dp_rank, read_nums)
-    
+        # ConcatDataset originally read sequential, so this feature only needed in IterableConcatDataset.
+        self.read_sequential = read_sequential
+        self.init_parallel_and_shuffle(shuffle, num_dp_ranks, dp_rank, read_nums, start_step)
+
+    def init_parallel_and_shuffle(self, shuffle, num_dp_ranks, dp_rank, read_nums, start_step):
+        if self.read_sequential:
+            self.init_sequential_indices(shuffle, num_dp_ranks, dp_rank, read_nums, start_step)
+        else:
+            super().init_parallel_and_shuffle(shuffle, num_dp_ranks, dp_rank, read_nums, start_step)
+
+    def init_sequential_indices(self, shuffle, num_dp_ranks, dp_rank, read_nums, start_step):
+        assert read_nums is None, "sequential read dataset is not competible with given a `read_nums`"
+        self.shuffle = shuffle
+        self.start_step = start_step
+        read_indices_per_datasets = [
+            list(range(0 if i == 0 else self.cumulative_sum[i-1], count))
+            for i, count in enumerate(self.cumulative_sum)
+        ]
+
+        if self.num_dp_ranks and self.dp_rank is not None:
+            for i, indices in enumerate(read_indices_per_datasets):
+                nums_per_rank = math.ceil(len(indices) / num_dp_ranks)
+                start = dp_rank * nums_per_rank
+                end = min((self.dp_rank + 1) * nums_per_rank, len(indices))
+                read_indices_per_datasets[i] = indices[start:end]
+
+        self.init_sequential_shuffle(read_indices_per_datasets)
+
+    def init_sequential_shuffle(self, read_indices_per_datasets):
+        if self.shuffle:
+            dataset_rng = np.random.default_rng(42)
+            read_indices_per_datasets = [dataset_rng.permutation(indices) for indices in read_indices_per_datasets]
+        self.read_indices = list(itertools.chain(*read_indices_per_datasets))
+
     def __iter__(self):
-        for read_idx in self.read_indices:
+        # Example for start step see BaseIterableDataset.
+        step = self._get_start_step()
+
+        while step <= len(self.read_indices):
+            read_idx = self.read_indices[step]
+            step+=1
             # Determine the dataset to be chosen based on the read index.
             # For example, with three datasets of sizes: [1000, 2000, 3000], the cumulative sum is [1000, 3000, 6000].
             # If the read index is 1500, the dataset_index will be 1, since 1500 falls between 1000 and 3000.
@@ -252,7 +249,7 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
             dataset_index = bisect.bisect_right(self.cumulative_sum, read_idx)
             dataset = self.datasets[dataset_index]
 
-            pre_length = 0 if dataset_index == 0 else self.cumulative_sum[dataset_index-1]
+            pre_length = pre_length = 0 if dataset_index == 0 else self.cumulative_sum[dataset_index-1]
             adjusted_read_idx = read_idx - pre_length
             if self.weights[dataset_index] > 1:
                 adjusted_read_idx = adjusted_read_idx % len(dataset)
@@ -260,6 +257,7 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
             if line:
                 sample = BaseIterableDataset._load_sample(self, read_idx, line)
                 yield BaseIterableDataset.process_sample(self, sample)
+
 
     def __len__(self):       
         return self.read_nums
