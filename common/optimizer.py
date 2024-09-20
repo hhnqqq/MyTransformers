@@ -1,8 +1,8 @@
 import logging
 import torch.optim as optim
-from functools import partial
 import deepspeed.ops as ds_optim
 
+from functools import partial
 from common.utils import print_rank_0
 from common.scheduler import AnnealingLR
 from transformers.utils.versions import require_version
@@ -27,6 +27,10 @@ def get_optimizer(ds_config, args, model, optimizer_sd = None, lr_scheduler_sd =
         return None, None
 
     optim_type = get_optimizer_type(args, ds_config)
+    offload_config = ds_config["zero_optimization"].get("offload_optimizer", {})
+    offload_device = offload_config.get("device", None)
+    if offload_device == 'cpu':
+        optim_type = 'cpu' + optim_type
     isSuccess, optimizer = get_optimizer_instance(optim_type, args, model)
 
     if isSuccess:
@@ -94,18 +98,14 @@ def get_regular_optimizer(optim_type, args, model):
             params = [{'params': weight_b_group, 'lr': args.lora_plus_scaler},
                         {'params': base_group, 'lr': 1}]
             print_rank_0(F'--->lora+ is enabled and the lr of weight b is set to {args.lr * args.lora_plus_scaler}', args.global_rank)
-        # elif args.use_dora:
-        #     pass
-        # elif args.use_plora:
-        #     pass
         else:
             params = [p for p in model.parameters() if p.requires_grad]
 
         optimizer_class = {
-            'adamw': partial(ds_optim.adam.FusedAdam, adamw_mode=True),
-            'adam': partial(ds_optim.adam.FusedAdam, adamw_mode=False),
-            'cpuadam':partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=True),
+            'adamw': partial(ds_optim.adam.FusedAdam, adam_w_mode=True),
+            'adam': partial(ds_optim.adam.FusedAdam, adam_w_mode=False),
             'cpuadamw':partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=True),
+            'cpuadam':partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=False),
             'adamax': optim.Adamax,
             'sparseadam': optim.SparseAdam
         }.get(optim_type)
@@ -119,7 +119,8 @@ def get_regular_optimizer(optim_type, args, model):
                                     eps=args.eps,
                                     betas=tuple(args.betas))
         isSuccess = True
-    except:
+    except Exception as e:
+        print_rank_0(f'Load local optimizer error as e: {e}', args.global_rank)
         isSuccess = False
         optimizer = None
     return isSuccess, optimizer
