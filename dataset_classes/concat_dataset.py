@@ -240,7 +240,6 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
 
         while step <= len(self.read_indices):
             read_idx = self.read_indices[step]
-            step+=1
             # Determine the dataset to be chosen based on the read index.
             # For example, with three datasets of sizes: [1000, 2000, 3000], the cumulative sum is [1000, 3000, 6000].
             # If the read index is 1500, the dataset_index will be 1, since 1500 falls between 1000 and 3000.
@@ -254,6 +253,7 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
             if self.weights[dataset_index] > 1:
                 adjusted_read_idx = adjusted_read_idx % len(dataset)
             line = dataset[adjusted_read_idx]
+            step+=1
             if line:
                 sample = BaseIterableDataset._load_sample(self, read_idx, line)
                 yield BaseIterableDataset.process_sample(self, sample)

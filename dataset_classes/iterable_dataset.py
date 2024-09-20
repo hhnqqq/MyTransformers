@@ -151,8 +151,8 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         # Equals to for read_idx in self.read_indices:
         while step <= len(self.read_indices):
             read_idx = self.read_indices[step]
-            step += 1
             line = lines[read_idx]
+            step += 1
             if line:
                 sample = self._load_sample(read_idx, line)
                 yield BaseDataset.process_sample(self, sample)
