@@ -4,8 +4,9 @@
 To merge the LORA weight with full rank weight for faster inference, 
 locate every LinearWithLoRA layer and call the merge_and_del method. 
 Afterward, the LinearWithLoRA will function similarly to a normal Linear layer, 
-eliminating the need to replace LinearWithLoRA with Linear. """
-import re
+eliminating the need to replace LinearWithLoRA with Linear. 
+
+LoRA Stand Alone """
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,6 +27,7 @@ class LinearWithLoRA(nn.Linear):
         lora_dropout: Optional[float] = None,
         use_dora: bool = False,
         use_mos_lora: bool = False,
+        melora_K_loras: Optional[int] = None,
         quant: bool = False,
         plora_steps: Union[int, None] = None,
         weight_a_init_method: Optional[str] = None,
@@ -54,7 +56,7 @@ class LinearWithLoRA(nn.Linear):
         self.weight_a_init_method = weight_a_init_method
         self.weight_b_init_method = weight_b_init_method
         self.weight_ab_mixer_init_method = weight_ab_mixer_init_method
-
+        self.melora_k_loras = melora_K_loras
 
         self._init_lora_weights()
         # Enable plora, if plora_steps is not None.
@@ -64,9 +66,6 @@ class LinearWithLoRA(nn.Linear):
             self.plora_counter = 0
         if lora_dropout and not use_dora:
             self.lora_dropout = nn.Dropout(lora_dropout)
-        elif lora_dropout and use_dora:
-            print_rank_0(f'Dora is incompatible with lora dropout, skiped lora dropout')
-            self.lora_dropout = nn.Dropout(1)
         else:
             self.lora_dropout = nn.Identity()
         
@@ -81,38 +80,35 @@ class LinearWithLoRA(nn.Linear):
 
         # The origin weight of Linear layer.
         weight = self._quantize_weight(self.weight, self.weight_quantizer)
-
-        lora_weight = None
-        # If lora attrs are exist, compute the lora weight and plus it to full rank weight
-        if self.has_lora_weights:
-            lora_weight = self._compute_lora()
-            if self.lora_dropout:
-                # Rather than dropout the activation, we dropout the lora weight
-                lora_weight = self.lora_dropout(lora_weight)
-
-            # Weather to use DoRA.
-            if self.dora and lora_weight is not None:
-                weight = self._apply_dora(weight, lora_weight)
-
-        # Unified output.
-        return F.linear(x, weight) + F.linear(self.lora_dropout(x), lora_weight)
-
+        
+        if self.dora:
+            return self._dora_forward(x, weight)
+        else:
+            result = F.linear(x, weight)
+            return self._lora_forward(x, result)
+        
     def _quantize_weight(self, weight: torch.Tensor, quantizer: Optional[torch.Tensor]) -> torch.Tensor:
         if self.quant and quantizer is not None:
             return weight * quantizer.unsqueeze(-1)
         return weight
 
-    def _apply_dora(self, weight: torch.Tensor, lora_weight: torch.Tensor) -> torch.Tensor:
-        # The magnitude of origin weight on the output dim: [2048,2048] -> [1, 2048].
-        m = self.weight.norm(p=2, dim=0, keepdim=True)
-        # Origin weight plus lora weight -> new weight. 
-        directional_numerator = weight + lora_weight
-        # The magnitude of new weight on the output dim. 
-        directional_denominator = directional_numerator.norm(p=2, dim=0, keepdim=True)
-        # Scale the magnitude of new weight to 1.
-        directional_component = directional_numerator / directional_denominator
-        # Ensure the new weight's magnitude remains the same as the origin weight.
-        return m * directional_component
+    def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
+        weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
+        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
+        if self.mos_lora:
+            weight_ab_mixer = self._quantize_weight(self.weight_ab_mixer, self.weight_ab_quantizer)
+            weight_a = torch.matmul(weight_ab_mixer, weight_a)
+        lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b)
+
+        return result + self.scaler * lora_result
+
+    def _dora_forward(self, x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+        weight_norm = torch.norm(weight, p=2, dim=0, keepdim=True)
+        lora_weight = self._compute_lora_weight()
+        weight = weight + lora_weight
+        lora_weight_norm = torch.norm(weight, p=2, dim=0, keepdim=True)
+        weight = weight_norm * (weight/ lora_weight_norm)
+        return F.linear(x, weight)
 
     def _init_lora_weights(self):
         dtype = torch.int8 if self.quant else None
@@ -141,15 +137,16 @@ class LinearWithLoRA(nn.Linear):
         self.get_weight_init_method(**init_kwargs)(weight)
 
     def get_weight_init_kwargs(self, weight_name: str, method: Optional[str] = None) -> Dict[str, Any]:
+        # TODO: expand init methods
         init_configs = {
-            'weight_a': {None:{'std': 1 / (self.in_features ** 0.5), 'mean': 0.0}},
+            'weight_a': {None:{'std': 1 / (self.in_features ** 0.5), 'mean': 0.0},
+                         'kaiming': {'method': 'kaiming', 'a': 5**0.5, 'mode': 'fan_in'},},
             'weight_b': {None:{'method':'zeros'},
-                         'guassian':{'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0},
                          'unit':{'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0}}
             ,
             'weight_ab_mixer': {
-                None: {'method': 'kaiming', 'a': 5**0.5, 'mode': 'fan_in'},
-                'gaussian': {'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0}
+                None: {None:{'std': 1 / (self.in_features ** 0.5), 'mean': 0.0}},
+                'kaiming': {'method': 'kaiming', 'a': 5**0.5, 'mode': 'fan_in'},
             }
         }
 
@@ -252,7 +249,8 @@ class LinearWithLoRA(nn.Linear):
             self.weight_a.data = A.contiguous().cuda()
             self.weight_b.data = B.contiguous().cuda()
             
-    def _compute_lora(self): 
+# W + norm(W)(W_aW_b)/norm(W_aW_b)
+    def _compute_lora_weight(self): 
         if self.has_lora_weights:
             # Compute lora weight.
             weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
@@ -270,7 +268,7 @@ class LinearWithLoRA(nn.Linear):
         # Merge the lora weight into full rank weight if possible.
         if self.has_lora_weights:
             # Compute lora weight.
-            lora_weight = self._compute_lora()
+            lora_weight = self._compute_lora_weight()
             if self.dora:
                 self.weight.data = self._apply_dora(self.weight, lora_weight)
             else:
@@ -336,106 +334,7 @@ class LinearWithLoRA(nn.Linear):
     def print_details(self) -> None:
         print(f"LinearWithLoRA Layer: in_features={self.in_features}, out_features={self.out_features}")
         print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, Quantized: {self.quant}, DoRA: {self.dora}")
-
-class LinearWithMeLora(LinearWithLoRA):
-    def __init__(self,
-        in_features: int,
-        out_features: int,
-        lora_rank: int = 4,
-        lora_scaler: float = 32.0,
-        lora_dropout: Optional[float] = None,
-        use_dora: bool = False,
-        use_mos_lora: bool = False,
-        quant: bool = False,
-        plora_steps: Union[int, None] = None,
-        weight_a_init_method: Optional[str] = None,
-        weight_b_init_method: Optional[str] = None,
-        weight_ab_mixer_init_method: Optional[str] = None,
-        me_lora_n_split: int = 2):
-        super().__init__(in_features,
-                         out_features,
-                         lora_rank,
-                         lora_scaler,
-                         lora_dropout,
-                         use_dora,
-                         use_mos_lora,
-                         quant,
-                         plora_steps,
-                         weight_a_init_method,
-                         weight_b_init_method,
-                         weight_ab_mixer_init_method)
-        self.melora_n_split = me_lora_n_split
-        self.mini_lora_rank = self.lora_rank / self.melora_n_split
-        self.mini_in_features = self.in_features / self.melora_n_split
-        self.mini_out_features = self.out_features / self.melora_n_split
-
-    def _init_lora_weights(self):
-        dtype = torch.int8 if self.quant else None
-        requires_grad = not self.quant
-
-        if self.quant:
-            self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
-            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
-
-        for i in range(self.melora_n_split):
-            mini_weight_a = nn.Parameter(torch.empty((self.mini_lora_rank, self.mini_in_features), dtype=dtype), requires_grad=requires_grad)
-            mini_weight_b = nn.Parameter(torch.zeros((self.mini_out_features, self.mini_lora_rank), dtype=dtype), requires_grad=requires_grad)
-            setattr(self, f'melora_weight_a_{i}') = mini_weight_a
-            setattr(self, f'melora_weight_b_{i}') = mini_weight_b
-
-            self._init_weight(f'melora_weight_a_{i}')
-            self._init_weight(f'melora_weight_b_{i}')
-
-        if self.mos_lora:
-            self.weight_ab_mixer = nn.Parameter(torch.empty((self.lora_rank, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
-            if self.quant:
-                self.weight_ab_mixer_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
-            self._init_weight('weight_ab_mixer')
-
-    def _compute_lora(self):
-        if self.has_lora_weights:
-            # Compute lora weight.
-            weight_a = self._diagonal_concat_weight_a()
-            weight_b = self._diagonal_concat_weight_b()
-            weight_a = self._quantize_weight(weight_a, self.weight_a_quantizer)
-            weight_b = self._quantize_weight(weight_b, self.weight_b_quantizer)
-            if self.mos_lora:
-                # When using vanilla lora, the ab mixer is a identical matrix
-                weight_ab_mixer = self._quantize_weight(self.weight_ab_mixer, self.weight_ab_quantizer)
-                weight_a_forward = torch.matmul(weight_ab_mixer, weight_a)
-                lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a_forward)
-            else:
-                lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
-            return lora_weight
-        
-    def _diagonal_concat_weight_a(self):
-        weight_a = torch.zeros(self.mini_lora_rank, self.mini_in_features)
-        
-        for i in range(self.melora_n_split):
-            start_row = i * self.mini_lora_rank
-            start_col = i * self.mini_in_features
-            weight_a[start_row:start_row+self.mini_lora_rank, start_col:start_col+self.mini_in_features] = getattr(self, f"melora_weight_a_{i}")
-        
-        return weight_a
-    
-    def _diagonal_concat_weight_b(self):
-        weight_b = torch.zeros(self.out_features, self.lora_rank)
-        
-        for i in range(self.melora_n_split):
-            start_row = i * self.mini_out_features
-            start_col = i * self.mini_lora_rank
-            weight_b[start_row:start_row+self.mini_out_features, start_col:start_col+self.mini_lora_rank] = getattr(self, f"melora_weight_b_{i}")
-        
-        return weight_b
-
-    def _init_weight(self, weight_name: str):
-        weight = getattr(self, weight_name)
-        weight_group = re.search(weight_name, r'melora_(weight_.)_\d').group(1)
-        init_method = getattr(self, f"{weight_group}_init_method")
-        init_kwargs = self.get_weight_init_kwargs(weight_group, init_method)
-        self.get_weight_init_method(**init_kwargs)(weight)
-            
-            
+                        
 
 def switch_to_lora(model: nn.Module, 
                    replace_names: Optional[Union[str, List[str]]] = None, 

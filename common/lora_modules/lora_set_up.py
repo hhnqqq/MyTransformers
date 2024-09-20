@@ -83,7 +83,7 @@ def switch_to_lora(model: nn.Module,
             # Merge weight to avoid unnecessary computing.
             module.merge_and_del()
 
-def setup_lora(model, args, model_config):
+def setup_lora(model, args, model_config=None):
     if args.use_lora:
         if args.replace_modules is None:
             args.replace_modules = model_config.lora_layers
@@ -98,10 +98,11 @@ def setup_lora(model, args, model_config):
         else:
             lora_weight = ['weight_a','weight_b', 'weight_ab_mixer']
         args.enable_list = lora_weight if args.enable_list is None else list(set(args.enable_list + lora_weight))
-        if args.fp16:
-            model.to(args.device).half()
-        elif args.bf16:
-            model.to(args.device).bfloat16()
+        if hasattr(args, 'device'):
+            if args.fp16:
+                model.to(args.device).half()
+            elif args.bf16:
+                model.to(args.device).bfloat16()
 
 def recover_linear(model: nn.Module):
     """

@@ -46,6 +46,8 @@ def set_up_trainable_param(model, args):
         enable_trainable_params(model, args.enable_list)
     elif args.disable_list is not None:
         disable_untrainable_params(model, args.disable_list)
+    else:
+        disable_untrainable_params(model, [])
     for module in model.modules():
         if isinstance(module, LinearWithLoRA) and module.weight.requires_grad:
             # If the lora layer's weight is trainable, disable the lora weight....

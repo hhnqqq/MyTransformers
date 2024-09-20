@@ -284,6 +284,9 @@ def get_args():
         args.meta_prompt = prompt_info['meta_prompt']
         args.prefix = prompt_info['prefix']
         args.postfix = prompt_info['postfix']
+    
+    if isinstance(args.replace_modules, str):
+        args.replace_modules = args.replace_modules.split('_')
     return args
 
 def overwrite_args_by_dict(args, overwrite_args={}):

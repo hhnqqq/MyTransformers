@@ -45,9 +45,8 @@ class LinearWithMosLoRA(LinearWithLoRA):
         weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
         weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
         weight_ab_mixer = self._quantize_weight(self.weight_ab_mixer, self.weight_ab_quantizer)
-        weight_a = torch.matmul(weight_ab_mixer, weight_a)
-        lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b)
-
+        # weight_a = torch.matmul(weight_ab_mixer, weight_a)
+        lora_result = F.linear(F.linear(F.linear(self.lora_dropout(x), weight_a), weight_ab_mixer), weight_b)
         return result + self.lora_scaler * lora_result
     
     def _compute_lora(self): 
