@@ -223,8 +223,8 @@ if args.epochs is not None:
     args.num_micro_update_steps = args.epochs * (math.ceil(micro_update_steps_one_epoch))
 else:
     args.num_micro_update_steps = args.train_iters
-args.num_warmup_steps = int(args.num_micro_update_steps * args.warmup) + 1
 args.num_global_update_steps = math.ceil(args.num_micro_update_steps / args.gradient_accumulation_steps)
+args.num_warmup_steps = int(args.num_global_update_steps * args.warmup) + 1
 ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = args.num_warmup_steps
 print_rank_0(f"--->NUMBER OF MICRO UPDATE STEPS: args.num_micro_update_steps = {args.num_micro_update_steps}", args.global_rank)
 print_rank_0(f"--->NUMBER OF GLOBAL UPDATE STEPS: args.num_global_update_steps = {args.num_global_update_steps}", args.global_rank)

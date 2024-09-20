@@ -74,28 +74,30 @@ class Trainer:
 
                 if loss.isnan() or loss.isinf():
                     print(f'Skipping backward and optimizer step for nan or inf in forwarding loss at rank {self.args.global_rank}!')
+                    # Backward process is still needed for other ranks may have normal loss.
+                    loss = 0.0
                     self.all_loss += 0.0
                     self.all_metric.append({})
                 else:
                     self.all_loss += metric.get('loss_reduced', loss).item()
                     self.all_metric.append(metric)
 
-                    # Backward step
-                    if backward_step:
-                        backward_step(model, optimizer, loss)
-                    
-                    if profiler:
-                        profiler.step()
+                # Backward step
+                if backward_step:
+                    backward_step(model, optimizer, loss)
+                
+                if profiler:
+                    profiler.step()
 
                 # Evaluation
-                if (self.global_step) % self.args.eval_interval == 0 and eval_step is not None:
+                if step % self.args.eval_interval == 0 and eval_step is not None:
                     assert eval_data_loader is not None, 'evaluation dataset cannot be None'
                     self.eval_loss, eval_metric = eval_step(model, eval_data_loader, self.args, step)
                     self.eval_metric.append(eval_metric)
 
                 # Logging and saving
                 self.info_manager(step, timer, log_loss)
-                self.save_model(model, optimizer, lr_scheduler, step)
+                self.save_model(model, optimizer, lr_scheduler, train_data_loader, step)
 
                 if self.end:
                     print_rank_0("Early stopping triggered.", self.args.global_rank)
@@ -103,7 +105,7 @@ class Trainer:
 
         # Final save
         self.end = True
-        self.save_model(model, optimizer, lr_scheduler, step)
+        self.save_model(model, optimizer, lr_scheduler, train_data_loader, step)
 
     def earily_stop(self):
         index = self.args.earily_stop_index
@@ -138,7 +140,7 @@ class Trainer:
         """
         loss_level = logging.INFO if log_loss else logging.DEBUG
 
-        if self.args.local_rank == 0:
+        if self.args.global_rank == 0:
             # Log average loss and time at specified intervals.
             if (step + 1) % self.args.gradient_accumulation_steps == 0:
                 self.global_step += 1
@@ -147,7 +149,7 @@ class Trainer:
                     avg_time = timer.loop_time / self.args.show_avg_loss_step
                     avg_loss = self.all_loss / (self.args.show_avg_loss_step * self.args.gradient_accumulation_steps)
                     remaining_time = timer.calculate_remaining_time()
-                    print_str = (f"--->global_step={self.global_step}, micro_step={step}, "
+                    print_str = (f"--->global_step={self.global_step}, micro_step={step + 1}, "
                                 f"avg_loss={avg_loss if avg_loss >= 1e-4 else f'{avg_loss:.4e}'}, "
                                 f"avg_time={avg_time:.2f}s, remaining_time={remaining_time}, "
                                 f"remaining_steps={self.args.num_global_update_steps - self.global_step}")
@@ -162,8 +164,8 @@ class Trainer:
                     self.all_metric = []
 
             # Log evaluation loss at specified intervals.
-            if (self.global_step) % self.args.eval_interval == 0 and self.eval_loss is not None:
-                print_str = f"--->step={self.global_step}, eval_loss={self.eval_loss:.4f}"
+            if step % self.args.eval_interval == 0 and self.eval_loss is not None:
+                print_str = f"--->micro_step={step}, eval_loss={self.eval_loss:.4f}"
                 if self.get_task_print:
                     print_str += self.get_task_print(self.eval_metric, self.args)
                 print_rank_0(print_str, self.args.global_rank, loss_level)
@@ -179,7 +181,7 @@ class Trainer:
     def get_task_print(self):
         return getattr(self, "task_print", None)
 
-    def save_model(self, model, optimizer, lr_scheduler, step: int) -> None:
+    def save_model(self, model, optimizer, lr_scheduler, dataloader, step: int) -> None:
         """
         Save model, optimizer, and scheduler state.
 
@@ -214,12 +216,12 @@ class Trainer:
             if not self.end and (step + 1) % self.args.save_interval == 0:
                 save_path = os.path.join(self.save_floder, f'step_{step+1}.ckpt')
                 print_rank_0(f'--->Start saving model at step {step+1} in {save_path}.', self.args.global_rank)
-                self.torch_save(model, optimizer, lr_scheduler, save_path)
+                self.torch_save(model, optimizer, lr_scheduler, dataloader, save_path)
                 print_rank_0('--->Saved the model.', self.args.global_rank)
             elif self.end:
                 save_path = os.path.join(self.save_floder, 'final.ckpt')
                 print_rank_0(f'--->Start saving model at final step in {save_path}.', self.args.global_rank)
-                self.torch_save(model, optimizer, lr_scheduler, save_path)
+                self.torch_save(model, optimizer, lr_scheduler, dataloader, save_path)
                 print_rank_0('--->Saved the model.', self.args.global_rank)
 
     def torch_save(self, 
@@ -238,19 +240,21 @@ class Trainer:
             model_state_dict = model.module.state_dict()
         
 
-        if isinstance(dataloader, RepeatingLoader):
-            dataset = dataloader.data_iter.dataset
-            train_token_count = dataloader.train_token_count 
-            if isinstance(dataset, BaseDataset):
-                train_token_count += dataset.train_token_count
-        else:
-            train_token_count = 0
+        # try:
+        #     if isinstance(dataloader, RepeatingLoader):
+        #         dataset = dataloader.data_iter._dataset
+        #         train_token_count = dataloader.train_token_count 
+        #         if isinstance(dataset, BaseDataset):
+        #             train_token_count += dataset.train_token_count
+        #     else:
+        #         train_token_count = 0
+        # except:
+        #     train_token_count = 0
 
         if optimizer and lr_scheduler:
             ckpt_to_save = {'model_state_dict':model_state_dict,
                             'optimizer_state_dict':optimizer.state_dict(),
-                            'lr_scheduler_state_dict':lr_scheduler.state_dict(),
-                            'trained_token_count':train_token_count}
+                            'lr_scheduler_state_dict':lr_scheduler.state_dict()}
         else:
             ckpt_to_save = model_state_dict
         torch.save(ckpt_to_save, save_path)
