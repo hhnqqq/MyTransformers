@@ -8,7 +8,7 @@
         "enabled": true
     },
     "optimizer": {
-        "type": "Adam",
+        "type": "AdamW",
         "params": {
             "lr": 2e-5,
             "betas": [

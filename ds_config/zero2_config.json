@@ -8,7 +8,7 @@
         "enabled": true
     },
     "optimizer": {
-        "type": "Adam",
+        "type": "AdamW",
         "params": {
             "lr": 2e-5,
             "betas": [
@@ -53,5 +53,5 @@
     "steps_per_print": 5,
     "wall_clock_breakdown": false,
     "zero_allow_untested_optimizer": true,
-    "zero_force_ds_cpu_optimizer": false
+    "zero_force_ds_cpu_optimizer": true
     }
