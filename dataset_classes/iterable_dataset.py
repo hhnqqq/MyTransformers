@@ -111,6 +111,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         if shuffle:
             # Make sure random seed has been set
             print_rank_0(f'--->Dataset shuffle is enabled', self.global_rank)
+            # Make sure that each rank have same un-sliced read indices.
             dataset_rng = np.random.default_rng(42)
             if read_nums is not None:
                 # Randomly select indices for reading
@@ -149,7 +150,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         # This time the 40001th data should be read.
         step = self._get_start_step()
         # Equals to for read_idx in self.read_indices:
-        while step <= len(self.read_indices):
+        while step < len(self.read_indices):
             read_idx = self.read_indices[step]
             line = lines[read_idx]
             step += 1
@@ -183,16 +184,16 @@ if __name__ == "__main__":
     from common.utils import DataCollator, set_random_seed
     from torch.utils.data import DataLoader
     from model.tokenizer import Llama3Tokenizer
-    from deepspeed.utils import RepeatingLoader
+    from dataset_classes import RepeatingLoader
 
     set_random_seed(114514)
     os.environ['NO_LOG_FILE'] = 'true'
-    file_path = '/home/bingxing2/ailab/group/ai4bio/public/qatext/dna-train.jsonl'
+    file_path = '/home/bingxing2/ailab/group/ai4bio/public/qatext/dna-dev.jsonl'
     tokenizer_path = '/home/bingxing2/ailab/scx6mh7/workspace/llama/llama3_tokenizer.model'
     tokenizer = Llama3Tokenizer(tokenizer_path)
     data_collator = DataCollator(tokenizer)
 
-    iterable_dataset = IterableDataset(file_path,
+    iterable_dataset = BaseIterableDataset(file_path,
                                        tokenizer,
                                        max_len=650,
                                        max_src_len=600,
@@ -200,6 +201,7 @@ if __name__ == "__main__":
                                        prefix='<|start_header_id|>user<|end_header_id|>\n\n',
                                        postfix='<|start_header_id|>assistant<|end_header_id|>\n\n',
                                        meta_prompt='<|start_header_id|>system<|end_header_id|>\n\nYou are a knowledgeable and helpful biology assistant. Please answer my biology sequence-related questions in a clear and concise manner.',
+                                       read_nums=100,
                                        shuffle=True)
         
     g = torch.Generator()
@@ -207,8 +209,10 @@ if __name__ == "__main__":
                             collate_fn=data_collator,
                             shuffle=False,
                             drop_last=True,
-                            batch_size=8,
+                            batch_size=50,
                             generator=g))
     
     for i, data in enumerate(dataloader):
-        pass
+        # print(i)
+        # pass
+        print(dataloader.train_token_count)

@@ -219,11 +219,11 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
             for i, count in enumerate(self.cumulative_sum)
         ]
 
-        if self.num_dp_ranks and self.dp_rank is not None:
+        if num_dp_ranks and dp_rank is not None:
             for i, indices in enumerate(read_indices_per_datasets):
                 nums_per_rank = math.ceil(len(indices) / num_dp_ranks)
                 start = dp_rank * nums_per_rank
-                end = min((self.dp_rank + 1) * nums_per_rank, len(indices))
+                end = min((dp_rank + 1) * nums_per_rank, len(indices))
                 read_indices_per_datasets[i] = indices[start:end]
 
         self.init_sequential_shuffle(read_indices_per_datasets)
@@ -238,7 +238,7 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
         # Example for start step see BaseIterableDataset.
         step = self._get_start_step()
 
-        while step <= len(self.read_indices):
+        while step < len(self.read_indices):
             read_idx = self.read_indices[step]
             # Determine the dataset to be chosen based on the read index.
             # For example, with three datasets of sizes: [1000, 2000, 3000], the cumulative sum is [1000, 3000, 6000].
@@ -247,7 +247,6 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
             # Thus, the 500th data point in the 2sd dataset will be accessed.
             dataset_index = bisect.bisect_right(self.cumulative_sum, read_idx)
             dataset = self.datasets[dataset_index]
-
             pre_length = pre_length = 0 if dataset_index == 0 else self.cumulative_sum[dataset_index-1]
             adjusted_read_idx = read_idx - pre_length
             if self.weights[dataset_index] > 1:
@@ -270,7 +269,7 @@ if __name__ == "__main__":
     from common.utils import DataCollator, set_random_seed
     from torch.utils.data import DataLoader
     from model.tokenizer import Llama3Tokenizer
-    from deepspeed.utils import RepeatingLoader
+    from dataset_classes import RepeatingLoader
     from dataset_classes.packing_dataset import IterablePackingDataset
 
     set_random_seed(114514)
@@ -284,15 +283,16 @@ if __name__ == "__main__":
 
     iterable_dataset = IterableConcatDataset(file_path,
                                        tokenizer,
-                                       max_len=1100,
-                                       max_src_len=1100,
+                                       max_len=1300,
+                                       max_src_len=1300,
                                        mode='pretrain',
                                        prefix=None,
                                        postfix=None,
                                        meta_prompt=None,
                                        shuffle=True,
                                        padding=False,
-                                       weights=[2,1,1])
+                                       weights=[2,1,1],
+                                       read_sequential=True)
         
     iterable_dataset = IterablePackingDataset(iterable_dataset, 1100)
     g = torch.Generator()
@@ -300,9 +300,18 @@ if __name__ == "__main__":
                             collate_fn=data_collator,
                             shuffle=False,
                             drop_last=True,
-                            batch_size=8,
+                            batch_size=5,
                             generator=g))
     
     for i, data in enumerate(dataloader):
-        # pass
-        print(data)
+        """
+        Every iteration, the read indices keep same.
+        [2024-09-21 15:01:16,155] [INFO] --->Start a new iteration for repeating loader for rank 0.
+        [ 396166 3567548  411401 3017246 2023009 1995983 3214520  434110  928674
+        3957707]
+        [2024-09-21 15:01:16,169] [INFO] --->Start a new iteration for repeating loader for rank 0.
+        [ 396166 3567548  411401 3017246 2023009 1995983 3214520  434110  928674
+        3957707]"""
+        pass
+        # print(dataloader.train_token_count)
+        # print(data)
