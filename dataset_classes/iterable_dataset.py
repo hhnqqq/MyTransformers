@@ -14,7 +14,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
     """
     BaseIterableDataset is an iterable dataset class that inherits from both IterableDataset and BaseDataset.
     It is registered under the name 'iterable' in the registry.
-
+    The sample logit is similar to `DistributedSampler`
 
     Args:
         shuffle (bool, optional): Whether to shuffle the dataset. Defaults to False.
@@ -45,6 +45,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False,
         padding: bool = True,
+        seed: int = 0,
         start_step: int = 0,
         *args,
         **kwargs
@@ -65,9 +66,9 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         encode_single_gene,
         padding
     )
-        self.init_parallel_and_shuffle(shuffle, num_dp_ranks, dp_rank, read_nums, start_step)
+        self.init_parallel_and_shuffle(shuffle, num_dp_ranks, dp_rank, read_nums, seed, start_step)
 
-    def init_parallel_and_shuffle(self, shuffle, num_dp_ranks, dp_rank, read_nums, start_step):
+    def init_parallel_and_shuffle(self, shuffle, num_dp_ranks, dp_rank, read_nums, seed, start_step):
         """
         Initialize parallel processing settings for the dataset.
 
@@ -96,9 +97,9 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
             # If no data parallel ranks are specified, read all samples
             self.start = 0
             self.end = self.read_nums
-        self.init_shuffle(shuffle, read_nums)
+        self.init_shuffle(shuffle, read_nums, seed)
 
-    def init_shuffle(self, shuffle, read_nums):
+    def init_shuffle(self, shuffle, read_nums, seed):
         """
         Initialize read indices for shuffle reading.
 
@@ -112,7 +113,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
             # Make sure random seed has been set
             print_rank_0(f'--->Dataset shuffle is enabled', self.global_rank)
             # Make sure that each rank have same un-sliced read indices.
-            dataset_rng = np.random.default_rng(42)
+            dataset_rng = np.random.default_rng(seed)
             if read_nums is not None:
                 # Randomly select indices for reading
                 read_indices = dataset_rng.choice(self.line_count, size=read_nums, replace=False)
@@ -130,6 +131,9 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
 
         # Slice the read indices based on the calculated start and end positions
         self.read_indices = read_indices[self.start:self.end]
+        print_rank_0(f'--->Using seed {seed} for IterableDataset, top 5 read indices are: 
+                     {self.read_indices[:5]}', self.global_rank)
+
 
     def _load_sample(self, i, line):
         try:

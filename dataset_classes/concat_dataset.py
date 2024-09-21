@@ -180,6 +180,7 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
         padding: bool = True,
         weights: Optional[List[int]] = None,
         read_sequential: bool = False,
+        seed: int = 42, 
         start_step: int = 0,
         *args,
         **kwargs):
@@ -202,15 +203,15 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
     )
         # ConcatDataset originally read sequential, so this feature only needed in IterableConcatDataset.
         self.read_sequential = read_sequential
-        self.init_parallel_and_shuffle(shuffle, num_dp_ranks, dp_rank, read_nums, start_step)
+        self.init_parallel_and_shuffle(shuffle, num_dp_ranks, dp_rank, read_nums, seed, start_step)
 
-    def init_parallel_and_shuffle(self, shuffle, num_dp_ranks, dp_rank, read_nums, start_step):
+    def init_parallel_and_shuffle(self, shuffle, num_dp_ranks, dp_rank, read_nums, seed, start_step):
         if self.read_sequential:
-            self.init_sequential_indices(shuffle, num_dp_ranks, dp_rank, read_nums, start_step)
+            self.init_sequential_indices(shuffle, num_dp_ranks, dp_rank, read_nums, seed, start_step)
         else:
-            super().init_parallel_and_shuffle(shuffle, num_dp_ranks, dp_rank, read_nums, start_step)
+            super().init_parallel_and_shuffle(shuffle, num_dp_ranks, dp_rank, read_nums, seed, start_step)
 
-    def init_sequential_indices(self, shuffle, num_dp_ranks, dp_rank, read_nums, start_step):
+    def init_sequential_indices(self, shuffle, num_dp_ranks, dp_rank, read_nums, seed, start_step):
         assert read_nums is None, "sequential read dataset is not competible with given a `read_nums`"
         self.shuffle = shuffle
         self.start_step = start_step
@@ -226,13 +227,15 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
                 end = min((dp_rank + 1) * nums_per_rank, len(indices))
                 read_indices_per_datasets[i] = indices[start:end]
 
-        self.init_sequential_shuffle(read_indices_per_datasets)
+        self.init_sequential_shuffle(read_indices_per_datasets, seed)
 
-    def init_sequential_shuffle(self, read_indices_per_datasets):
+    def init_sequential_shuffle(self, read_indices_per_datasets, seed):
         if self.shuffle:
-            dataset_rng = np.random.default_rng(42)
+            dataset_rng = np.random.default_rng(seed)
             read_indices_per_datasets = [dataset_rng.permutation(indices) for indices in read_indices_per_datasets]
         self.read_indices = list(itertools.chain(*read_indices_per_datasets))
+        print_rank_0(f'--->Using seed {seed} for IterableConcatDataset, top 5 read indices of each dataset are: 
+                     {[indices[:5] for indices in read_indices_per_datasets]}', self.global_rank)
 
     def __iter__(self):
         # Example for start step see BaseIterableDataset.
