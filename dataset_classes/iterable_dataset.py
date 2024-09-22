@@ -131,8 +131,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
 
         # Slice the read indices based on the calculated start and end positions
         self.read_indices = read_indices[self.start:self.end]
-        print_rank_0(f'--->Using seed {seed} for IterableDataset, top 5 read indices are: 
-                     {self.read_indices[:5]}', self.global_rank)
+        print_rank_0(f'--->Using seed {seed} for IterableDataset, top 5 read indices are: {self.read_indices[:5]}', self.global_rank)
 
 
     def _load_sample(self, i, line):

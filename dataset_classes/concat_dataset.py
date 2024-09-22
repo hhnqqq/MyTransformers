@@ -234,8 +234,7 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
             dataset_rng = np.random.default_rng(seed)
             read_indices_per_datasets = [dataset_rng.permutation(indices) for indices in read_indices_per_datasets]
         self.read_indices = list(itertools.chain(*read_indices_per_datasets))
-        print_rank_0(f'--->Using seed {seed} for IterableConcatDataset, top 5 read indices of each dataset are: 
-                     {[indices[:5] for indices in read_indices_per_datasets]}', self.global_rank)
+        print_rank_0(f"--->Using seed {seed} for IterableConcatDataset, top 5 read indices of each dataset are: {[indices[:5] for indices in read_indices_per_datasets]}", self.global_rank)
 
     def __iter__(self):
         # Example for start step see BaseIterableDataset.
@@ -250,7 +249,7 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
             # Thus, the 500th data point in the 2sd dataset will be accessed.
             dataset_index = bisect.bisect_right(self.cumulative_sum, read_idx)
             dataset = self.datasets[dataset_index]
-            pre_length = pre_length = 0 if dataset_index == 0 else self.cumulative_sum[dataset_index-1]
+            pre_length = 0 if dataset_index == 0 else self.cumulative_sum[dataset_index-1]
             adjusted_read_idx = read_idx - pre_length
             if self.weights[dataset_index] > 1:
                 adjusted_read_idx = adjusted_read_idx % len(dataset)
