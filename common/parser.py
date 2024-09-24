@@ -179,7 +179,7 @@ def peft_parser(parser):
     group.add_argument('--lora-plus-scaler', type=int, default=16,
                        help='The scaler of learning rate of LoRA weight b \
                        In the defualt case, the learning rate of weight b is 16 times of a')
-    group.add_argument('--replace-modules', nargs='+', type=str, default=None,
+    group.add_argument('--replace-modules', type=str, default=None,
                        help='List of modules to be replaced by LoRA')
     group.add_argument('--weight-a-init-method', type=str, default=None,
                        help='Init method for lora weight a')
