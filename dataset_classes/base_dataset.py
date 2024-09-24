@@ -105,12 +105,8 @@ class BaseDataset(Dataset):
         self.data_path = data_path
         self.cal_metric_pos = cal_metric_pos
         self.encode_single_gene = encode_single_gene
-        self.padding = padding
-
-        self.meta_prompt = self.tokenizer.encode(meta_prompt, bos=False, eos=False) if meta_prompt else []
-        self.prefix = self.tokenizer.encode(prefix, bos=False, eos=False) if prefix else []
-        self.postfix = self.tokenizer.encode(postfix, bos=False, eos=False) if postfix else []
-        
+        self.padding = padding 
+        self.init_data_format(meta_prompt, prefix, postfix)
         if max_src_len > max_len:
             # To ensure the assertion error would not be triggered.
             self.max_len = max_src_len
@@ -124,6 +120,15 @@ class BaseDataset(Dataset):
         print_rank_0(f'--->training mode: {mode}', global_rank)
         print_rank_0(f'--->tokenizer name: {type(tokenizer).__name__}', global_rank)
         print_rank_0(f'--->using meta prompt: {meta_prompt}, prefix: {prefix}, postfix: {postfix}', global_rank)
+
+
+    def init_data_format(self, meta_prompt, prefix, postfix):
+        self.meta_prompt = self._process_data_format_encode(meta_prompt)
+        self.prefix = self._process_data_format_encode(prefix)
+        self.postfix = self._process_data_format_encode(postfix)
+
+    def _process_data_format_encode(self, input_data):
+        return self._encode_text(input_data) if input_data else []
 
     def process_data_file(self):
         # Enable a tqdm progress bar.
@@ -155,42 +160,17 @@ class BaseDataset(Dataset):
             input_ids (list): The preprocessed input sequence.
             output_ids (list): The preprocessed output sequence.
         """
-        if isinstance(sample, dict) and "input_ids" in sample.keys():
-            # In case input ids has been provided in the data file.
-            if isinstance(sample["input_ids"], str):
-                input_ids = eval(sample["input_ids"])
-            else:
-                input_ids = sample["input_ids"]
-            self.train_token_count += len(input_ids)
-            output_ids = []
-        else:
-            """
-            Be careful for the use of special tokens and input format. 
-            Fine-tuning a chat model must exactly reproduced the official format.
-            e.g. for Llama3.1-instruct: 
-            <|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{{ system_prompt }}<|eot_id|>
-            <|start_header_id|>user<|end_header_id|>\n\n{{ user_msg_1 }}<|eot_id|>
-            <|start_header_id|>assistant<|end_header_id|>\n\n{{ model_answer_1 }}<|eot_id|>
-            In this code base:
-                set: 
-                meta_prompt=<|start_header_id|>system<|end_header_id|>\n\n{{ system_prompt }}<|eot_id|>
-                prefix=<|start_header_id|>user<|end_header_id|>\n\n
-                postfix=<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n
-
-                The final input ids list will equals to [bos id] + meta_prompt + prefix + input + postfix + output + [eot id]
-            """
-            input_text, output_text = self._extract_texts(sample)
-            input_ids = self._process_text(input_text)
+        input_text, output_text, input_ids, output_ids = self.preprocess_sample(sample)
+        if output_text:
             if self.mode == 'sft':
                 # In the case of sft, the input sample must be a instance of dict.
-                output_ids = self.tokenizer.encode(output_text, bos=False, eos=False, encode_single_gene=self.encode_single_gene)
+                output_ids = self._encode_text(output_text)
                 self.train_token_count += len(output_ids)
             else:
                 # In the case of pretrain, the input sample can be a single string.:
                 # Make sure that the output text can be tokenized.
-                input_ids += [] if output_text is None else self.tokenizer.encode(output_text, bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
+                input_ids += [] if output_text is None else self._encode_text(output_text) 
                 self.train_token_count += len(input_ids)
-                output_ids = []
 
         if self.mode == 'pretrain':
             # Make sure that the last token id is eos id
@@ -233,6 +213,38 @@ class BaseDataset(Dataset):
                 "labels": torch.LongTensor(labels),
                 "cal_metric_pos": cal_metric_pos}
 
+    def preprocess_sample(self, sample):
+        if isinstance(sample, dict) and "input_ids" in sample.keys():
+            return self.preprocess_sample_from_ids(sample)
+        else:
+            """
+            Be careful for the use of special tokens and input format. 
+            Fine-tuning a chat model must exactly reproduced the official format.
+            e.g. for Llama3.1-instruct: 
+            <|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{{ system_prompt }}<|eot_id|>
+            <|start_header_id|>user<|end_header_id|>\n\n{{ user_msg_1 }}<|eot_id|>
+            <|start_header_id|>assistant<|end_header_id|>\n\n{{ model_answer_1 }}<|eot_id|>
+            In this code base:
+                set: 
+                meta_prompt=<|start_header_id|>system<|end_header_id|>\n\n{{ system_prompt }}<|eot_id|>
+                prefix=<|start_header_id|>user<|end_header_id|>\n\n
+                postfix=<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n
+
+                The final input ids list will equals to [bos id] + meta_prompt + prefix + input + postfix + output + [eot id]
+            """
+            input_text, output_text = self._extract_texts(sample)
+            input_ids = self._process_text(input_text)
+            return input_text, output_text, input_ids, []
+        
+    def preprocess_sample_from_ids(self, sample):
+        # In case input ids has been provided in the data file.
+        if isinstance(sample["input_ids"], str):
+            input_ids = eval(sample["input_ids"])
+        else:
+            input_ids = sample["input_ids"]
+        self.train_token_count += len(input_ids)
+        return '', '', input_ids, []
+    
     def _extract_texts(self, sample):
         """
         Extracts input and output texts from the sample.
@@ -269,15 +281,18 @@ class BaseDataset(Dataset):
         Returns:
             list: A list of token IDs.
         """
-        encoded_text = self.tokenizer.encode(
-            input_text, 
+        encoded_ids = self._encode_text(input_text)
+        # Make sure that the bos id always be the first id of input ids.
+        input_ids = [self.tokenizer.bos_id] + self.meta_prompt + self.prefix + encoded_ids + self.postfix
+        return input_ids
+
+    def _encode_text(self, text):
+        return self.tokenizer.encode(
+            text, 
             bos=False, 
             eos=False, 
             encode_single_gene=self.encode_single_gene
         )
-        # Make sure that the bos id always be the first id of input ids.
-        input_ids = [self.tokenizer.bos_id] + self.meta_prompt + self.prefix + encoded_text + self.postfix
-        return input_ids
 
     def _get_post_fix(self, count):
         if count >= 1e9:

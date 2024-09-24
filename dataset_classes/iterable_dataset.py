@@ -45,7 +45,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False,
         padding: bool = True,
-        seed: int = 0,
+        seed: int = 42,
         start_step: int = 0,
         *args,
         **kwargs
