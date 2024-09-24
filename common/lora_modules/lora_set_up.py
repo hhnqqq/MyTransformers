@@ -87,6 +87,7 @@ def setup_lora(model, args, model_config=None):
     if args.use_lora:
         if args.replace_modules is None:
             args.replace_modules = model_config.lora_layers
+        print_rank_0(f'--->LoRA targeting modules: {args.replace_modules}', args.global_rank)
         switch_to_lora(model, 
                        args,
                        args.replace_modules, 
