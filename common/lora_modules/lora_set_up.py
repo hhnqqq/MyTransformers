@@ -8,6 +8,7 @@ from common.lora_modules.melora import LinearWithMELoRA
 from common.lora_modules.plora import LinearWithPLoRA
 from common.lora_modules.lora_ga import LinearWithLoRAGA
 from common.lora_modules.mos_lora import LinearWithMosLoRA
+from common.lora_modules.rslora import LinearWithRSLoRA
 
 def get_lora_layer_class(args):
     variant_config = {}
@@ -24,6 +25,8 @@ def get_lora_layer_class(args):
         variant_config = dict(me_lora_n_split=args.me_lora_n_split)
     elif args.use_lora_ga:
         lora_layer_class = LinearWithLoRAGA
+    elif args.use_rslora:
+        lora_layer_class = LinearWithRSLoRA
     else:
         lora_layer_class = LinearWithLoRA
 
