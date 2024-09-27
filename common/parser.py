@@ -2,6 +2,7 @@ import os
 import json
 import argparse
 import deepspeed
+from typing import Union, List
 
 from common.utils import print_rank_0, init_dist
 
@@ -143,16 +144,17 @@ def dataset_parser(parser):
                        help='Maximum evaluation length of tokens for a single data sample')
     group.add_argument('--eval-max-src-len', type=int, default=None,
                        help='Maximum evaluation length of input tokens')
-    group.add_argument('--meta-prompt', type=str, default=None,
+    group.add_argument('--meta-prompt', type=Union[str,List[str]], default=None,
                        help='The systematic prompt for the input')
-    group.add_argument('--prefix', type=str, default=None,
+    group.add_argument('--prefix', type=Union[str,List[str]], default=None,
                        help='The prefix added to the input')
-    group.add_argument('--postfix', type=str, default=None,
+    group.add_argument('--postfix', type=Union[str,List[str]], default=None,
                        help='The postfix added to the input')
     group.add_argument('--prompt-path', type=str, default=None)
     group.add_argument('--batching-stretegy', type=str, default='padding', choices=['padding', 'packing'],
                        help='The stretegy for batching dataset')
     group.add_argument('--dataset-weights', type=str, default=None)
+    group.add_argument('--read-start-step', type=int, default=None)
     
     return parser
 
@@ -174,6 +176,8 @@ def peft_parser(parser):
                        help='Whether to use me lora')
     group.add_argument('--lora-fa', action='store_true',
                        help='Whether to use LoRA FA')
+    group.add_argument('--use-rslora', action='store_true',
+                       help='Whether to use rslora')
     group.add_argument('--lora-rank', type=int, default=8,
                        help='The rank of LoRA')
     group.add_argument('--lora-plus-scaler', type=int, default=16,
