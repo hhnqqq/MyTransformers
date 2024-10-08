@@ -32,11 +32,10 @@ def hook_backward_norm_fn(module, grad_input, grad_output):
             output_grad_norm = torch.norm(torch.stack([torch.norm(go) for go in grad_output if go is not None]), 2)
             print(f"Output gradient 2-order norm: {output_grad_norm}")
         
-        param_grad_norm = 0.0
-        for name, param in module.named_parameters():
-            if param.grad is not None:
-                param_grad_norm += torch.norm(param.grad, 2).item() ** 2
-        param_grad_norm = param_grad_norm ** 0.5
+        param_grad_norm = torch.norm(
+            torch.stack([torch.norm(param.grad) for name, param in module.named_parameters() if param.grad is not None]), 
+            2
+        ).item()
         print(f"Module parameters gradient 2-order norm: {param_grad_norm}")
         
         print("="*20)

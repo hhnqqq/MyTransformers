@@ -1,5 +1,8 @@
 # @Author: haonan he
 # @modified by: zhijian jiang
+"""
+THIS FILE IS NO LONGER GEING USED!!!
+"""
 import re
 import json
 import math
@@ -14,7 +17,7 @@ from common.utils import print_rank_0, is_seed_set
 from common.registry import registry
 
 @registry.register_dataset("normal")
-class LongRopeDataset(Dataset):
+class BaseDataset(Dataset):
     """
     A custom PyTorch Dataset class for loading and preprocessing long-text data.
 
@@ -89,14 +92,19 @@ class LongRopeDataset(Dataset):
         self.tokenizer = tokenizer
         self.max_len = max_len
         self.max_src_len = max_src_len
-        self.meta_prompt = self.tokenizer.encode(meta_prompt, bos=True, eos=False) if meta_prompt is not None else []
-        self.prefix = self.tokenizer.encode(prefix, bos=False, eos=False) if prefix is not None else []
-        self.postfix = self.tokenizer.encode(postfix, bos=False, eos=True) if postfix is not None else []
+        self.has_meta_prompt = meta_prompt and prefix and postfix
+        if self.has_meta_prompt:
+            self.meta_prompt = self.tokenizer.encode(meta_prompt, bos=True, eos=False)
+            self.prefix = self.tokenizer.encode(prefix, bos=False, eos=False)
+            self.postfix = self.tokenizer.encode(postfix, bos=False, eos=True)
+        else:
+            self.meta_prompt = self.prefix = self.postfix = []
         self.train_token_count = 0 
         self.global_rank = global_rank
         self.data_path = data_path
         self.cal_metric_pos = cal_metric_pos
         self.encode_single_gene = encode_single_gene
+
         print_rank_0(f'--->using dataset: {data_path}', global_rank)
         print_rank_0(f'--->training mode: {mode}', global_rank)
         print_rank_0(f'--->tokenizer name: {type(tokenizer).__name__}', global_rank)
@@ -131,37 +139,37 @@ class LongRopeDataset(Dataset):
         output_ids (list): The preprocessed output sequence.
         """
         if isinstance(sample, dict) and "input_ids" in sample.keys():
+            # In case input ids has been provided in the data file.
             if isinstance(sample["input_ids"], str):
                 input_ids = eval(sample["input_ids"])
             else:
                 input_ids = sample["input_ids"]
-            input_ids = self.meta_prompt + self.prefix + input_ids + self.postfix
             self.train_token_count += len(input_ids)
             output_ids = []
         else:
             if self.mode == 'sft':
-                # In the case of sft, the input sample mast be a instance of dict.
+                # In the case of sft, the input sample must be a instance of dict.
                 input_text = sample["input"] 
                 output_text = sample["output"]
                 input_ids = (self.tokenizer.encode(input_text, bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
-                             if self.meta_prompt != [] else 
+                             if self.has_meta_prompt else 
                              self.tokenizer.encode(input_text, eos=True, bos=True, encode_single_gene=self.encode_single_gene))
                 input_ids = self.meta_prompt + self.prefix + input_ids + self.postfix
-                output_ids = self.tokenizer.encode(output_text, eos=True, encode_single_gene=self.encode_single_gene)
+                output_ids = self.tokenizer.encode(output_text, bos=True, eos=True, encode_single_gene=self.encode_single_gene)
                 self.train_token_count += len(output_ids)
             else:
                 # In the case of pretrain, the input sample can be a single string.
                 if isinstance(sample, dict):
                     assert "input" in sample.keys(), "Can not find input information in the dataset"
                     input_ids = (self.tokenizer.encode(sample["input"], bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
-                                 if self.meta_prompt != [] else 
+                                 if self.has_meta_prompt else 
                                  self.tokenizer.encode(sample["input"], eos=True, bos=True, encode_single_gene=self.encode_single_gene))
                     input_ids = self.meta_prompt + self.prefix + input_ids + self.postfix
-                    input_ids += self.tokenizer.encode(sample["output"], eos=True, encode_single_gene=self.encode_single_gene) if "output" in sample.keys() else []
+                    input_ids += self.tokenizer.encode(sample["output"], bos=True, eos=True, encode_single_gene=self.encode_single_gene) if "output" in sample.keys() else []
                 elif isinstance(sample, str):
                     input_ids = (self.tokenizer.encode(sample, bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
-                                 if self.meta_prompt != [] else 
-                                 self.tokenizer.encode(sample, eos=True, bos=False, encode_single_gene=self.encode_single_gene))
+                                 if self.has_meta_prompt else 
+                                 self.tokenizer.encode(sample, bos=True, eos=True, encode_single_gene=self.encode_single_gene))
                     input_ids = self.meta_prompt + self.prefix + input_ids + self.postfix
                 else:
                     raise ValueError("You are using a not supported file format, please use jsonl or txt.")
@@ -169,8 +177,8 @@ class LongRopeDataset(Dataset):
                 output_ids = []
 
         if len(input_ids) > self.max_src_len:
-            input_ids = input_ids[:self.max_src_len]
             print_rank_0(f'--->Length of source data excceed: required length: {len(input_ids)} while max source length: {self.max_src_len}, cuttfing off', self.global_rank)
+            input_ids = input_ids[:self.max_src_len]
         if len(output_ids) > (self.max_len - len(input_ids)):
             print_rank_0(f'--->Length of entire data instance excceed, cuttfing off', self.global_rank)
             output_ids = output_ids[:(self.max_len - len(input_ids))]
@@ -217,7 +225,7 @@ class LongRopeDataset(Dataset):
         return self.all_data[idx]
     
 @registry.register_dataset('iterable')
-class IterableDataset(IterableDataset, LongRopeDataset):
+class IterableDataset(IterableDataset, BaseDataset):
     def __init__(
         self,
         data_path: str,
@@ -238,7 +246,7 @@ class IterableDataset(IterableDataset, LongRopeDataset):
         *args,
         **kwargs
     ):
-        LongRopeDataset.build_data(
+        BaseDataset.build_data(
         self,
         data_path,
         tokenizer,
@@ -260,7 +268,7 @@ class IterableDataset(IterableDataset, LongRopeDataset):
             read_nums_per_rank = math.ceil(self.read_nums / num_dp_ranks)
             self.start = read_nums_per_rank * dp_rank
             self.end = min(read_nums_per_rank * (dp_rank + 1), self.read_nums)
-            print_rank_0(f'--->global rank:{self.global_rank} read range [{self.start}:{self.end}]', 0)
+            print_rank_0(f'--->global rank:{self.global_rank} read range [{self.start}:{self.end}]', self.global_rank, force_print=True)
         else:
             self.start = 0
             self.end = self.read_nums
@@ -288,7 +296,7 @@ class IterableDataset(IterableDataset, LongRopeDataset):
                 for i, line in enumerate(fh):
                     if self.start <= i < self.end:
                         sample = self._load_sample(i, line)
-                        yield LongRopeDataset.process_sample(self, sample)
+                        yield BaseDataset.process_sample(self, sample)
                 
     def _shuffle_iter(self):
         with open(self.data_path, "r", encoding="utf-8") as fh:
@@ -298,13 +306,13 @@ class IterableDataset(IterableDataset, LongRopeDataset):
             line = lines[read_idx]
             if line:
                 sample = self._load_sample(read_idx, line)
-                yield LongRopeDataset.process_sample(self, sample)
+                yield BaseDataset.process_sample(self, sample)
                 
     def __len__(self):       
         return self.read_nums
                 
 @registry.register_dataset('multimodal_dna_dataset')
-class MultimodalDNADataSet(LongRopeDataset):
+class MultimodalDNADataSet(BaseDataset):
     def __init__(        
         self,
         data_path: str,
@@ -323,7 +331,7 @@ class MultimodalDNADataSet(LongRopeDataset):
         *args,
         **kwargs):
         
-        LongRopeDataset.build_data(
+        BaseDataset.build_data(
         self,
         data_path,
         tokenizer,
@@ -353,7 +361,7 @@ class MultimodalDNADataSet(LongRopeDataset):
         if self.mode == 'sft':
             input_text, output_text = self._extract_texts(sample)
             self._process_text(input_text, input_ids, dna_ids, dna_ids_indicater, pos, pattern, first_text_piece_tag)
-            output_ids = self.tokenizer.encode(output_text, eos=True, encode_single_gene=self.encode_single_gene)
+            output_ids = self.tokenizer.encode(output_text, bos=True, eos=True, encode_single_gene=self.encode_single_gene)
             input_ids += self.postfix
         else:
             input_text, output_text = self._extract_texts(sample)
@@ -418,7 +426,7 @@ class MultimodalDNADataSet(LongRopeDataset):
             if pos < start:
                 if first_text_piece_tag:
                     word_ids = (self.tokenizer.encode(input_text[pos:start], bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
-                                if self.meta_prompt != [] else 
+                                if self.has_meta_prompt else 
                                 self.tokenizer.encode(input_text[pos:start], bos=True, eos=False, encode_single_gene=self.encode_single_gene))
                     word_ids = self.meta_prompt + self.prefix + word_ids
                     first_text_piece_tag = False
@@ -488,7 +496,7 @@ class IterableMultimodalDNADataSet(IterableDataset, MultimodalDNADataSet):
             read_nums_per_rank = math.ceil(self.read_nums / num_dp_ranks)
             self.start = read_nums_per_rank * dp_rank
             self.end = min(read_nums_per_rank * (dp_rank + 1), self.read_nums)
-            print_rank_0(f'--->global rank:{self.global_rank} read range [{self.start}:{self.end}]', 0)
+            print_rank_0(f'--->global rank:{self.global_rank} read range [{self.start}:{self.end}]', self.global_rank, force_print=True)
         else:
             self.start = 0
             self.end = self.read_nums
@@ -552,7 +560,7 @@ class RepeatingLoader:
         try:
             batch = next(self.data_iter)
         except StopIteration:
-            print_rank_0("--->Start a new iteration for repeating loader.", 0)
+            print("--->Start a new iteration for repeating loader.")
             self.data_iter = iter(self.loader)
             batch = next(self.data_iter)
         return batch

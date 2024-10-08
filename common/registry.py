@@ -28,12 +28,12 @@ class Regitry:
     def register_dataset(cls, name):
 
         def warp(dataset_cls):
-            if name in cls.mapping['dataset_mapping']:
-                raise KeyError(
-                    "Name '{}' already registered for {}.".format(
-                        name, cls.mapping["dataset_mapping"][name]
-                    )
-                )            
+            # if name in cls.mapping['dataset_mapping']:
+            #     raise KeyError(
+            #         "Name '{}' already registered for {}.".format(
+            #             name, cls.mapping["dataset_mapping"][name]
+            #         )
+            #     )            
             cls.mapping['dataset_mapping'][name] = dataset_cls
             return dataset_cls
         return warp
@@ -211,8 +211,12 @@ supported dataset are listed below:{cls.list_datasets()}")
         # by doing this you are not need to provide paths in your script
         paths_mapping = cls.mapping["paths_mapping"]
         for k,v in cls.mapping["paths_mapping"].items():
-            if not os.path.isfile(v):
+
+            if isinstance(v, str) and not os.path.isfile(v):
                 paths_mapping[k] = None
+            elif isinstance(v, list) and not (all([os.path.isfile(item) for item in v])):
+                paths_mapping[k] = None
+                
         tokenizer_name = "tokenizer_" + args.model_name
         model_name = "model_"  + '_'.join([args.model_name, args.variant])
         args.eval_dataset_name = '' if args.eval_dataset_name is None else args.eval_dataset_name

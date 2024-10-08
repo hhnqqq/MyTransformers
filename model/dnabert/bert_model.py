@@ -454,7 +454,8 @@ class BertPooler(nn.Module):
         first_token_tensor = hidden_states[:, 0] if pool else hidden_states
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
-        return pooled_output
+        hidden_states[:, 0] = pooled_output
+        return hidden_states
 
 
 class BertModel(nn.Module):
@@ -556,8 +557,7 @@ class BertModel(nn.Module):
             if self.pooler is not None:
                 pool_input = encoder_outputs[-1][
                     first_col_mask[attention_mask_bool][subset_idx]]
-                pooled_output = self.pooler(pool_input, pool=False)
-                sequence_output[:,0] = pooled_output
+                sequence_output = self.pooler(pool_input, pool=True)
             else:
                 pass
                 # pooled_output = None

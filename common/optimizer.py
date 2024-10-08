@@ -1,9 +1,11 @@
 import logging
 import torch.optim as optim
+import deepspeed.ops as ds_optim
+
+from functools import partial
 from common.utils import print_rank_0
 from common.scheduler import AnnealingLR
 from transformers.utils.versions import require_version
-from deepspeed.ops.adam.fused_adam import FusedAdam
 
 def get_optimizer_type(args, ds_config):
     if args.optim_type is not None:
@@ -25,6 +27,10 @@ def get_optimizer(ds_config, args, model, optimizer_sd = None, lr_scheduler_sd =
         return None, None
 
     optim_type = get_optimizer_type(args, ds_config)
+    offload_config = ds_config["zero_optimization"].get("offload_optimizer", {})
+    offload_device = offload_config.get("device", None)
+    if offload_device == 'cpu':
+        optim_type = 'cpu' + optim_type
     isSuccess, optimizer = get_optimizer_instance(optim_type, args, model)
 
     if isSuccess:
@@ -92,31 +98,29 @@ def get_regular_optimizer(optim_type, args, model):
             params = [{'params': weight_b_group, 'lr': args.lora_plus_scaler},
                         {'params': base_group, 'lr': 1}]
             print_rank_0(F'--->lora+ is enabled and the lr of weight b is set to {args.lr * args.lora_plus_scaler}', args.global_rank)
-        # elif args.use_dora:
-        #     pass
-        # elif args.use_plora:
-        #     pass
         else:
             params = [p for p in model.parameters() if p.requires_grad]
 
         optimizer_class = {
-            'adamw': optim.AdamW,
-            'adam': optim.Adam,
+            'adamw': partial(ds_optim.adam.FusedAdam, adam_w_mode=True),
+            'adam': partial(ds_optim.adam.FusedAdam, adam_w_mode=False),
+            'cpuadamw':partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=True),
+            'cpuadam':partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=False),
             'adamax': optim.Adamax,
-            'sparseadam': optim.SparseAdam,
-            'fusedadamw':FusedAdam
+            'sparseadam': optim.SparseAdam
         }.get(optim_type)
         
         if optimizer_class is None:
             raise NotImplementedError('only support adam and its variants for now')
         
-        optimizer = optimizer_class(params=params,
+        optimizer = optimizer_class(params,
                                     lr=args.lr,
                                     weight_decay=args.weight_decay,
                                     eps=args.eps,
                                     betas=tuple(args.betas))
         isSuccess = True
-    except:
+    except Exception as e:
+        print_rank_0(f'Load local optimizer error as e: {e}', args.global_rank)
         isSuccess = False
         optimizer = None
     return isSuccess, optimizer
@@ -127,7 +131,7 @@ def get_learning_rate_scheduler(optimizer, iteration, args):
         lr_scheduler = AnnealingLR(optimizer,
                                 start_lr=args.lr,
                                 warmup_iter=args.num_warmup_steps,
-                                num_iters=args.num_update_steps,
+                                num_iters=args.num_micro_update_steps,
                                 decay_style=args.lr_decay_style,
                                 last_iter=init_step,
                                 decay_ratio=args.lr_decay_ratio,

@@ -192,7 +192,7 @@ class DataCollator():
         for instance in examples:
             input_ids = instance["input_ids"]
             labels = instance["labels"]
-            cal_metric_pos = instance["cal_metric_pos"]
+            cal_metric_pos = instance.get("cal_metric_pos", None)
             dna_ids = instance.get("dna_ids", None)
             before_dna= instance.get("before_dna", None)
             input_ids_list.append(input_ids) 
@@ -235,19 +235,23 @@ def set_random_seed(seed):
         seed_set = True
 
 def init_dist(args):
+    if int(os.environ.get('SLURM_NNODES', 1)) > 1:
+        local_rank = int(os.environ['RANK']) % int(os.environ['SLURM_GPUS_ON_NODE'])
+        args.local_rank = local_rank
+        os.environ['LOCAL_RANK'] = str(local_rank)
     if args.device == 'cuda':
         if args.local_rank == -1:
             device = torch.device("cuda")
         else:
-            torch.cuda.set_device(args.local_rank)
-            device = torch.device("cuda", args.local_rank)
             deepspeed.init_distributed(dist_backend="nccl")
             args.world_size = dist.get_world_size()
             args.global_rank = dist.get_rank()
+            torch.cuda.set_device(args.local_rank)
+            device = torch.device("cuda", args.local_rank)
     else:
         device = 'cpu'
     if args.num_sp_stages:
-        assert args.atten_type == 'ulysses_atten', 'when using sequence parallism, the attention type must be `ulysses_atten`'
+        assert 'ulysses' in args.atten_type, 'when using sequence parallism, the attention type must be `ulysses_atten`'
         parallel_states.initialize_model_parallel(sequence_model_parallel_size=args.num_sp_stages)
     elif args.num_pp_stages:
         parallel_states.initialize_model_parallel(pipeline_model_parallel_size=args.num_pp_stages)
@@ -300,13 +304,13 @@ def configure_logging(log_path, rank: Optional[int] = 0):
     return logger
 
 
-def print_rank_0(msg, rank=0, level=logging.INFO, flush=True):
+def print_rank_0(msg, rank=0, level=logging.INFO, flush=True, force_print=False):
     """
     Print by single rank for multi-GPUs training
-
     Args:
         rank (int): Process rank for multi-GPUs training.
         level (logging.level): Level used for logger level control.
+        force_print (bool): print for every rank.
     """
     if "logger" not in globals() and rank<=0:
         global logger
@@ -320,6 +324,8 @@ def print_rank_0(msg, rank=0, level=logging.INFO, flush=True):
             logger.handlers[0].flush()
             if len(logger.handlers) == 2:
                 logger.handlers[1].flush()
+    elif force_print:
+        print(msg)
 
 def get_merged_state_dict(ckpt_path: str = None, 
                           partial_ckpt_path: str = None) -> dict:
@@ -368,6 +374,7 @@ def load_ckpt(model:Module,
         else:
             incompatible_keys = model.load_state_dict(model_sd, strict=False)
             
+        print_rank_0(f'--->Loaded checkpoint for model instance of {model.__class__.__name__}. Incompatible keys are listed below:', rank=rank)
         print_rank_0(f'--->Missing keys:{incompatible_keys.missing_keys}.', rank=rank)
         print_rank_0(f'--->Unexpected keys:{incompatible_keys.unexpected_keys}.', rank=rank)
     except Exception:

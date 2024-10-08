@@ -1,5 +1,11 @@
+"""
+@author  hehaonan
+@date    2024-04-01
+@email   hehn@mail.ustc.edu.cn
+
+Code is original from https://github.com/microsoft/Megatron-DeepSpeed, modified by the author.
+"""
 import torch.distributed as dist
-from typing import Optional
 
 # parallel group define（which group current rank is belong to）
 PIPELINE_MODEL_PARALLEL_GROUP = None
@@ -28,6 +34,15 @@ def initialize_model_parallel(
     pipeline_model_parallel_size: int = 1,
     sequence_model_parallel_size: int = 1,       
 ) -> None:
+    """
+    Initialize parallel states, this is crucial for complex parallel stretegy
+
+    Currentlt we support:
+        pipeline parallelism plus data parallelism
+        sequence parallelism plus data parallelism
+        tensor parallelism plus data parallelism
+        and single parallelism stretrgy
+    """
     assert dist.is_initialized()
     world_size = dist.get_world_size()
     rank = dist.get_rank()
@@ -54,14 +69,18 @@ def initialize_model_parallel(
     global DATA_PARALLEL_GROUP
     all_data_parallel_groups = []
     for i in range(pipeline_model_parallel_size):
-        # (0,4) (0, 2) (1, 3)
+        # pp=1 sp=4 gpus=8 ---> [0:8]
+        # PP=1 sp=1 gpus=8 ---> [0:8]
         start_rank, end_rank = (_ * num_pipeline_parallel_groups for _ in [i, i+1])
-        # 0
-        tp_or_sp_size = sequence_data_pallel_size if sequence_parallel_enabled else tensor_model_parallel_size
+        # pp=1 sp=4 gpus=8 ---> 8
+        # PP=1 sp=1 gpus=8 ---> 1
+        tp_or_sp_size = sequence_model_parallel_size if sequence_parallel_enabled else tensor_model_parallel_size
         for j in range(tp_or_sp_size):
-            # (0,1,2,3)
+            # pp=1 sp=1 gpus=8 ---> [0, 1, 3, 4, 5, 6 , 7]
+            # pp=1 sp=4 gpus=8 ---> [0, 4] [1, 5] [2, 6] [3, 7] ---> world size 2
             ranks = range(start_rank+j, end_rank, tp_or_sp_size)
             group = dist.new_group(ranks)
+            print(list(ranks))
             all_data_parallel_groups.append(list(ranks))
 
             if rank in ranks:
@@ -71,6 +90,7 @@ def initialize_model_parallel(
     global SEQUENCE_MODEL_PARALLEL_GROUP
     all_sequence_model_parallel_groups = []
     for i in range(num_sequence_parallel_groups):
+        # 8 GPUS, NUM SP STAGES 4 ---> [0,1,2,3], [4,5,6,7]
         ranks = range(i*sequence_model_parallel_size, (i+1)*sequence_model_parallel_size)
         group = dist.new_group(ranks)
         all_sequence_model_parallel_groups.append(list(ranks))
@@ -82,6 +102,7 @@ def initialize_model_parallel(
     if sequence_parallel_enabled:
         all_sequence_data_parallel_groups = []
         for i in range(num_sequence_data_parallel_groups):
+            # pp=1 sp=4 gpus=8 ---> sequence_data_pallel_size=8 ---> [0,1,2,3,4,5,6,7]
             ranks = range(i*sequence_data_pallel_size, (i+1)*sequence_data_pallel_size)
             group = dist.new_group(ranks)
             all_sequence_data_parallel_groups.append(list(ranks))

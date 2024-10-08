@@ -1,0 +1,14 @@
+# 参数说明：
+- lora和全量的区别主要在于是否使用了use_lora或者use_lora_plus的参数
+- dora和plora或lora-fa需要设置use_dora或者plora_steps或lora_fa参数，并且use_lora参数也要启用（这可能听起来有点奇怪）
+- 使用lora时，默认对attention中的qkv矩阵进行训练，如果需要调整，可以设置replace_modules参数
+- 使用lora_plus时必须要同时设置diy_optimizer参数，否则效果与lora相同
+- 使用全量时，可能有冻结部分层参数的需求，可以通过设置disable_list参数实现。只要在disable_list中的参数全部会被冻结，其他的可训练
+- 可能有只训练指定参数的需求，可以通过设置enable_list参数实现。逻辑与disable_list参数相反
+
+- 通过设置mode参数，可以在pretrain和sft之间切换，区别主要是数据集的加载
+- 训练步数既可以通过设置epochs实现也可以通过设置train_iters参数实现
+
+- 切换模型需要设置model_name参数，同时需要设置variant参数（表明你的模型有多大）
+
+- 默认的log目录为当前工作目录下的log目录，如果没有该目录则会自动创建。如果需要修改log目录，则设置LOG_FLODER环境变量即可

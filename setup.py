@@ -26,8 +26,8 @@ def get_requirements() -> List[str]:
 setuptools.setup(
     name="MyTransformers",
     version="0.1",
-    author="haonan he",
-    description=("dnallama model implementation"),
+    author="haonan he, yucheng ren",
+    description=("MyTransformers library implementation"),
     long_description_content_type="text/markdown",
     classifiers=[
         "Programming Language :: Python :: 3.8",

@@ -1,6 +1,6 @@
-.ckpt
-.json
-.jsonl
+*.ckpt
+*.json
+*.jsonl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -31,6 +31,7 @@ sbatch_files/
 tb_files/
 share/python-wheels/
 *.egg-info/
+log/
 .installed.cfg
 *.egg
 MANIFEST
@@ -145,3 +146,4 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+paths.json

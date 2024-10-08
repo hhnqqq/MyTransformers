@@ -1,0 +1,57 @@
+{
+    "train_micro_batch_size_per_gpu": 4,
+    "gradient_accumulation_steps": 1,
+    "fp16": {
+        "enabled": true
+    },
+    "bf16": {
+        "enabled": true
+    },
+    "optimizer": {
+        "type": "AdamW",
+        "params": {
+            "lr": 2e-5,
+            "betas": [
+                0.9,
+                0.95
+            ],
+            "eps": 1e-8,
+            "weight_decay": 5e-4
+        },
+        "scheduler": {
+            "type": "WarmupLR",
+            "params": {
+                "warmup_min_lr": "auto",
+                "warmup_max_lr": "auto",
+                "warmup_num_steps": "auto"
+            }
+        }
+    },
+    "zero_optimization": {
+        "stage": 2,
+        "offload_optimizer": {
+            "device": "cpu",
+            "pin_memory": true
+        },
+        "allgather_partitions": true,
+        "allgather_bucket_size": 2e8,
+        "overlap_comm": true,
+        "reduce_scatter": true,
+        "reduce_bucket_size": 2e8,
+        "contiguous_gradients": true
+    },
+    "tensorboard": {
+        "enabled": false,
+        "output_path": "output/ds_logs/",
+        "job_name": "test"
+    },
+    "csv_monitor": {
+        "enabled": false,
+        "output_path": "output/ds_logs/",
+        "job_name": "test"
+    },
+    "steps_per_print": 5,
+    "wall_clock_breakdown": false,
+    "zero_allow_untested_optimizer": true,
+    "zero_force_ds_cpu_optimizer": true
+    }

@@ -42,8 +42,7 @@ class BertConfig:
 @registry.register_model_config("dnabert2")
 def get_dnabert2():
     return BertConfig(vocab_size=4096, 
-                      n_projector_layers=3,
-                      add_pooling_layer=True)
+                      n_projector_layers=3)
 
 @registry.register_model_config("llama1_with_bert_large")
 def get_llama_hyena_config_large():

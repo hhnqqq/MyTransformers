@@ -5,6 +5,7 @@ import tiktoken
 import itertools
 
 from pathlib import Path
+from functools import partial
 from tiktoken.load import load_tiktoken_bpe
 from sentencepiece import SentencePieceProcessor
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -153,6 +154,10 @@ class Llama3Tokenizer:
     # TODO: 添加单核苷酸分词功能
     """
     Tokenizing and encoding/decoding text using the Tiktoken tokenizer.
+
+    For special tokens:
+        A typical usage is: tokens.append(self.tokenizer.special_tokens["<|begin_of_text|>"])
+        If direct encode is needed ---> please set search_special = True in encode method.
     """
 
     special_tokens: Dict[str, int]
@@ -173,15 +178,15 @@ class Llama3Tokenizer:
         mergeable_ranks = load_tiktoken_bpe(model_path)
         num_base_tokens = len(mergeable_ranks)
         special_tokens = [
-            "<|begin_of_text|>",
+            "<|begin_of_text|>", # bos id
             "<|end_of_text|>",
             "<|reserved_special_token_0|>",
-            "<|reserved_special_token_1|>",
-            "<|reserved_special_token_2|>",
-            "<|reserved_special_token_3|>",
-            "<|start_header_id|>",
-            "<|end_header_id|>",
-            "<|reserved_special_token_4|>",
+            "<|reserved_special_token_1|>", # dna
+            "<|reserved_special_token_2|>", # rna
+            "<|reserved_special_token_3|>", # protein
+            "<|start_header_id|>", # start of role
+            "<|end_header_id|>", # end of role
+            "<|reserved_special_token_4|>", 
             "<|eot_id|>",  # end of turn
         ] + [
             f"<|reserved_special_token_{i}|>"
@@ -190,6 +195,7 @@ class Llama3Tokenizer:
         self.special_tokens = {
             token: num_base_tokens + i for i, token in enumerate(special_tokens)
         }
+        self.special_token_pattern = r'\<\|.*?\|\>'
         self.model = tiktoken.Encoding(
             name=Path(model_path).name,
             pat_str=self.pat_str,
@@ -207,6 +213,7 @@ class Llama3Tokenizer:
             self.special_tokens["<|end_of_text|>"],
             self.special_tokens["<|eot_id|>"],
         }
+        self.eot_id = self.special_tokens["<|eot_id|>"]
 
     def encode(
         self,
@@ -217,9 +224,12 @@ class Llama3Tokenizer:
         encode_single_gene = False,
         allowed_special: Union[Literal["all"], AbstractSet[str]] = set(),
         disallowed_special: Union[Literal["all"], Collection[str]] = (),
+        search_special: bool = True
     ) -> List[int]:
         assert type(s) is str
-
+        encode_func = partial(self.model.encode,
+                              allowed_special=allowed_special,
+                              disallowed_special=disallowed_special)
         # The tiktoken tokenizer can handle <=400k chars without
         # pyo3_runtime.PanicException.
         TIKTOKEN_MAX_ENCODE_CHARS = 400_000
@@ -236,15 +246,31 @@ class Llama3Tokenizer:
                 s[i : i + TIKTOKEN_MAX_ENCODE_CHARS], MAX_NO_WHITESPACES_CHARS
             )
         )
+        """
+        substrs = []
+        for i in range(0, len(s), TIKTOKEN_MAX_ENCODE_CHARS):
+            sub_string = s[i : i + TIKTOKEN_MAX_ENCODE_CHARS]
+            substr_list = self._split_whitespaces_or_nonwhitespaces(sub_string, MAX_NO_WHITESPACES_CHARS)
+            substrs.extend(substr_list)"""
         t: List[int] = []
         for substr in substrs:
-            t.extend(
-                self.model.encode(
-                    substr,
-                    allowed_special=allowed_special,
-                    disallowed_special=disallowed_special,
-                )
-            )
+            if search_special:
+                matches = list(re.finditer(self.special_token_pattern, substr))
+                if matches:
+                    current_idx = 0
+                    for match in matches:
+                        if match.group() in self.special_tokens:
+                            encode_result = [] if current_idx == match.start() else encode_func(substr[current_idx:match.start()])
+                            t.extend(encode_result + [self.special_tokens[match.group()]])
+                        else:
+                            t.extend(encode_func(substr[current_idx:match.end()]))
+                        current_idx = match.end()
+                    if current_idx < len(substr):
+                        t.extend(encode_func(substr[current_idx:]))
+                else:
+                    t.extend(encode_func(substr))
+            else:
+                t.extend(encode_func(substr))
         if bos:
             t.insert(0, self.bos_id)
         if eos:
@@ -264,12 +290,14 @@ class Llama3Tokenizer:
         slice_start = 0
 
         for i in range(len(s)):
+            # 是否是空白字符
             is_now_space = s[i].isspace()
 
             if current_slice_is_space ^ is_now_space:
                 current_slice_len = 1
                 current_slice_is_space = is_now_space
             else:
+                # 如果不是空白字符
                 current_slice_len += 1
                 if current_slice_len > max_consecutive_slice_len:
                     yield s[slice_start:i]

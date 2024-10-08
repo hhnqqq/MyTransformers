@@ -27,7 +27,7 @@ class BaseModel(nn.Module):
         seq_parallel_world_rank = parallel_states.get_sequence_parallel_rank()
         if self.args.atten_type is not None and 'ulysses' in self.args.atten_type:
             assert self.args.max_len % seq_parallel_world_size == 0, 'Max input length is not divisble by sequence parallel stages.'
-            assert self.args.head_nums % seq_parallel_world_size == 0, 'Attention head num is not divisble by sequence parallel stages.'
+            assert self.args.head_num % seq_parallel_world_size == 0, 'Attention head num is not divisble by sequence parallel stages.'
             # Split the input ids and lables and freqs cis for deepspeed-ulysses.
             seq_len_per_group = self.args.max_len // seq_parallel_world_size
             local_seq_start = seq_parallel_world_rank * seq_len_per_group
@@ -67,3 +67,41 @@ class BaseModel(nn.Module):
             target_logits = torch.argmax(target_logits, dim=-1) # [bsz, 1]
             target_labels = torch.gather(labels, 1, target_labels_pos_tensor) # [bsz, 1]
             return cal_metric(target_labels.cpu().numpy(), target_logits.cpu().numpy())
+
+
+def prepare_4d_attention_mask(attention_mask_with_indices: "torch.Tensor", dtype: "torch.dtype") -> "torch.Tensor":
+    r"""
+    Expands the attention mask with indices from (batch_size, seq_len) to (batch_size, 1, seq_len, seq_len),
+    while handles packed sequences and transforms the mask to lower triangular form to prevent future peeking.
+
+    e.g.
+    ```
+    [[1, 1, 2, 2, 2, 0]]
+    ```
+    ->
+    ```
+    [
+        [
+            [
+                [o, x, x, x, x, x],
+                [o, o, x, x, x, x],
+                [x, x, o, x, x, x],
+                [x, x, o, o, x, x],
+                [x, x, o, o, o, x],
+                [x, x, x, x, x, x],
+            ]
+        ]
+    ]
+    ```
+    where `o` equals to `0.0`, `x` equals to `min_dtype`.
+    """
+    bsz, seq_len = attention_mask_with_indices.size()
+    min_dtype = float('-inf')
+    # [bs, seq_len]->[bs, 1, seq_len, seq_len]
+    expanded_mask = attention_mask_with_indices[:, None, None, :].expand(bsz, 1, seq_len, seq_len)
+    # e.g: [[1, 1, 2, 2, 2, 0]] -> [[1, 1, 1, 1, 1, 0]]
+    padding_mask = torch.where(expanded_mask != 0, 1, 0)
+    attention_mask_4d = torch.eq(expanded_mask, expanded_mask.transpose(-1, -2)).int() * padding_mask
+    attention_mask_4d *= torch.tril(torch.ones((seq_len, seq_len), dtype=torch.long))
+    attention_mask_4d = torch.where(attention_mask_4d != 0, torch.tensor(0, dtype=dtype), min_dtype)
+    return attention_mask_4d
