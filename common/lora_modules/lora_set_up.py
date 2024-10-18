@@ -12,20 +12,20 @@ from common.lora_modules.rslora import LinearWithRSLoRA
 
 def get_lora_layer_class(args):
     variant_config = {}
-    if args.use_dora:
+    if getattr(args, "use_dora", False):
         lora_layer_class = LinearWithDoRA
-    elif args.plora_steps:
+    elif getattr(args, "plora_steps", False):
         lora_layer_class = LinearWithPLoRA
         variant_config = dict(plora_steps=args.plora_steps)
-    elif args.use_mos_lora:
+    elif getattr(args, "use_mos_lora", False):
         lora_layer_class = LinearWithMosLoRA
         variant_config = dict(weight_ab_mixer_init_method=args.weight_ab_mixer_init_method)
-    elif args.use_me_lora:
+    elif getattr(args, "use_me_lora", False):
         lora_layer_class = LinearWithMELoRA
         variant_config = dict(me_lora_n_split=args.me_lora_n_split)
-    elif args.use_lora_ga:
+    elif getattr(args, "use_lora_ga", False):
         lora_layer_class = LinearWithLoRAGA
-    elif args.use_rslora:
+    elif getattr(args, "use_rslora", False):
         lora_layer_class = LinearWithRSLoRA
     else:
         lora_layer_class = LinearWithLoRA
