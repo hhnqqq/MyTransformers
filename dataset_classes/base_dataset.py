@@ -184,7 +184,7 @@ class BaseDataset(Dataset):
             print(f'--->Length of source data excceed at rank {self.global_rank}: required length: {len(input_ids)} while max source length: {self.max_src_len}, cuttfing off')
             input_ids = input_ids[:self.max_src_len]
         if len(output_ids) > (self.max_len - len(input_ids)):
-            print(f'--->Length of entire data instance excceed at rank {self.global_rank}, cuttfing off')
+            print(f'--->Length of entire data instance excceed at rank {self.global_rank}, required length: {len(output_ids) + len(input_ids)} while max source length: {self.max_len}, cuttfing off')
             output_ids = output_ids[:(self.max_len - len(input_ids))]
         input_len = len(input_ids)
         output_len = len(output_ids)
