@@ -260,7 +260,11 @@ def init_dist(args):
     args.device = device
     return args
     
-    
+def reduce_tensor(tensor, world_size):
+    rt = tensor.clone()
+    dist.all_reduce(rt, op=dist.ReduceOp.SUM)
+    rt /= world_size
+    return rt
 
 # ------------------logging----------------------------
 def configure_logging(log_path, rank: Optional[int] = 0):
@@ -430,3 +434,5 @@ def set_default_tensor_type(dtype: torch.dtype):
     torch.set_default_dtype(dtype)
     yield
     torch.set_default_dtype(torch.float)
+
+
