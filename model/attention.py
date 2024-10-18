@@ -1,10 +1,12 @@
 import torch
 import torch.nn.functional as F
+from typing import Optional
+from packaging import version
+from contextlib import nullcontext
 from transformers.utils.versions import require_version
 from deepspeed.sequence.layer import DistributedAttention
-import common.utils.parallel_states as parallel_states
 
-from typing import Optional
+import common.utils.parallel_states as parallel_states
 
 def naive_attention_func(
    q: torch.Tensor,
@@ -48,6 +50,7 @@ def naive_attention_func(
     output = torch.matmul(scores, v)
     return output
 
+
 def attention_func(
    q: torch.Tensor,
    k: torch.Tensor,
@@ -74,19 +77,21 @@ def attention_func(
     Returns:
         torch.Tensor: Output tensor of shape [batch_size, n_local_heads, input_len, head_dim].
     """
-    if atten_type == 'flash_atten':
-        require_version("torch>=2.0.0")
-        with torch.backends.cuda.sdp_kernel(enable_flash=True):
-            output = F.scaled_dot_product_attention(q, k, v, attn_mask=atten_mask, dropout_p=dropout_p, is_causal=is_causal)
-    elif atten_type == 'ulysses_flash_atten':
-        require_version("torch>=2.0.0")
-        with torch.backends.cuda.sdp_kernel(enable_flash=True):
-            flash_atten = F.scaled_dot_product_attention
-            dist_atten = DistributedAttention(flash_atten, parallel_states.get_sequence_parallel_group(), scatter_idx=1, gather_idx=2)
-            output = dist_atten(q, k, v, attn_mask=atten_mask, dropout_p=dropout_p, is_causal=is_causal)
-    elif atten_type == 'ulysses_atten':
-        dist_atten = DistributedAttention(naive_attention_func, parallel_states.get_sequence_parallel_group(), scatter_idx=1, gather_idx=2)
-        output = dist_atten(q, k, v, atten_mask=atten_mask, dropout_p=dropout_p, scaling=scaling, is_causal=is_causal)
-    else:
-        output = naive_attention_func(q, k, v, atten_mask=atten_mask, dropout_p=dropout_p, scaling=scaling, is_causal=is_causal)
+    atten_func = F.scaled_dot_product_attention
+    ctx_manager = nullcontext()
+    if version.parse(torch.__version__) > version.parse("2.0"):
+        if 'flash' in atten_type:
+            ctx_manager = torch.backends.cuda.enable_flash_sdp(enabled=True)
+        elif 'memory_efficient' in atten_type:
+            ctx_manager = torch.backends.cuda.enable_mem_efficient_sdp(enabled=True)
+        elif 'math' in atten_type:
+            ctx_manager = torch.backends.cuda.enable_math_sdp(enabled=True)
+
+    if 'ulysses' in atten_type:
+        # Enables sequence parallel attention computation.
+        atten_func = DistributedAttention(atten_func, parallel_states.get_sequence_parallel_group(), scatter_idx=1, gather_idx=2)
+    
+    with ctx_manager:
+        output = atten_func(q, k, v, attn_mask=atten_mask, dropout_p=dropout_p, is_causal=is_causal)
+
     return output
