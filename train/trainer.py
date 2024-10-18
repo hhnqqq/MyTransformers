@@ -194,7 +194,7 @@ class Trainer:
         config_path = os.path.join(self.save_floder, 'config.json')
 
         # Save the training configuration if required
-        if self.save_config and isinstance(self.args, Namespace):
+        if self.save_config and isinstance(self.args, Namespace) and self.args.global_rank == 0:
             with open(config_path, 'w', encoding='utf-8') as f:
                 print_rank_0(f'--->Saving training config at step {step+1} in {config_path}.', self.args.global_rank)
                 save_dict = {k: v for k, v in self.args.__dict__.items() if k != 'device'}
