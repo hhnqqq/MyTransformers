@@ -1,5 +1,6 @@
 import torch
 import common.utils.parallel_states as parallel_state
+from common.utils import print_rank_0
 
 import numpy as np
 
@@ -8,51 +9,55 @@ def save_grad(name):
     def hook(grad):
         # grads[name] = grad
         if parallel_state.get_data_parallel_rank() == 0:
-            print(f"Tensor name={name}, Gradient={grad}")
+            print_rank_0(f"Tensor name={name}, Gradient={grad}")
     return hook
 
 def hook_forward_fn(module, input, output):
     if parallel_state.get_data_parallel_rank() == 0:
-        print("It's forward: ")
-        print(f"Module: {module}")
-        print(f"Input tensor: {input}")
-        print(f"Output tensor: {output}")
-        print("="*20)
+        print_rank_0("It's forward: ")
+        print_rank_0(f"Module: {module}")
+        print_rank_0(f"Input tensor: {input}")
+        print_rank_0(f"Output tensor: {output}")
+        print_rank_0("="*20)
         
 def hook_backward_norm_fn(module, grad_input, grad_output):
     if parallel_state.get_data_parallel_rank() == 0:
-        print("It's backward:")
-        print(f"Module: {module}")
+        print_rank_0("It's backward:")
+        print_rank_0(f"Module: {module}")
         
         if grad_input is not None and len(grad_input) > 0:
             input_grad_norm = torch.norm(torch.stack([torch.norm(gi) for gi in grad_input if gi is not None]), 2)
-            print(f"Input gradient 2-order norm: {input_grad_norm}")
+            print_rank_0(f"Input gradient 2-order norm: {input_grad_norm}")
         
         if grad_output is not None and len(grad_output) > 0:
             output_grad_norm = torch.norm(torch.stack([torch.norm(go) for go in grad_output if go is not None]), 2)
-            print(f"Output gradient 2-order norm: {output_grad_norm}")
+            print_rank_0(f"Output gradient 2-order norm: {output_grad_norm}")
         
-        param_grad_norm = torch.norm(
-            torch.stack([torch.norm(param.grad) for name, param in module.named_parameters() if param.grad is not None]), 
-            2
-        ).item()
-        print(f"Module parameters gradient 2-order norm: {param_grad_norm}")
+        grad_list = [torch.norm(param.grad) for param in module.parameters() if param.grad is not None]
+        if len(grad_list) > 0:
+            param_grad_norm = torch.norm(
+                torch.stack(grad_list), 
+                2
+            ).item()
+            print_rank_0(f"Module parameters gradient 2-order norm: {param_grad_norm}")
+        else:
+            print_rank_0("Gradient is None!!!!")
         
-        print("="*20)
+        print_rank_0("="*20)
 
 def hook_backward_fn(module, grad_input, grad_output):
     if parallel_state.get_data_parallel_rank() == 0:
-        print("It's backward: ")
-        print(f"Module: {module}")
-        print(f"Input gradient: {grad_input}")
-        print(f"output graidnet: {grad_output}")
-        print("="*20)
+        print_rank_0("It's backward: ")
+        print_rank_0(f"Module: {module}")
+        print_rank_0(f"Input gradient: {grad_input}")
+        print_rank_0(f"output graidnet: {grad_output}")
+        print_rank_0("="*20)
 
 def hook_detect_anomaly(name):
     def hook(module, input, output):
         if parallel_state.get_data_parallel_rank() == 0:
             if torch.isnan(output).any() or torch.isinf(output).any():
-                print(f"Detected NaN or Inf in {name}")
+                print_rank_0(f"Detected NaN or Inf in {name}")
     return hook
 
 class ParameterUpdateHook:
@@ -126,15 +131,15 @@ class ModuleUpdateHook:
 
             avg_update_norm = np.mean(all_update_norms) if all_update_norms else 0
 
-            print(f"Step {self.step_count}:")
-            print(f"  Average update norm: {avg_update_norm:.6f}")
+            print_rank_0(f"Step {self.step_count}:")
+            print_rank_0(f"  Average update norm: {avg_update_norm:.6f}")
             
             if anomalies:
-                print("  Anomalies detected:")
+                print_rank_0("  Anomalies detected:")
                 for name, value, mean, std in anomalies:
-                    print(f"    {name}: {value:.6f} (mean: {mean:.6f}, std: {std:.6f})")
+                    print_rank_0(f"    {name}: {value:.6f} (mean: {mean:.6f}, std: {std:.6f})")
             else:
-                print("  No anomalies detected.")
+                print_rank_0("  No anomalies detected.")
 
     def close(self):
         for state in self.param_states.values():

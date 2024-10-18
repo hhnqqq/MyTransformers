@@ -81,10 +81,10 @@ class ConcatDataset(BaseDataset):
         self.process_data_file()
 
     def _process_data_format_encode(self, input_data):
-        if isinstance(input_data, list):
-            assert len(input_data) == len(self.datasets)
+        if isinstance(input_data, list) and len(input_data) == len(self.datasets):
             return {idx: BaseDataset._process_data_format_encode(self, item) if item else [] for idx, item in enumerate(input_data)}
         else:
+            input_data = input_data[0] if isinstance(input_data, list) else input_data
             return super()._process_data_format_encode(input_data)
 
 

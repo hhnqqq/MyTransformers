@@ -21,7 +21,7 @@ from common.utils.params_manager import refresh_config, set_up_trainable_param, 
 from common.utils import (
     DataCollator, PipeLine_Datacollator, load_ckpt_for_train,
     print_rank_0, read_config, set_random_seed, load_ckpt,
-    to_device, dict_to_dataclass)
+    to_device, dict_to_dataclass, reduce_tensor)
 
 args = get_args()
 # If args.test_code, the log file and tb writer will not be created.
@@ -53,8 +53,8 @@ def load_huggingface_model(args):
     return_dataset_kwargs = {}
     assert args.num_pp_stages is None
     print_rank_0(f'--->Using tokenizer and model from huggingface with path: {args.model_name_or_path}', args.global_rank)
-    model = AutoModelForCausalLM(args.model_name_or_path,trust_remote_code=True)
-    tokenizer = AutoTokenizer(args.model_name_or_path, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path,trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, trust_remote_code=True)
     # Load trainable params if needed.
 
     if args.partial_ckpt_path:
@@ -302,9 +302,7 @@ if __name__ == '__main__':
             if args.all_reduce_loss:
                 # Reduce loss for average loss print, not for backpropagation.
                 # DeepSpeed uses on-chip loss for backpropagation and all-reduces gradients afterwards.
-                loss_reduced = loss.detach().clone()
-                torch.distributed.all_reduce(loss_reduced.data)
-                loss_reduced /= args.world_size
+                loss_reduced = reduce_tensor(loss, args.world_size)
                 metric['loss_reduced'] = loss_reduced
 
             return loss, metric
