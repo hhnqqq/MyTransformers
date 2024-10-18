@@ -279,6 +279,11 @@ def get_args():
     #     args.fp16 = True
     #     args.bf16 = False
     
+    mt_dir = os.path.dirname(os.path.dirname(__file__))
+    if args.zero_stage > 0:
+        args.ds_config_path = os.path.join(mt_dir, "ds_config", f"zero{args.zero_stage}_config.json")
+        print_rank_0(f"--->Using {args.ds_config_path} as deepspeed config path", args.global_rank)
+        
     if args.multimodal:
         if args.multimodal_projector_type == 'mlp':
             assert args.multimodal_projector_layers > 1, 'Mlp module layer count must greater than 1'
