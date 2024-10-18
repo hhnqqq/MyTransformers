@@ -99,7 +99,7 @@ def get_regular_optimizer(optim_type, args, model):
                         {'params': base_group, 'lr': 1}]
             print_rank_0(F'--->lora+ is enabled and the lr of weight b is set to {args.lr * args.lora_plus_scaler}', args.global_rank)
         else:
-            params = [p for p in model.parameters() if p.requires_grad]
+            params = [{'params':[p for p in model.parameters() if p.requires_grad], 'lr': 1}]
 
         optimizer_class = {
             'adamw': partial(ds_optim.adam.FusedAdam, adam_w_mode=True),
