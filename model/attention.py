@@ -93,6 +93,7 @@ def attention_func(
         # Enables sequence parallel attention computation.
         atten_func = DistributedAttention(atten_func, parallel_states.get_sequence_parallel_group(), scatter_idx=1, gather_idx=2)
     
-    output = atten_func(q, k, v, attn_mask=atten_mask, dropout_p=dropout_p, is_causal=is_causal)
+    with ctx_manager:
+        output = atten_func(q, k, v, attn_mask=atten_mask, dropout_p=dropout_p, is_causal=is_causal)
 
     return output
