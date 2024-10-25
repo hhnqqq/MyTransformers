@@ -5,6 +5,7 @@ from packaging import version
 from contextlib import nullcontext
 from transformers.utils.versions import require_version
 from deepspeed.sequence.layer import DistributedAttention
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
 import common.utils.parallel_states as parallel_states
 
@@ -80,18 +81,18 @@ def attention_func(
     atten_func = F.scaled_dot_product_attention
     ctx_manager = nullcontext()
     if version.parse(torch.__version__) > version.parse("2.0"):
+        # This context manager is beta and subject to change.
         if 'flash' in atten_type:
-            ctx_manager = torch.backends.cuda.enable_flash_sdp(enabled=True)
+            ctx_manager = sdpa_kernel(SDPBackend.FLASH_ATTENTION)
         elif 'memory_efficient' in atten_type:
-            ctx_manager = torch.backends.cuda.enable_mem_efficient_sdp(enabled=True)
+            ctx_manager = sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION)
         elif 'math' in atten_type:
-            ctx_manager = torch.backends.cuda.enable_math_sdp(enabled=True)
+            ctx_manager = sdpa_kernel(SDPBackend.MATH)
 
     if 'ulysses' in atten_type:
         # Enables sequence parallel attention computation.
         atten_func = DistributedAttention(atten_func, parallel_states.get_sequence_parallel_group(), scatter_idx=1, gather_idx=2)
     
-    with ctx_manager:
-        output = atten_func(q, k, v, attn_mask=atten_mask, dropout_p=dropout_p, is_causal=is_causal)
+    output = atten_func(q, k, v, attn_mask=atten_mask, dropout_p=dropout_p, is_causal=is_causal)
 
     return output
