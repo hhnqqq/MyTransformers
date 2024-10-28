@@ -10,19 +10,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from functools import partial
+from dataclasses import dataclass
 from typing import Optional, Dict, Any
+
+@dataclass
+class LoRAConfig:
+    in_features: int
+    out_features: int
+    lora_rank: int = 4
+    lora_scaler: float = 32.0
+    lora_dropout: Optional[float] = None
+    quant: bool = False
+    weight_a_init_method: Optional[str] = None
+    weight_b_init_method: Optional[str] = None
+    run_lora_in_fp32: bool = False
 
 class LinearWithLoRA(nn.Linear):
     def __init__(
         self,
-        in_features: int,
-        out_features: int,
-        lora_rank: int = 4,
-        lora_scaler: float = 32.0,
-        lora_dropout: Optional[float] = None,
-        quant: bool = False,
-        weight_a_init_method: Optional[str] = None,
-        weight_b_init_method: Optional[str] = None
+        lora_config: LoRAConfig
     ):
         """
         Initialize the LinearWithLoRA layer.
@@ -35,17 +41,19 @@ class LinearWithLoRA(nn.Linear):
             quant (bool, optional): Whether to apply weight quantization. Default is False.
             weight_a_init_method (str, optional): The init method for weight_a.
             weight_b_init_method (str, optional): The init method for weight_b.
+            run_lora_in_fp32 (bool): Whether to keep lora weight in fp32 regardless of dtype of forzen weight. (Defualt setting in peft's lora implementation.)
         """
-        super().__init__(in_features, out_features, bias=False)
-        self.lora_rank = lora_rank
-        self.lora_scaler = lora_scaler / lora_rank
-        self.quant = quant
-        self.weight_a_init_method = weight_a_init_method
-        self.weight_b_init_method = weight_b_init_method
+        super().__init__(lora_config.in_features, lora_config.out_features, bias=False)
+        self.lora_rank = lora_config.lora_rank
+        self.lora_scaler = lora_config.lora_scaler / lora_config.lora_rank
+        self.quant = lora_config.quant
+        self.weight_a_init_method = lora_config.weight_a_init_method
+        self.weight_b_init_method = lora_config.weight_b_init_method
+        self.run_lora_in_fp32 = lora_config.run_lora_in_fp32
 
         self._init_lora_weights()
-        if lora_dropout:
-            self.lora_dropout = nn.Dropout(lora_dropout)
+        if lora_config.lora_dropout:
+            self.lora_dropout = nn.Dropout(lora_config.lora_dropout)
         else:
             self.lora_dropout = nn.Identity()
         
@@ -54,12 +62,14 @@ class LinearWithLoRA(nn.Linear):
         # The origin weight of Linear layer.
         weight = self._quantize_weight(self.weight, self.weight_quantizer)
         result = F.linear(x, weight)
+        if self.run_lora_in_fp32:
+            result = result.to(torch.float32)
         return self._lora_forward(x, result)
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
         weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
-        lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b)
+        lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b).to(self.weight.dtype)
 
         return result + self.lora_scaler * lora_result
     
@@ -68,8 +78,14 @@ class LinearWithLoRA(nn.Linear):
             return weight * quantizer.unsqueeze(-1)
         return weight
     
-    def _init_lora_weights(self):
+    def _get_lora_dtype(self):
         dtype = torch.int8 if self.quant else None
+        if self.run_lora_in_fp32:
+            dtype = torch.float32
+        return dtype
+    
+    def _init_lora_weights(self):
+        dtype = self._get_lora_dtype()
         requires_grad = not self.quant
 
         self.weight_a = nn.Parameter(torch.empty((self.lora_rank, self.in_features), dtype=dtype), requires_grad=requires_grad)

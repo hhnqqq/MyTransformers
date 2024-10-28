@@ -2,23 +2,9 @@ from common.lora_modules.lora import *
 
 class LinearWithDoRA(LinearWithLoRA):
     def __init__(self,
-        in_features: int,
-        out_features: int,
-        lora_rank: int = 4,
-        lora_scaler: float = 32.0,
-        lora_dropout: Optional[float] = None,
-        quant: bool = False,
-        weight_a_init_method: Optional[str] = None,
-        weight_b_init_method: Optional[str] = None,):
-        super().__init__(in_features,
-                         out_features,
-                         lora_rank,
-                         lora_scaler,
-                         lora_dropout,
-                         quant,
-                         weight_a_init_method,
-                         weight_b_init_method)
-        if lora_dropout:
+                lora_config: LoRAConfig):
+        super().__init__(lora_config)
+        if lora_config.lora_dropout:
             print(f'Dora is incompatible with lora dropout, skiped lora dropout')
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

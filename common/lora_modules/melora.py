@@ -6,14 +6,7 @@ from common.lora_modules.lora import *
 
 class LinearWithMELoRA(LinearWithLoRA):
     def __init__(self,
-        in_features: int,
-        out_features: int,
-        lora_rank: int = 4,
-        lora_scaler: float = 32.0,
-        lora_dropout: Optional[float] = None,
-        quant: bool = False,
-        weight_a_init_method: Optional[str] = None,
-        weight_b_init_method: Optional[str] = None,
+        lora_config: LoRAConfig,
         me_lora_n_split: int = 2):
         """
         Initialize the LinearWithMosLoRA layer.
@@ -26,16 +19,13 @@ class LinearWithMELoRA(LinearWithLoRA):
             lora_dropout, quant, weight_a_init_method, and weight_b_init_method, 
             please refer to the parent class LinearWithLoRA.
         """
-        self._prepare_melora_attrs(me_lora_n_split, lora_rank, in_features, out_features)
-        super().__init__(in_features,
-                         out_features,
-                         lora_rank,
-                         lora_scaler,
-                         lora_dropout,
-                         quant,
-                         weight_a_init_method,
-                         weight_b_init_method)
-        if quant:
+        self._prepare_melora_attrs(me_lora_n_split, 
+                                   lora_config.lora_rank, 
+                                   lora_config.in_features, 
+                                   lora_config.out_features)
+        
+        super().__init__(lora_config)
+        if lora_config.quant:
             print(f'Currently MELoRA is incompatible with quant, skipped quant')
 
     def _prepare_melora_attrs(self, me_lora_n_split, lora_rank, in_features, out_features):

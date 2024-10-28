@@ -1,6 +1,6 @@
 # @author: haonan he
 # @date: 2024-08-21
-""" Unofficial implements MosLORA.
+""" Un-official implements MosLORA.
 Mixture-of-Subspaces in Low-Rank Adaptation (https://arxiv.org/pdf/2406.11909)
 MoSLoRA consistently outperforms LoRA on tasks in different modalities, 
 including commonsense reasoning, visual instruction tuning, 
@@ -11,14 +11,7 @@ from common.lora_modules.lora import *
 
 class LinearWithMosLoRA(LinearWithLoRA):
     def __init__(self,
-        in_features: int,
-        out_features: int,
-        lora_rank: int = 4,
-        lora_scaler: float = 32.0,
-        lora_dropout: Optional[float] = None,
-        quant: bool = False,
-        weight_a_init_method: Optional[str] = None,
-        weight_b_init_method: Optional[str] = None,
+        lora_config: LoRAConfig,
         weight_ab_mixer_init_method: Optional[str] = None):
         """
         Initialize the LinearWithMosLoRA layer.
@@ -32,14 +25,7 @@ class LinearWithMosLoRA(LinearWithLoRA):
             please refer to the parent class LinearWithLoRA.
         """
         self.weight_ab_mixer_init_method = weight_ab_mixer_init_method
-        super().__init__(in_features,
-                         out_features,
-                         lora_rank,
-                         lora_scaler,
-                         lora_dropout,
-                         quant,
-                         weight_a_init_method,
-                         weight_b_init_method)
+        super().__init__(lora_config)
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)

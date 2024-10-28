@@ -35,10 +35,6 @@ def get_lora_layer_class(args):
 
 def switch_to_lora(model: nn.Module, 
                    args: Namespace,
-                   replace_names: Optional[Union[str, List[str]]] = None, 
-                   rank: int = 4, 
-                   lora_scaler: int = 32, 
-                   lora_dropout: Optional[float] = None,
                    transposition: bool = False):
     """
     Switch function for lora, responsible for replacing Linear layer with LinearWithLoRA layer
@@ -52,26 +48,27 @@ def switch_to_lora(model: nn.Module,
         use_dora: Weather to use dora
         plora_steps: The steps to merge and reset lora weight.
     """
-    assert replace_names is not None, 'Replace names can not be None'
+    assert args.replace_names is not None, 'Replace names can not be None'
     lora_layer_class, variant_config = get_lora_layer_class(args)
     for name, module in model.named_modules():
         replace_tag = False
-        for replace_name in replace_names:
+        for replace_name in args.replace_names:
             if replace_name in name:
                 # Create LoRA layer instance.
                 replace_tag = True
                 if isinstance(module, LinearWithLoRA):
-                    module.merge_and_reset(new_rank=rank)
+                    module.merge_and_reset(new_rank=args.rank)
                 elif isinstance(module, nn.Module):
                     if  all(hasattr(module, attr) for attr in ["in_features", "out_features", "weight"]):
                         quant = getattr(module, "quant", False)
-                        lora_config = dict(lora_rank=rank, 
-                                        lora_scaler=lora_scaler, 
-                                        lora_dropout=lora_dropout,
-                                        in_features=module.in_features, 
-                                        out_features=module.out_features, 
-                                        quant=quant)
-                        lora_layer = lora_layer_class(**lora_config, **variant_config)
+                        lora_config = LoRAConfig(lora_rank=args.rank, 
+                                            lora_scaler=args.lora_scaler, 
+                                            lora_dropout=args.lora_dropout,
+                                            run_lora_in_fp32=args.run_lora_in_fp32,
+                                            in_features=module.in_features, 
+                                            out_features=module.out_features, 
+                                            quant=quant)
+                        lora_layer = lora_layer_class(lora_config, **variant_config)
                         # Copy the original weight to the LoRA layer.
                         if transposition:
                             lora_layer.weight = nn.Parameter(module.weight.data.T)
@@ -91,22 +88,12 @@ def setup_lora(model, args, model_config=None):
         if args.replace_modules is None:
             args.replace_modules = model_config.lora_layers
         print_rank_0(f'--->LoRA targeting modules: {args.replace_modules}', args.global_rank)
-        switch_to_lora(model, 
-                       args,
-                       args.replace_modules, 
-                       rank=args.lora_rank, 
-                       lora_scaler=args.lora_scaler,
-                       lora_dropout=args.lora_dropout)
+        switch_to_lora(model, args)
         if args.lora_fa:
             lora_weight = ['weight_b', 'weight_ab_mixer']
         else:
             lora_weight = ['weight_a','weight_b', 'weight_ab_mixer']
         args.enable_list = lora_weight if args.enable_list is None else list(set(args.enable_list + lora_weight))
-        if hasattr(args, 'device'):
-            if args.fp16:
-                model.to(args.device).half()
-            elif args.bf16:
-                model.to(args.device).bfloat16()
 
 def recover_linear(model: nn.Module):
     """

@@ -6,14 +6,7 @@ from common.lora_modules.lora import *
     
 class LinearWithVeRA(LinearWithLoRA):
     def __init__(self,
-        in_features: int,
-        out_features: int,
-        lora_rank: int = 4,
-        lora_scaler: float = 32.0,
-        lora_dropout: Optional[float] = None,
-        quant: bool = False,
-        weight_a_init_method: Optional[str] = None,
-        weight_b_init_method: Optional[str] = None,
+        lora_config: LoRAConfig,
         scaling_vector_b_init_method: str = 'zero',
         scaling_vector_d_init_method: str = 'ones'
     ):
@@ -21,22 +14,10 @@ class LinearWithVeRA(LinearWithLoRA):
         Initialize the LinearWithVeRA layer.
 
         Args:
-            in_features (int): Number of input features.
-            out_features (int): Number of output features.
-            lora_rank (int, optional): Rank of LoRA decomposition. Default is 4.
-            lora_scaler (float, optional): Scaler for LoRA weights. Default is 32.0.
-            quant (bool, optional): Whether to apply weight quantization. Default is False.
             scaling_vector_b_init_method (str, optional): Initialization method for scaling vector b. ['zero', 'ones', 'small_constant', 'random']. Default is 'zeros'.
             scaling_vector_d_init_method (str, optional): Initialization method for scaling vector d. ['zero', 'ones', 'small_constant', 'random']. Default is 'ones'.
         """
-        super().__init__(in_features,
-                         out_features,
-                         lora_rank,
-                         lora_scaler,
-                         lora_dropout,
-                         quant,
-                         weight_a_init_method,
-                         weight_b_init_method)
+        super().__init__(lora_config)
         self._init_scaling_vectors(scaling_vector_b_init_method, scaling_vector_d_init_method)
     
     def _init_lora_weights(self):
