@@ -5,9 +5,8 @@ This implementation only contain adamw implementation
 import math
 import torch
 
-from typing import Tuple, Union
+from typing import Tuple, Union, List
 
-from torch import Tensor
 from torch.optim import Optimizer
 from torch._utils import is_compiling
 from scipy.linalg import solve_sylvester
@@ -62,17 +61,23 @@ def solve_sylvester(A, B, C, X=None):
 class LoRAProAdamW(Optimizer):
     def __init__(
         self,
-        named_params,
-        lr: Union[float, Tensor] = 1e-3,
+        named_params: List[Tuple[str, torch.Tensor]],
+        lr: Union[float, torch.Tensor] = 1e-3,
         scaling_factor: float = 2.,
         betas: Tuple[float, float] = (0.9, 0.999),
         eps: float = 1e-8,
         weight_decay: float = 0,
         amsgrad: bool = False,
-        maximize: bool = False, 
+        maximize: bool = False,
         differentiable: bool = False,
         X_mode: str = "sylvester",
     ):
+        
+        """
+        Example of named params:
+        [{'params':named_param_group1, 'lr':lr1},
+        {'params':named_param_group2, 'lr':lr2}]
+        """
         if not 0.0 <= lr:
             raise ValueError(f"Invalid learning rate: {lr}")
         if not 0.0 <= eps:
@@ -86,34 +91,47 @@ class LoRAProAdamW(Optimizer):
         if not X_mode in ["zero", "sylvester", "symmetry"]:
             raise ValueError(f"Invalid mode value: {X_mode}, mode should be in ['zero', 'sylvester', 'symmetry']")
 
-        names = []
-        params = []
-
-        if isinstance(named_params, list):
-            named_params = {n:p for d in named_params for n, p in d.items()}
-            
-        for n, p in named_params:
-            names.append(n)
-            params.append(p)
-            
         self.X_mode = X_mode
         self.step_ = 0
+        
+        if not isinstance(named_params, list):
+            named_params = [named_params]
+        # Process named_params into param groups
+        params = []
+
+        for named_params_group in named_params:
+            param_group = {
+                'params': [],
+                'names': [],
+                'lr': named_params_group.get('lr', lr),
+                'scaling_factor': scaling_factor,
+                'betas': betas,
+                'eps': eps,
+                'weight_decay': weight_decay,
+                'amsgrad': amsgrad,
+                'maximize': maximize,
+                'differentiable': differentiable,
+                'X_mode': X_mode
+            }
+            for name, param in named_params_group['params']:
+                param_group['params'].append(param)
+                param_group['names'].append(name)
+                
+            params.append(param_group)
+        
         defaults = dict(
             lr=lr,
-            names=names,
             scaling_factor=scaling_factor,
-            X_mode=X_mode,
             betas=betas,
             eps=eps,
             weight_decay=weight_decay,
             amsgrad=amsgrad,
             maximize=maximize,
             differentiable=differentiable,
+            X_mode=X_mode,
         )
+        
         super().__init__(params, defaults)
-
-    # def is_same(self, name_list):
-    #     return (name_list[0].split('.')[:-3] == name_list[1].split('.')[:-3])
                
     @torch.no_grad()
     def step(self, closure=None):
@@ -135,15 +153,14 @@ class LoRAProAdamW(Optimizer):
             scaling_factor = group["scaling_factor"]
 
             param_dict = {}
-            name_list = []
+            # param_dict process a group of lora parameter at one time
             for p, n in zip(group["params"], group["names"]):
                 if p.grad is None:
                     continue
 
                 lora_weight_name = find_lora_names(n)
                 if lora_weight_name:
-                    param_dict[n] = p
-                    name_list.append(n)
+                    param_dict[lora_weight_name] = p
                     if len(param_dict.keys()) == 2:
                         # weight_a and weight_b share the same state
                         name = n[: n.find('lora')] + 'lora'
@@ -159,6 +176,7 @@ class LoRAProAdamW(Optimizer):
                     # note(crcrpar): [special device hosting for step]
                     # Deliberately host `step` on CPU if both capturable and fused are off.
                     # This is because kernel launches are costly on CUDA and XLA.
+                    # All lora states store in one state dict.
                     if len(param_dict.keys()) == 2:
                         state["step"] = torch.tensor(0.0, dtype=_get_scalar_dtype())
 
@@ -212,9 +230,11 @@ class LoRAProAdamW(Optimizer):
                         X = torch.zeros((B_TB_inv.shape[0], B_TB_inv.shape[0])).to(B.device)
                     X = torch.tensor(X).to(B.device).to(B.dtype)
     
+                    # calculate optimized gradient of A
                     grad_A = (1 / scaling_factor ** 2) * B_TB_inv @ grad_A_orin + X @ A
                     grad_B = (1 / scaling_factor ** 2) * ((torch.eye(B.shape[0]).to(B.device) - B @ B_TB_inv @ B.T) @ grad_B_orin @ AA_T_inv) - B @ X
                     
+                    # normal adamw computation process
                     exp_avg_A = state["exp_avg_A"]
                     exp_avg_sq_A = state["exp_avg_sq_A"]
                     
@@ -258,7 +278,6 @@ class LoRAProAdamW(Optimizer):
                     A.addcdiv_(exp_avg_A / bias_correction1, denom_A, value=-step_size)
                     B.addcdiv_(exp_avg_B / bias_correction1, denom_B, value=-step_size)
                     param_dict['weight_b'] = {}
-                    name_list = []
                 else:
                     grad = p.grad
                     exp_avg = state["exp_avg"]

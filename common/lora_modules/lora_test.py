@@ -1,13 +1,17 @@
 import time
+import torch
+import torch.nn as nn
+from common.lora_modules.lorapro_optim import *
 from common.lora_modules import *
-from common.parser import get_args
+
 # initialize test
-test_class = LinearWithDoRA
-linear = test_class(in_features=2048, 
+test_class = LinearWithLoRA
+config = LoRAConfig(in_features=2048, 
                     out_features=2048, 
                     lora_rank=8, 
                     lora_scaler=32, 
                     quant=False)
+linear = test_class(config)
 linear.weight.data = torch.randn(2048,2048)
 
 print(linear.weight)
@@ -22,14 +26,15 @@ linear.print_details()
 class TestModel(nn.Module):
     def __init__(self, in_features, out_features, lora_rank, lora_scaler, lora_dropout, quant):
         super().__init__()
-        self.linear = test_class(in_features, out_features, lora_rank, lora_scaler, lora_dropout, quant)
+        config = LoRAConfig(in_features, out_features, lora_rank, lora_scaler, lora_dropout, quant)
+        self.linear = test_class(config)
 
     def forward(self, x):
         return self.linear(x)
 
 def test_lora_gradient():
     # Set up the model
-    device='cuda' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     in_features = 4096
     out_features = 4096
     lora_rank = 128
@@ -44,16 +49,24 @@ def test_lora_gradient():
     # Generate some random input and target
     input_data = torch.randn(32, in_features).to(device)
     target_data = torch.randn(32, out_features).to(device)
+    
+    # Initialize the Adam optimizer
+    optimizer = LoRAProAdamW({'params':model.named_parameters()}, lr=0.001)
+
     # Forward pass
     start = time.time()
     output = model(input_data)
     forward_end = time.time()
+    
     # Compute the loss
     loss = nn.MSELoss()(output, target_data)
 
     # Backward pass
+    optimizer.zero_grad()  # Zero the gradients
     loss.backward()
+    optimizer.step()  # Update model parameters
     end = time.time()
+
     # Check if the gradients are not None
     print(f'forward path spend time {forward_end-start:.6f}s')
     print(f'total spend time {end-start:.6f}s')
@@ -64,7 +77,6 @@ def test_lora_gradient():
     print("Test passed: Gradients are not None.")
 
 test_lora_gradient()
-
 
 """
 in_features = 4096
