@@ -133,8 +133,8 @@ def get_regular_optimizer(optim_type, args, model):
 def get_lorapro_optimizer(optim_type, args, model):
     try:
         if args.use_lora_plus:
-            weight_b_group = {n:p for n, p in model.named_parameters() if p.requires_grad and 'weight_b' in n}
-            base_group = {n:p for n, p in model.named_parameters() if p.requires_grad and 'weight_b' not in n}
+            weight_b_group = ((n, p) for n, p in model.named_parameters() if p.requires_grad and 'weight_b' in n)
+            base_group = ((n, p) for n, p in model.named_parameters() if p.requires_grad and 'weight_b' not in n)
             named_params = [{'params': weight_b_group, 'lr': args.lora_plus_scaler},
                         {'params': base_group, 'lr': 1}]
             print_rank_0(F'--->lora+ is enabled and the lr of weight b is set to {args.lr * args.lora_plus_scaler}', args.global_rank)
