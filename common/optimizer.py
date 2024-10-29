@@ -5,6 +5,7 @@ import deepspeed.ops as ds_optim
 from functools import partial
 from common.utils import print_rank_0
 from common.scheduler import AnnealingLR
+from common.lora_modules import LoRAProAdamW
 from transformers.utils.versions import require_version
 
 def get_optimizer_type(args, ds_config):
@@ -17,8 +18,12 @@ def get_optimizer_type(args, ds_config):
 def get_optimizer_instance(optim_type, args, model):
     if args.use_galore:
         message = 'galore cannot be used with the current DeepSpeed version, and running it will result in an error.'
-        print_rank_0(message, level=logging.ERROR)
+        print_rank_0(message, level=logging.ERROR, rank=args.global_rank)
         return get_galore_optimizer(optim_type, args, model)
+    elif args.use_lora_pro:
+        message = 'You are using lorapro-adamw optmizer'
+        print_rank_0(message, args.global_rank)
+        return get_lorapro_optimizer(optim_type, args, model)
     else:
         return get_regular_optimizer(optim_type, args, model)
 
@@ -107,13 +112,43 @@ def get_regular_optimizer(optim_type, args, model):
             'cpuadamw':partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=True),
             'cpuadam':partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=False),
             'adamax': optim.Adamax,
-            'sparseadam': optim.SparseAdam
+            'sparseadam': optim.SparseAdam,
         }.get(optim_type)
         
         if optimizer_class is None:
             raise NotImplementedError('only support adam and its variants for now')
         
         optimizer = optimizer_class(params,
+                                    lr=args.lr,
+                                    weight_decay=args.weight_decay,
+                                    eps=args.eps,
+                                    betas=tuple(args.betas))
+        isSuccess = True
+    except Exception as e:
+        print_rank_0(f'Load local optimizer error as e: {e}', args.global_rank)
+        isSuccess = False
+        optimizer = None
+    return isSuccess, optimizer
+
+def get_lorapro_optimizer(optim_type, args, model):
+    try:
+        if args.use_lora_plus:
+            weight_b_group = {n:p for n, p in model.named_parameters() if p.requires_grad and 'weight_b' in n}
+            base_group = {n:p for n, p in model.named_parameters() if p.requires_grad and 'weight_b' not in n}
+            named_params = [{'params': weight_b_group, 'lr': args.lora_plus_scaler},
+                        {'params': base_group, 'lr': 1}]
+            print_rank_0(F'--->lora+ is enabled and the lr of weight b is set to {args.lr * args.lora_plus_scaler}', args.global_rank)
+        else:
+            named_params = {n:p for n, p in model.named_parameters() if p.requires_grad}
+
+        optimizer_class = {
+            'adamw': LoRAProAdamW
+        }.get(optim_type)
+        
+        if optimizer_class is None:
+            raise NotImplementedError('only support adamw for lorapro now')
+        
+        optimizer = optimizer_class(named_params,
                                     lr=args.lr,
                                     weight_decay=args.weight_decay,
                                     eps=args.eps,

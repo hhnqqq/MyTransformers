@@ -83,8 +83,6 @@ class LoRAProAdamW(Optimizer):
             raise ValueError(f"Invalid beta parameter at index 1: {betas[1]}")
         if not 0.0 <= weight_decay:
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
-        if not mode in ["full", "efficient"]:
-            raise ValueError(f"Invalid mode value: {mode}, mode should be in ['full', 'efficient']")
         if not X_mode in ["zero", "sylvester", "symmetry"]:
             raise ValueError(f"Invalid mode value: {X_mode}, mode should be in ['zero', 'sylvester', 'symmetry']")
 

@@ -8,7 +8,7 @@ import random
 import logging
 import contextlib
 import configparser
-from typing import Optional, Dict
+from typing import Optional, Dict, Union
 from datetime import datetime
 from traceback import format_exc
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef, precision_score, recall_score
@@ -335,7 +335,7 @@ def get_merged_state_dict(ckpt_path: str = None,
                           partial_ckpt_path: str = None) -> dict:
     def load_state_dict(path):
         if path:
-            ckpt = torch.load(path, map_location='cpu')
+            ckpt = torch.load(path, map_location='cpu', weights_only=True)
             return (ckpt.get('model_state_dict', ckpt),
                     ckpt.get('optimizer_state_dict', {}),
                     ckpt.get('lr_scheduler_state_dict', {}))
@@ -429,8 +429,10 @@ STR_DTYPE_TO_TORCH_DTYPE = immutabledict.immutabledict({
 })
 
 @contextlib.contextmanager
-def set_default_tensor_type(dtype: torch.dtype):
+def set_default_tensor_type(dtype: Union[torch.dtype, str]):
     """Sets the default torch dtype to the given dtype."""
+    if isinstance(dtype, str):
+        dtype = STR_DTYPE_TO_TORCH_DTYPE[dtype]
     torch.set_default_dtype(dtype)
     yield
     torch.set_default_dtype(torch.float)

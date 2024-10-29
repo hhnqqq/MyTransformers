@@ -77,7 +77,7 @@ def train_parser(parser):
     group.add_argument('--train-pi', type=int, default=None,
                        help='The interpolation factor of RoPE, which is used to enhance the sequence length\
                         In the case of a non-existent interpolation multiple, the rope will remain in its original state.')
-    group.add_argument('--atten-type', type=str, default=None,
+    group.add_argument('--atten-type', type=str, default="",
                        help='Type of attention. For example: flash-atten')
     group.add_argument('--loss-fct', type=str, default='ce')
 
@@ -89,7 +89,7 @@ def optimizer_parser(parser):
     # --------------------- optimizer -----------------------
     group.add_argument('--diy-optimizer', action='store_true', 
                        help='Whether to DIY the optimizer. '
-                       'DeepSpeed optimizer will be used as defualt optimizer.')
+                       'DeepSpeed optimizer will be used as default optimizer.')
     group.add_argument('--eval-batch-size-per-gpu', type=int, default=4, 
                        help='Evaluation batch size on a single GPU. batch-size * world_size = total batch_size.')
     group.add_argument('--lr', type=float, default=1.0e-4, 
@@ -164,6 +164,8 @@ def peft_parser(parser):
     # --------------------------- lora ----------------------------------
     group.add_argument('--use-lora', action='store_true',
                        help='Whether to use LoRA')
+    group.add_argument('--use-lora-pro', action='store_true',
+                       help='Whether to use LoRA-Pro optimizer')
     group.add_argument('--use-dora', action='store_true',
                        help='Whether to use DoRA')
     group.add_argument('--lora-scaler', type=int, default=32,
@@ -178,17 +180,18 @@ def peft_parser(parser):
                        help='Whether to use LoRA FA')
     group.add_argument('--use-rslora', action='store_true',
                        help='Whether to use rslora')
+    group.add_argument('--use-pissa', action='store_true',
+                       help='Whether to use pissa')
     group.add_argument('--lora-rank', type=int, default=8,
                        help='The rank of LoRA')
     group.add_argument('--lora-plus-scaler', type=int, default=16,
                        help='The scaler of learning rate of LoRA weight b \
-                       In the defualt case, the learning rate of weight b is 16 times of a')
+                       In the default case, the learning rate of weight b is 16 times of a')
     group.add_argument('--replace-modules', type=str, default=None,
                        help='List of modules to be replaced by LoRA')
     group.add_argument('--weight-a-init-method', type=str, default=None,
                        help='Init method for lora weight a')
-    group.add_argument('--weight-b-init-method', type=str, default=None,
-                       help='Init method for lora weight b')
+    group.add_argument('--weight-b-init-method', type=str, default=None,                       help='Init method for lora weight b')
     group.add_argument('--weight-ab-mixer-init-method', type=str, default=None,
                        help='Init method for lora weight ab mixer')
     group.add_argument('--use-lora-ga', action='store_true',
@@ -197,6 +200,8 @@ def peft_parser(parser):
                        help='How much step to merge and reset the lora weight')
     group.add_argument('--lora-dropout', type=float, default=None,
                        help='The dropout rate for lora weight.')
+    group.add_argument('--run-lora-in-fp32', action='store_true',
+                       help='Whether to keep lora weight in fp32.')
     
     # --------------------------- galore ----------------------------------
     group.add_argument('--use-galore', action='store_true',
@@ -267,7 +272,14 @@ def get_args():
 
     args = parser.parse_args()
     args = init_dist(args)
+    
     assert not (args.fp16 and args.bf16), "cannot specify both fp16 and bf16."
+    if args.fp16:
+        args.default_dtype = 'fp16'
+    elif args.bf16:
+        args.default_dtype = 'bf16'
+    else:
+        args.default_dtype = 'fp32'
 
     assert (args.train_iters is None) or (args.epochs is None), 'only one of train_iters and epochs should be set.'
     if args.train_iters is None and args.epochs is None:
