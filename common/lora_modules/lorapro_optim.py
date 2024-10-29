@@ -90,6 +90,10 @@ class LoRAProAdamW(Optimizer):
 
         names = []
         params = []
+
+        if isinstance(named_params, list):
+            named_params = {n:p for d in named_params for n, p in d.items()}
+            
         for n, p in named_params:
             names.append(n)
             params.append(p)

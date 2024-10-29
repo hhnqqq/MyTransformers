@@ -63,13 +63,14 @@ class LinearWithLoRA(nn.Linear):
         weight = self._quantize_weight(self.weight, self.weight_quantizer)
         result = F.linear(x, weight)
         if self.run_lora_in_fp32:
-            result = result.to(torch.float32)
+            result = result
         return self._lora_forward(x, result)
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
+        # If self.run_lora_in_fp32, then the dtype of lora_result will be fp32.
         weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
         weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
-        lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b).to(self.weight.dtype)
+        lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b).to(result.dtype)
 
         return result + self.lora_scaler * lora_result
     
@@ -170,14 +171,18 @@ class LinearWithLoRA(nn.Linear):
         weight = getattr(self, weight_name)
         init_method = getattr(self, f"{weight_name}_init_method")
         init_kwargs = self.get_weight_init_kwargs(weight_name, init_method)
+        if init_method and 'method' not in init_kwargs.keys():
+            init_kwargs['method'] = init_method
         self.get_weight_init_method(**init_kwargs)(weight)
 
     def get_weight_init_kwargs(self, weight_name: str, method: Optional[str] = None) -> Dict[str, Any]:
         init_configs = {
-            'weight_a': {None:{'std': 1 / (self.in_features ** 0.5), 'mean': 0.0}},
+            'weight_a': {None:{'std': 1 / (self.in_features ** 0.5), 'mean': 0.0},
+                         'kaiming':{'a':5**0.5, 'mode':'fan_in'}},
             'weight_b': {None:{'method':'zeros'},
                          'guassian':{'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0},
-                         'unit':{'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0}}
+                         'unit':{'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0},
+                         'kaiming':{'a':5**0.5, 'mode':'fan_in'}}
             ,
             'weight_ab_mixer': {
                 None: {'method': 'kaiming', 'a': 5**0.5, 'mode': 'fan_in'},
