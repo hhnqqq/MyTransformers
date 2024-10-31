@@ -14,6 +14,7 @@ from common.lora_modules.vera import LinearWithVeRA
 
 def get_lora_layer_class(args):
     variant_config = {}
+    variant_print = ""
     if getattr(args, "use_dora", False):
         lora_layer_class = LinearWithDoRA
     elif getattr(args, "plora_steps", False):
@@ -32,14 +33,16 @@ def get_lora_layer_class(args):
     elif getattr(args, "use_pissa", False):
         lora_layer_class = LinearWithPiSSA
         variant_config = dict(n_iters=args.pissa_n_iters)
+        variant_print = ", The initialization of Pissa requires some time especially for full svd decomposition, waiting..."
     elif getattr(args, "use_olora", False):
         lora_layer_class = LinearWithOLoRA
+        variant_print = ", The initialization of Olora requires some time, waiting..."
     elif getattr(args, 'use_vera', False):
         lora_layer_class = LinearWithVeRA
     else:
         lora_layer_class = LinearWithLoRA
 
-    print_rank_0(f'--->Using lora variant: {lora_layer_class.__name__}', rank=args.global_rank)
+    print_rank_0(f'--->Using lora variant: {lora_layer_class.__name__}{variant_print}', rank=args.global_rank)
     return lora_layer_class, variant_config
 
 def switch_to_lora(model: nn.Module, 
