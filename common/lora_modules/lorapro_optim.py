@@ -163,7 +163,7 @@ class LoRAProAdamW(Optimizer):
                     param_dict[lora_weight_name] = p
                     if len(param_dict.keys()) == 2:
                         # weight_a and weight_b share the same state
-                        name = n[: n.find('lora')] + 'lora'
+                        name = n[: n.find(lora_weight_name)] + 'lora'
                     elif len(param_dict.keys()) == 1:
                         continue
                 else:
