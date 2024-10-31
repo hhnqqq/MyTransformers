@@ -164,6 +164,9 @@ def peft_parser(parser):
     # --------------------------- lora ----------------------------------
     group.add_argument('--use-lora', action='store_true',
                        help='Whether to use LoRA')
+    group.add_argument('--use-vera', action='store_true', default=None,
+                       help='Whether to use vera')
+    group.add_argument('--lambda-b-init-method', )
     group.add_argument('--use-lora-pro', action='store_true',
                        help='Whether to use LoRA-Pro optimizer')
     group.add_argument('--use-dora', action='store_true',
@@ -182,6 +185,9 @@ def peft_parser(parser):
                        help='Whether to use rslora')
     group.add_argument('--use-pissa', action='store_true',
                        help='Whether to use pissa')
+    group.add_argument('--pissa-n-iters', type=int, default=1, 
+                       help='The number of iterations determines the trade-off \
+                        between the error and computation time')
     group.add_argument('--lora-rank', type=int, default=8,
                        help='The rank of LoRA')
     group.add_argument('--lora-plus-scaler', type=int, default=16,
@@ -191,7 +197,8 @@ def peft_parser(parser):
                        help='List of modules to be replaced by LoRA')
     group.add_argument('--weight-a-init-method', type=str, default=None,
                        help='Init method for lora weight a')
-    group.add_argument('--weight-b-init-method', type=str, default=None,                       help='Init method for lora weight b')
+    group.add_argument('--weight-b-init-method', type=str, default=None,                       
+                       help='Init method for lora weight b')
     group.add_argument('--weight-ab-mixer-init-method', type=str, default=None,
                        help='Init method for lora weight ab mixer')
     group.add_argument('--use-lora-ga', action='store_true',
