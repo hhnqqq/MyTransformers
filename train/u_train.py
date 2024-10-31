@@ -21,7 +21,7 @@ from common.utils.params_manager import refresh_config, set_up_trainable_param, 
 from common.utils import (
     DataCollator, PipeLine_Datacollator, load_ckpt_for_train,
     print_rank_0, read_config, set_random_seed, load_ckpt,
-    to_device, dict_to_dataclass, reduce_tensor)
+    to_device, dict_to_dataclass, reduce_tensor, set_default_tensor_type)
 
 args = get_args()
 # If args.test_code, the log file and tb writer will not be created.
@@ -77,7 +77,8 @@ def load_local_model(args):
         return_dataset_kwargs['weights'] = [int(i) for i in args.dataset_weights.split('_')]
     print_rank_0(f'--->Using model config: {config_type}', args.global_rank)
     model_config.vocab_size = tokenizer.n_words
-    model = registry.get_model_class(args.model_name)(model_config)
+    with set_default_tensor_type(args.default_dtype):
+        model = registry.get_model_class(args.model_name)(model_config)
     print_rank_0(f'--->Using model: {args.model_name}, and loading its trainning variant', args.global_rank)
 
     # Load checkpoint if checkpoint path is provieded.
@@ -108,9 +109,9 @@ def load_local_model(args):
 
     # Load model to training dtype.
     if args.fp16:
-        model.to(args.device).half()
+        model.half().to(args.device)
     elif args.bf16:
-        model.to(args.device).bfloat16()
+        model.bfloat16().to(args.device)
 
     # Convert model to trainable model for given training type.
     if args.num_pp_stages:
@@ -120,6 +121,7 @@ def load_local_model(args):
         train_model_cls = registry.get_train_model_class(args.model_name)
         model = train_model_cls(model, args)
     return model, tokenizer, model_config, return_dataset_kwargs
+
 
 if args.huggingface:
     model, tokenizer, model_config, return_dataset_kwargs = load_huggingface_model(args)
