@@ -1,4 +1,6 @@
-from torch import svd_lowrank
+from torch import svd_lowrank as fast_svd
+from torch.linalg import svd as standard_svd
+
 from common.lora_modules.lora import *
 
 class LinearWithPiSSA(LinearWithLoRA):
@@ -21,17 +23,20 @@ class LinearWithPiSSA(LinearWithLoRA):
         weight = self.weight.to(torch.float32)
         if self.n_iters > 2:
             # Run fast svd.
-            Vr, Sr, Ur = svd_lowrank(weight.data, self.lora_rank, niter=self.n_iters)
+            Vr, Sr, Ur = fast_svd(weight.data, self.lora_rank, niter=self.n_iters)
             Uhr = Ur.t()
         else:
             # Full svd, which is very slow.
-            V, S, Uh = torch.linalg.svd(self.weight.data, full_matrices=False)
+            V, S, Uh = standard_svd(self.weight.data, full_matrices=False)
             Vr, Sr, Uhr = V[:, :self.lora_rank], S[:self.lora_rank], Uh[:self.lora_rank]
-        Sr /= self.lora_scaler
-               
-        sqrt_Sr = torch.sqrt(Sr)
-        self.weight_a = nn.Parameter((torch.diag(sqrt_Sr) @ Uhr).to(dtype), requires_grad=requires_grad)
-        self.weight_b = nn.Parameter((Vr @ torch.diag(sqrt_Sr)).to(dtype), requires_grad=requires_grad)
+
+        Sr.div_(self.lora_scaler) 
+        sqrt_Sr = Sr.sqrt_()
+        
+        weight_a_data = torch.diag(sqrt_Sr) @ Uhr
+        self.weight_a = nn.Parameter(weight_a_data.to(dtype), requires_grad=requires_grad)
+        weight_b_data = Vr @ torch.diag(sqrt_Sr)
+        self.weight_b = nn.Parameter(weight_b_data.to(dtype), requires_grad=requires_grad)
 
         if self.quant:
             self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
