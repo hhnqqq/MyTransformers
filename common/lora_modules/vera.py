@@ -33,7 +33,7 @@ class LinearWithVeRA(LinearWithLoRA):
     def __init__(self,
         lora_config: LoRAConfig,
         lambda_b_init_method: str = 'zero',
-        lambda_d_init_method: str = 'ones'
+        lambda_d_init_method: str = 'small_constant'
     ):
         """
         Initialize the LinearWithVeRA layer.
@@ -44,7 +44,7 @@ class LinearWithVeRA(LinearWithLoRA):
         """
         super().__init__(lora_config)
         self._init_lambdas(lambda_b_init_method, lambda_d_init_method)
-        if self.weight_b_init_method is None:
+        if lora_config.weight_b_init_method is None:
             raise ValueError('The init method for weight b in vera can not be zero.')
     
     def _init_lambdas(self, b_init_method: str, d_init_method: str):
@@ -56,33 +56,38 @@ class LinearWithVeRA(LinearWithLoRA):
         """
         # Initialize vector b
         dtype = self._get_lora_dtype()
+        requires_grad = not self.quant
         if b_init_method == 'zero':
-            self.lambda_b = torch.zeros(self.out_features, dtype=dtype)
+            lambda_b = torch.zeros(self.out_features, dtype=dtype)
         elif b_init_method == 'ones':
-            self.lambda_b = torch.ones(self.out_features, dtype=dtype)
+            lambda_b = torch.ones(self.out_features, dtype=dtype)
         elif b_init_method == 'small_constant':
-            self.lambda_b = 0.1 * torch.ones(self.out_features, dtype=dtype)
+            lambda_b = 0.1 * torch.ones(self.out_features, dtype=dtype)
         elif b_init_method == 'random':
-            self.lambda_b = torch.rand(self.out_features, dtype=dtype)
+            lambda_b = torch.rand(self.out_features, dtype=dtype)
         else:
             raise ValueError(f"Unknown b_init_method: {b_init_method}")
+        
 
         # Initialize vector d
         if d_init_method == 'zero':
-            self.lambda_d = torch.zeros(self.lora_rank, dtype=dtype)
+            lambda_d = torch.zeros(self.lora_rank, dtype=dtype)
         elif d_init_method == 'ones':
-            self.lambda_d = torch.ones(self.lora_rank, dtype=dtype)
+            lambda_d = torch.ones(self.lora_rank, dtype=dtype)
         elif d_init_method == 'small_constant':
-            self.lambda_d = 0.1 * torch.ones(self.lora_rank, dtype=dtype)
+            lambda_d = 0.1 * torch.ones(self.lora_rank, dtype=dtype)
         elif d_init_method == 'random':
-            self.lambda_d = torch.rand(self.lora_rank, dtype=dtype)
+            lambda_d = torch.rand(self.lora_rank, dtype=dtype)
         else:
             raise ValueError(f"Unknown d_init_method: {d_init_method}")
+        self.lambda_b = nn.Parameter(lambda_b, requires_grad=requires_grad)
+        self.lambda_d = nn.Parameter(lambda_d, requires_grad=requires_grad)
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         # Called by forward method in LinearWithLoRA
-        weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
-        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
+        weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer).to(self._get_lora_dtype())
+        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer).to(self._get_lora_dtype())
+        print(self.lambda_b.device, self.lambda_d.device)
         lora_result = self.lambda_b * F.linear(
             self.lambda_d * F.linear(
                 self.lora_dropout(x), 
