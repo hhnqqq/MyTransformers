@@ -1,3 +1,22 @@
+#@author: hehaonan
+#@date: 2024-10-31
+"""
+Implementation of OLoRA(Orthonormal Low-Rank Adaptation), a initialize method for lora, based on paper:
+https://arxiv.org/pdf/2406.01775.
+
+Orthonormality in NN has several benefits:
+1. Orthonormal matrices help maintain the norm of gradients during backpropagation.
+2. Mitigating issues like vanishing or exploding gradients that can hinder convergence.
+3. The orthogonal group, to which orthonormal matrices belong, exhibits favorable geometric 
+   properties that can translate to a better conditioned optimization landscape.
+
+In OLoRA:
+Origin weight w is decomposied to QR (Q \in R^{mxr}, R \in R^{rxn})
+where Q is an orthogonal matrix , R is an upper triangular matrix
+B = Q[:, :r], A =R[:r,:]
+Residual W_{res} = W - AB
+"""
+
 from common.lora_modules.lora import *
 
 class LinearWithOLoRA(LinearWithLoRA):
@@ -22,5 +41,5 @@ class LinearWithOLoRA(LinearWithLoRA):
         if self.quant:
             self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
             self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
-            
+
         self.weight.data = (weight - self._compute_lora_weight()).to(weight_dtype)
