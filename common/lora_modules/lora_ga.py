@@ -128,17 +128,15 @@ def lora_ga_reinit(
     Note: This implementation follows the LoRA-GA paper's algorithm closely.
     """
     print_rank_0("--->Estimating gradient for lora ga.", rank=args.global_rank)
+    model.to(args.device)
     model.train()
     hooks = []
     for param in model.parameters():
         param.requires_grad = True
         hook = param.register_hook(get_record_gradient_hook(model))
         hooks.append(hook)
-    if not isinstance(dataloader, Iterable):
-        # Make sure that the dataloader is iterable.
-        dataloader = iter(dataloader)
-    for iter in range(iters):
-        batch = to_device(next(dataloader), args.device)
+    for idx, batch in enumerate(dataloader):
+        batch = to_device(batch, args.device)
         output = model(**batch)
         if args.huggingface:
             output.loss.backward()
@@ -148,6 +146,8 @@ def lora_ga_reinit(
         for p in model.parameters():
             if p.grad is not None:
                 p.grad = None
+        if (idx+1) == iters:
+            break
     for p in model.parameters():
         p.grad_stored /= iters
     for hook in hooks:
