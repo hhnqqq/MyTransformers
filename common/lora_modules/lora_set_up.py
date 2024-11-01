@@ -32,7 +32,7 @@ def get_lora_layer_class(args):
         lora_layer_class = LinearWithRSLoRA
     elif getattr(args, "use_pissa", False):
         lora_layer_class = LinearWithPiSSA
-        variant_config = dict(n_iters=args.pissa_n_iters)
+        variant_config = dict(fast_svd_n_iters=args.pissa_n_iters)
         variant_print = ", The initialization of Pissa requires some time especially for full svd decomposition, waiting..."
     elif getattr(args, "use_olora", False):
         lora_layer_class = LinearWithOLoRA
@@ -79,6 +79,8 @@ def switch_to_lora(model: nn.Module,
                                             lora_scaler=args.lora_scaler, 
                                             lora_dropout=args.lora_dropout,
                                             run_lora_in_fp32=args.run_lora_in_fp32,
+                                            weight_a_init_method=args.weight_a_init_method,
+                                            weight_b_init_method=args.weight_b_init_method,
                                             in_features=module.in_features, 
                                             out_features=module.out_features, 
                                             quant=quant)
