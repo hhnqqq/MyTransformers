@@ -28,11 +28,11 @@ class LinearWithMosLoRA(LinearWithLoRA):
         super().__init__(lora_config)
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
-        weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
-        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
-        weight_ab_mixer = self._quantize_weight(self.weight_ab_mixer, self.weight_ab_quantizer)
+        weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer).to(self._get_lora_dtype())
+        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer).to(self._get_lora_dtype())
+        weight_ab_mixer = self._quantize_weight(self.weight_ab_mixer, self.weight_ab_quantizer).to(self._get_lora_dtype())
         # weight_a = torch.matmul(weight_ab_mixer, weight_a)
-        lora_result = F.linear(F.linear(F.linear(self.lora_dropout(x), weight_a), weight_ab_mixer), weight_b)
+        lora_result = F.linear(F.linear(F.linear(self.lora_dropout(x), weight_a), weight_ab_mixer), weight_b).to(result.dtype)
         return result + self.lora_scaler * lora_result
     
     def _compute_lora(self): 
@@ -48,8 +48,9 @@ class LinearWithMosLoRA(LinearWithLoRA):
             return lora_weight
         
     def _init_lora_weights(self):
+        # called by __init__ in LinearWithLoRA
         super()._init_lora_weights()
-        dtype = torch.int8 if self.quant else None
+        dtype = self._get_lora_dtype()
         requires_grad = not self.quant
 
         self.weight_ab_mixer = nn.Parameter(torch.empty((self.lora_rank, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
