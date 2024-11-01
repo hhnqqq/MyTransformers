@@ -1,3 +1,16 @@
+#@author: hehaonan
+#@date: 2024-10-29
+"""
+Implementation of PiSSA(PRINCIPAL SINGULAR VALUES AND SINGULAR VECTORS ADAPTATION), 
+a initialize method for lora, based on paper: https://arxiv.org/pdf/2404.02948.
+
+In PiSSA:
+Origin weight w is decomposied by SVD (W = USV^T)
+Where U, V are the singular vectors with orthonormal columns
+A=U[:,:r]S1/2[:r,:r] ∈ Rmxr, B =S1/2[:r,:r]V^T[:,:r] ∈ Rrxn
+Residual W_{res} = W - AB
+"""
+
 from torch import svd_lowrank as fast_svd
 from torch.linalg import svd as standard_svd
 
@@ -7,11 +20,10 @@ class LinearWithPiSSA(LinearWithLoRA):
     def __init__(
         self,
         lora_config: LoRAConfig,
-        n_iters: Optional[int] = None,
-        fast_svd: bool = True
+        fast_svd_n_iters: Optional[int] = 1,
     ):
-        self.n_iters = n_iters
-        self.fast_svd = fast_svd
+        self.n_iters = fast_svd_n_iters
+        self.fast_svd = fast_svd_n_iters > 2
         super().__init__(lora_config)
 
     def _init_lora_weights(self):
@@ -21,7 +33,7 @@ class LinearWithPiSSA(LinearWithLoRA):
         requires_grad = not self.quant
 
         weight = self.weight.to(torch.float32)
-        if self.n_iters > 2:
+        if self.fast_svd:
             # Run fast svd.
             Vr, Sr, Ur = fast_svd(weight.data, self.lora_rank, niter=self.n_iters)
             Uhr = Ur.t()
