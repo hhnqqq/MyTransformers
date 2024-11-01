@@ -71,7 +71,9 @@ class LinearWithMELoRA(LinearWithLoRA):
         lora_result = []
         for i in range(self.melora_n_split):
             mini_x = x[..., i*self.mini_in_features:(i+1)*self.mini_in_features]
-            mini_lora_result = F.linear(F.linear(self.lora_dropout(mini_x), self.weight_a[i]), self.weight_b[i])
+            mini_weight_a = self.weight_a[i].to(self._get_lora_dtype())
+            mini_weight_b = self.weight_b[i].to(self._get_lora_dtype())
+            mini_lora_result = F.linear(F.linear(self.lora_dropout(mini_x), mini_weight_a), mini_weight_b)
             lora_result.append(mini_lora_result)
         lora_result = torch.cat(lora_result, dim=-1)
 
