@@ -90,9 +90,9 @@ if __name__ == '__main__':
     import traceback
     import torch.profiler as profiler
 
-    from argparse import Namespace
-    from torch.profiler import ProfilerActivity, record_function
-    from deepspeed.runtime.pipe.engine import PipelineEngine, DeepSpeedEngine
+    from torch.profiler import ProfilerActivity
+    from train.pp_train import *
+    from train.dp_train import *
 
     def get_writer(args):
         # if args.wandb:
@@ -109,67 +109,6 @@ if __name__ == '__main__':
             return SummaryWriter(log_dir=log_dir)
         return None
 
-    def forward_step_pipeline(model: PipelineEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
-        with record_function("forward_backward_path"):
-            return model.train_batch(data_loader), []
-
-    def eval_step_pipeline(model: PipelineEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
-        with record_function("eval_path"):
-            return model.eval_batch(data_loader).item()
-
-    def forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
-        with torch.profiler.record_function("get_data"):
-            batch = next(data_loader)
-            batch = to_device(batch, args.device)
-
-        with torch.profiler.record_function("forward_path"):
-            if args.huggingface:
-                loss = model(**batch).loss
-                metric = {}
-            else:
-                loss, metric = model(**batch)
-
-            if args.all_reduce_loss:
-                # Reduce loss for average loss print, not for backpropagation.
-                # DeepSpeed uses on-chip loss for backpropagation and all-reduces gradients afterwards.
-                loss_reduced = reduce_tensor(loss, args.world_size)
-                metric['loss_reduced'] = loss_reduced
-                del loss_reduced
-                
-            return loss, metric
-        
-    def backward_step_deepspeed(model: DeepSpeedEngine, optimizer, loss):
-        with record_function("backward_path"):
-            model.backward(loss)
-            if not args.not_clip_grad_norm:
-                # this should be disabled if deepspeep already config cliping.
-                # deepspeed/runtime/engine.py ##line 2068
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 
-                                            args.clip_grad_max_norm, 
-                                            args.clip_grad_norm_type)
-            # deepspeed/runtime/engine.py ##line 2134
-            # Only update model when self.is_gradient_accumulation_boundary()
-            model.step()
-            return model
-
-    def eval_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
-        with record_function("eval_path"):
-            batch = next(data_loader)
-            batch = to_device(batch, args.device)
-            with torch.no_grad():
-                loss, metric = model(**batch)
-                # TODO: all reduce metrics
-            return loss.item(), metric
-
-    def task_print_pipeline(all_metric, args):
-        return ''
-
-    def task_print_deepspeed(all_metric, args):
-        # return the on-chip accuracy
-        acc_count = sum([sub_dict.get("accuracy", 0) for sub_dict in all_metric])
-        mcc_count = sum([sub_dict.get("mcc", 0) for sub_dict in all_metric])
-        return f' acc:{(acc_count/args.show_loss_step) * 100}, mcc:{(mcc_count/args.show_loss_step) * 100}'
-    
     writer = get_writer(args)
     if args.num_pp_stages:
         forward_step = forward_step_pipeline
@@ -185,43 +124,41 @@ if __name__ == '__main__':
     trainer = Trainer(args, writer)
     trainer.register_task_print(task_print)
 
+    def train_with_profiler(profiler):
+        trainer.train(
+            model=engine,
+            train_data_loader=RepeatingLoader(train_dataloader),
+            eval_data_loader=RepeatingLoader(eval_dataloader),
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            forward_step=forward_step,
+            backward_step=backward_step,
+            eval_step=eval_step,
+            profiler=profiler,
+            log_loss=True
+        )
+
     try:
+        profiler = None
         if args.profile_log_dir:
-            log_dir = os.path.join(args.profile_log_dir, args.experiment_name + datetime.now().strftime('%y-%m-%d'))
-            with profiler.profile(
-            schedule=torch.profiler.schedule(
-                wait=1,
-                warmup=1,
-                active=3,
-                repeat=2),
-            activities=[ProfilerActivity.CPU, 
-                        ProfilerActivity.CUDA],
-            on_trace_ready=torch.profiler.tensorboard_trace_handler(log_dir),
-            record_shapes=True,
-            profile_memory=True,
-            with_stack=True
-            ) as prof:
-                trainer.train(model=engine,
-                            train_data_loader=RepeatingLoader(train_dataloader),
-                            eval_data_loader=RepeatingLoader(eval_dataloader),
-                            optimizer=optimizer,
-                            lr_scheduler=lr_scheduler,
-                            forward_step=forward_step,
-                            backward_step=backward_step,
-                            eval_step=eval_step,
-                            profiler=prof,
-                            log_loss=True)
+            log_dir = os.path.join(args.profile_log_dir, f"{args.experiment_name}{datetime.now().strftime('%y-%m-%d')}")
+            schedule = torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2)
+            activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+
+            profiler = torch.profiler.profile(
+                schedule=schedule,
+                activities=activities,
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(log_dir),
+                record_shapes=True,
+                profile_memory=True,
+                with_stack=True
+            )
+            
+        if profiler:
+            with profiler:
+                train_with_profiler(profiler)
         else:
-            trainer.train(model=engine,
-                        train_data_loader=RepeatingLoader(train_dataloader),
-                        eval_data_loader=RepeatingLoader(eval_dataloader),
-                        optimizer=optimizer,
-                        lr_scheduler=lr_scheduler,
-                        forward_step=forward_step,
-                        backward_step=backward_step,
-                        eval_step=eval_step,
-                        profiler=None,
-                        log_loss=True)
+            train_with_profiler(None)
     except Exception as e:
         # When any error occurs during the training process, log the error.
         # Note that only the error occured in the rank 0 will be logged into file.
