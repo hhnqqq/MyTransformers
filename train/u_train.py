@@ -33,7 +33,6 @@ set_random_seed(args.seed)
 print_rank_0(f'--->Data parallel world size: {parallel_states.get_data_parallel_world_size()}', args.global_rank)
 print_rank_0(f'--->Sequence parallel world size: {parallel_states.get_sequence_parallel_world_size()}', args.global_rank)
 print_rank_0(f'--->Pipeline parallel world size: {parallel_states.get_pipeline_model_parallel_world_size()}', args.global_rank)
-print_rank_0('--->loading the model', args.global_rank)
 print_rank_0(f'--->registry contains {registry.list_all()}', args.global_rank)
 
 def load_huggingface_model_config(args):
@@ -122,24 +121,87 @@ def load_local_model(args):
         model = train_model_cls(model, args)
     return model, tokenizer, model_config, return_dataset_kwargs
 
+def get_train_eval_args(args, is_train):
+    return ('TRAIN' if is_train else 'EVAL',
+            args.train_dataset_path if is_train else args.eval_dataset_path, 
+            args.max_len if is_train else args.eval_max_len, 
+            args.max_src_len if is_train else args.eval_max_src_len,
+            args.read_nums if is_train else args.eval_read_nums,
+            args.batch_size_per_gpu if is_train else args.eval_batch_size_per_gpu)
 
+def load_dataloder(args, tokenizer, dp_rank, num_dp_ranks, is_train):
+    flag, dataset_path, max_len, max_src_len, read_nums, batch_size_per_gpu = get_train_eval_args(args, is_train)
+    if dataset_path is None:
+        return None
+    data_collator = PipeLine_Datacollator(tokenizer) if args.num_pp_stages else DataCollator(tokenizer)
+    print_rank_0(f'--->Using dataset class: {args.dataset_class_name}', args.global_rank)
+    dataset_class = registry.get_dataset_class(args.dataset_class_name)
+    dataset_kwargs = dict(mode=args.mode, 
+                        tokenizer = tokenizer,
+                        global_rank=args.global_rank,
+                        meta_prompt=args.meta_prompt,
+                        prefix=args.prefix,
+                        postfix=args.postfix,
+                        padding=(args.batching_stretegy == 'padding'),
+                        dp_rank=dp_rank,
+                        num_dp_ranks=num_dp_rank,
+                        encode_single_gene=args.encode_single_gene,
+                        shuffle=True,
+                        **return_dataset_kwargs)
+    
+    dataset = dataset_class(
+        dataset_path, max_len=max_len, max_src_len=max_src_len,
+        read_nums=read_nums, **dataset_kwargs
+    )
+    is_iterable_dataset = isinstance(dataset, IterableDataset)
+    dataset_sampler = None if is_iterable_dataset else DistributedSampler(dataset, num_dp_ranks, dp_rank)
+    if args.batching_stretegy == 'packing':
+        if is_iterable_dataset:
+            dataset = IterablePackingDataset(dataset, chunk_size=max_len)
+        else:
+            dataset = PackingDataset(dataset, chunk_size=max_len)
+
+    dataloader = DataLoader(dataset,
+                            collate_fn=data_collator,
+                            shuffle=False,
+                            drop_last=True,
+                            sampler=dataset_sampler,
+                            batch_size=batch_size_per_gpu,
+                            generator=torch.Generator())
+    
+    msgs = [
+        f"{flag} DATALOADER LENGTH: {len(dataloader)}",
+        f"{flag} DATASET LENGTH: {len(dataset)}",
+        f"{flag} BATCH SIZE PER GPU: {batch_size_per_gpu}"
+        ]
+    if is_train:
+        assert args.train_iters is not None or args.epochs is not None, 'train_iters and epochs can not be None at the same time'
+        if args.epochs is not None:
+            update_steps_denominator = num_dp_rank if is_iterable_dataset else 1
+            micro_update_steps_one_epoch = math.ceil(len(dataloader) / update_steps_denominator)
+            args.num_micro_update_steps = args.epochs * (math.ceil(micro_update_steps_one_epoch))
+        else:
+            args.num_micro_update_steps = args.train_iters
+        args.num_global_update_steps = math.ceil(args.num_micro_update_steps / args.gradient_accumulation_steps)
+        args.num_warmup_steps = int(args.num_global_update_steps * args.warmup) + 1
+        msgs.extend([f"NUMBER OF MICRO UPDATE STEPS: {args.num_micro_update_steps}",
+            f"NUMBER OF GLOBAL UPDATE STEPS: {args.num_global_update_steps}",
+            f"NUMBER OF WARMUP STEPS: {args.num_warmup_steps}",
+            f"Base learning rate is {args.lr}"
+            ])
+        
+    for msg in msgs:
+        print_rank_0(f"--->{msg}", args.global_rank)
+    return dataloader
+
+print_rank_0('--->loading the model', args.global_rank)
 if args.huggingface:
     model, tokenizer, model_config, return_dataset_kwargs = load_huggingface_model(args)
 else:
     model, tokenizer, model_config, return_dataset_kwargs = load_local_model(args)
 
 setup_lora(model, args, model_config)
-data_collator = PipeLine_Datacollator(tokenizer) if args.num_pp_stages else DataCollator(tokenizer)
-dataset_kargs = dict(mode=args.mode, 
-                     global_rank=args.global_rank,
-                     meta_prompt=args.meta_prompt,
-                     prefix=args.prefix,
-                     postfix=args.postfix,
-                     padding=(args.batching_stretegy == 'padding'),
-                     **return_dataset_kwargs)
 
-dataset_class = registry.get_dataset_class(args.dataset_class_name)
-print_rank_0(f'--->Using dataset class: {args.dataset_class_name}', args.global_rank)
 """
 GPUs=8 sp=4 pp=1 tp=1 dp=2
 In this case rank group [0,1,2,3] share the same data sample, and split on BaseModel.cut_sequence()
@@ -151,88 +213,23 @@ dp_rank parameter controls who share same data sample.
 """
 dp_rank = parallel_states.get_data_parallel_rank()
 num_dp_rank = parallel_states.get_data_parallel_world_size()
-
-train_dataset = dataset_class(args.train_dataset_path, 
-                              tokenizer, 
-                              max_len=args.max_len, 
-                              max_src_len=args.max_src_len,
-                              read_nums=args.read_nums,
-                              shuffle=True,
-                              dp_rank=dp_rank,
-                              num_dp_ranks=num_dp_rank,
-                              encode_single_gene=args.encode_single_gene,
-                              **dataset_kargs)
-is_iterable_dataset = isinstance(train_dataset, IterableDataset)
-dataset_sampler = None if is_iterable_dataset else DistributedSampler
-if args.batching_stretegy == 'packing':
-    if isinstance(train_dataset, IterableDataset):
-        train_dataset = IterablePackingDataset(train_dataset, chunk_size=args.max_len)
-    else:
-        train_dataset = PackingDataset(train_dataset, chunk_size=args.max_len)
-
-g = torch.Generator()
-train_dataloader = DataLoader(train_dataset,
-                              collate_fn=data_collator,
-                              shuffle=False,
-                              drop_last=True,
-                              sampler=dataset_sampler,
-                              batch_size=args.batch_size_per_gpu,
-                              generator=g)
-print_rank_0(f"--->TRAIN DATALOADER LENGTH: len(train_dataloader) = {len(train_dataloader)}", args.global_rank)
-print_rank_0(f"--->TRAIN DATASET LENGTH: = {len(train_dataset)}", args.global_rank)
-print_rank_0(f"--->TRAIN BATCH SIZE PER GPU: args.batch_size_per_gpu = {args.batch_size_per_gpu}", args.global_rank)
-train_dataloader_iter = (RepeatingLoader(train_dataloader))
-
-if args.eval_dataset_path is not None:
-    eval_dataset = dataset_class(args.eval_dataset_path, 
-                                 tokenizer, 
-                                 max_len=args.eval_max_len,
-                                 max_src_len=args.eval_max_src_len,
-                                 read_nums=args.eval_read_nums,
-                                 shuffle=True,
-                                 encode_single_gene=args.encode_single_gene,
-                                 num_dp_ranks=num_dp_rank,
-                                 dp_rank=dp_rank,
-                                 **dataset_kargs)
-
-    if args.batching_stretegy == 'packing':
-        if isinstance(eval_dataset, IterableDataset):
-            eval_dataset = IterablePackingDataset(eval_dataset, chunk_size=args.eval_max_len)
-        else:
-            eval_dataset = PackingDataset(eval_dataset)
-            
-    eval_dataloader = DataLoader(eval_dataset,
-                                 collate_fn=data_collator,
-                                 shuffle=False,
-                                 drop_last=True,
-                                 sampler=dataset_sampler,
-                                 batch_size=args.eval_batch_size_per_gpu,
-                                 generator=g)
-    print_rank_0(f"--->EVAL DATALOADER LENGTH: len(eval_dataloader) = {len(eval_dataloader)}", args.global_rank)
-    print_rank_0(f"--->EVAL DATASET LENGTH: = {len(eval_dataset)}", args.global_rank)
-    print_rank_0(f"--->EVAL BATCH SIZE PER GPU: args.eval_batch_size_per_gpu = {args.eval_batch_size_per_gpu}", args.global_rank)
-    eval_dataloader_iter = RepeatingLoader(eval_dataloader)
-else:
-    eval_dataloader_iter = None
+train_dataloader = load_dataloder(args, tokenizer, dp_rank, num_dp_rank, True)
+eval_dataloader = load_dataloder(args, tokenizer, dp_rank, num_dp_rank, False)
 
 ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)
-
-assert args.train_iters is not None or args.epochs is not None, 'train_iters and epochs can not be None at the same time'
-if args.epochs is not None:
-    update_steps_denominator = num_dp_rank if is_iterable_dataset else 1
-    micro_update_steps_one_epoch = math.ceil(len(train_dataloader) / update_steps_denominator)
-    args.num_micro_update_steps = args.epochs * (math.ceil(micro_update_steps_one_epoch))
-else:
-    args.num_micro_update_steps = args.train_iters
-args.num_global_update_steps = math.ceil(args.num_micro_update_steps / args.gradient_accumulation_steps)
-args.num_warmup_steps = int(args.num_global_update_steps * args.warmup) + 1
 ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = args.num_warmup_steps
-print_rank_0(f"--->NUMBER OF MICRO UPDATE STEPS: args.num_micro_update_steps = {args.num_micro_update_steps}", args.global_rank)
-print_rank_0(f"--->NUMBER OF GLOBAL UPDATE STEPS: args.num_global_update_steps = {args.num_global_update_steps}", args.global_rank)
-print_rank_0(f"--->NUMBER OF WARMUP STEPS: args.num_warmup_steps = {args.num_warmup_steps}", args.global_rank)
-print_rank_0(f"--->Base learning rate is {args.lr}", args.global_rank)
+
 # start tranning
+
+# Run this befor set up trainable parameters.
+if args.use_lora_ga:
+    lora_ga_reinit(model=model,
+                   dataloader=train_dataloader,
+                   args=args,
+                   iters=args.lora_ga_n_steps)
+# set up trainable before acquiring optimizer.
+set_up_trainable_param(model, args)
 
 optimizer_sd, lr_scheduler_sd = getattr(model_config, 'optmizer_sd',None), getattr(model_config, 'lr_scheduler_sd',None)
 optimizer, lr_scheduler = get_optimizer(ds_config=ds_config, 
@@ -241,19 +238,13 @@ optimizer, lr_scheduler = get_optimizer(ds_config=ds_config,
                                         optimizer_sd=optimizer_sd, 
                                         lr_scheduler_sd=lr_scheduler_sd)
 
-if args.use_lora_ga:
-    lora_ga_reinit(model=model,
-                   dataloader=train_dataloader,
-                   args=args,
-                   iters=1)
-set_up_trainable_param(model, args)
-
 engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, 
                                                optimizer=optimizer, 
                                                lr_scheduler=lr_scheduler,
                                                config=ds_config, 
                                                model_parameters=[p for p in model.parameters() if p.requires_grad],
                                                mpu=None if args.num_pp_stages else parallel_states)
+
 
 if __name__ == '__main__':
 
@@ -306,7 +297,8 @@ if __name__ == '__main__':
                 # DeepSpeed uses on-chip loss for backpropagation and all-reduces gradients afterwards.
                 loss_reduced = reduce_tensor(loss, args.world_size)
                 metric['loss_reduced'] = loss_reduced
-
+                del loss_reduced
+                
             return loss, metric
         
     def backward_step_deepspeed(model: DeepSpeedEngine, optimizer, loss):
@@ -373,8 +365,8 @@ if __name__ == '__main__':
             with_stack=True
             ) as prof:
                 trainer.train(model=engine,
-                            train_data_loader=train_dataloader_iter,
-                            eval_data_loader=eval_dataloader_iter,
+                            train_data_loader=RepeatingLoader(train_dataloader),
+                            eval_data_loader=RepeatingLoader(eval_dataloader),
                             optimizer=optimizer,
                             lr_scheduler=lr_scheduler,
                             forward_step=forward_step,
@@ -384,8 +376,8 @@ if __name__ == '__main__':
                             log_loss=True)
         else:
             trainer.train(model=engine,
-                        train_data_loader=train_dataloader_iter,
-                        eval_data_loader=eval_dataloader_iter,
+                        train_data_loader=RepeatingLoader(train_dataloader),
+                        eval_data_loader=RepeatingLoader(eval_dataloader),
                         optimizer=optimizer,
                         lr_scheduler=lr_scheduler,
                         forward_step=forward_step,
