@@ -10,8 +10,8 @@ from typing import Tuple, Union, List
 from torch.optim import Optimizer
 from torch._utils import is_compiling
 from scipy.linalg import solve_sylvester
-from common.utils import print_rank_0
 
+from common.utils import print_rank_0, Timer
 
 def find_lora_names(n):
     for substring in ['weight_a', 'weight_b']:
@@ -71,7 +71,7 @@ class LoRAProAdamW(Optimizer):
         amsgrad: bool = False,
         maximize: bool = False,
         differentiable: bool = False,
-        X_mode: str = "sylvester",
+        X_mode: str = "zero",
         lora_plus_scaler: int = 1
     ):
         
@@ -180,10 +180,11 @@ class LoRAProAdamW(Optimizer):
             if len(state) == 0:
                 self._initialize_state(state, param_dict, p, group)
 
-            if len(param_dict.keys()) == 2:
-                self._update_lora_params(state, param_dict, group, scaling_factor)
-            else:
-                self._update_standard_params(state, p, group, beta1, beta2)
+        if len(param_dict.keys()) == 2:
+            self._update_lora_params(state, param_dict, group, scaling_factor)
+            param_dict = {}
+        else:
+            self._update_standard_params(state, p, group, beta1, beta2)
 
     def _initialize_state(self, state, param_dict, p, group):
         state["step"] = torch.tensor(0.0, dtype=_get_scalar_dtype())
@@ -218,14 +219,14 @@ class LoRAProAdamW(Optimizer):
         delta = 1e-8
         AA_T = A @ A.T
         B_TB = B.T @ B
-        AA_T_inv = torch.linalg.pinv(AA_T + delta * torch.eye(A.shape[0]).to(A.device)) 
-        B_TB_inv = torch.linalg.pinv(B_TB + delta * torch.eye(A.shape[0]).to(A.device))
+        AA_T_inv = torch.linalg.pinv(AA_T + delta * torch.eye(A.shape[0]).to(A.device)).to(A.dtype)
+        B_TB_inv = torch.linalg.pinv(B_TB + delta * torch.eye(A.shape[0]).to(A.device)).to(A.dtype)
 
-        X = self._compute_X(group, B, A, scaling_factor, grad_A_orin, grad_B_orin, B_TB_inv, AA_T, AA_T_inv)
+        X = self._compute_X(group, B, A, scaling_factor, grad_A_orin, grad_B_orin, B_TB_inv, AA_T, AA_T_inv).to(A.dtype)
         
         grad_A = (1 / scaling_factor ** 2) * B_TB_inv @ grad_A_orin + X @ A
-        grad_B = (1 / scaling_factor ** 2) * ((torch.eye(B.shape[0]).to(B.device) - B @ B_TB_inv @ B.T) @ grad_B_orin @ AA_T_inv) - B @ X
-        
+        grad_B = (1 / scaling_factor ** 2) * ((torch.eye(B.shape[0]).to(B.device).to(B.dtype) - B @ B_TB_inv @ B.T) @ grad_B_orin @ AA_T_inv) - B @ X
+    
         self._adamw_update(state, group, A, B, grad_A, grad_B)
 
     def _compute_X(self, group, B, A, scaling_factor, grad_A_orin, grad_B_orin, B_TB_inv, AA_T, AA_T_inv):
