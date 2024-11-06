@@ -11,6 +11,7 @@ from common.lora_modules.rslora import LinearWithRSLoRA
 from common.lora_modules.pissa import LinearWithPiSSA
 from common.lora_modules.olora import LinearWithOLoRA
 from common.lora_modules.vera import LinearWithVeRA
+from common.lora_modules.adalora import LinearWithAdaLoRA
 
 def get_lora_layer_class(args):
     variant_config = {}
@@ -39,6 +40,18 @@ def get_lora_layer_class(args):
         variant_print = ", The initialization of Olora requires some time, waiting..."
     elif getattr(args, 'use_vera', False):
         lora_layer_class = LinearWithVeRA
+    elif getattr(args, 'use_adalora', False):
+        lora_layer_class = LinearWithAdaLoRA
+        variant_config = dict(
+            init_r=args.init_r,
+            tinit=args.tinit,
+            tfinal=args.tfinal,
+            deltaT=args.deltaT,
+            beta1=args.beta1,
+            beta2=args.beta2,
+            orth_reg_weight=args.orth_reg_weight
+        )
+
     else:
         lora_layer_class = LinearWithLoRA
 

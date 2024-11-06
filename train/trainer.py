@@ -84,7 +84,7 @@ class Trainer:
 
                 # Backward step
                 if backward_step:
-                    backward_step(model, optimizer, loss)
+                    backward_step(model, optimizer, loss, step)
                 
                 if profiler:
                     profiler.step()
