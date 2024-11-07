@@ -1,6 +1,7 @@
 """Implementation of LoRA-GA
 Code reference: https://github.com/Outsider565/LoRA-GA/blob/main/peft/src/peft/tuners/lora/layer.py
 """
+import os
 import random
 
 from common.utils import print_rank_0, reduce_tensor, Timer
@@ -14,7 +15,8 @@ class LinearWithLoRAGA(LinearWithLoRA):
                         stable_gamma: int = 16, 
                         scaling_factor: int = 16,
                         global_rank: int = 0,
-                        is_first: bool = False):
+                        is_first: bool = False,
+                        reset_weight: bool = False):
         """
         Reinitialize the LoRA weights based on the gradient of the original weight matrix.
 
@@ -90,6 +92,12 @@ class LinearWithLoRAGA(LinearWithLoRA):
         # Update the LoRA weights
         self.weight_a.data = A.contiguous().cuda()
         self.weight_b.data = B.contiguous().cuda()
+        
+        if reset_weight:
+            weight_dtype = self.weight.dtype
+            weight = self.weight.to(torch.float32)
+            self.weight.data = (weight - self._compute_lora_weight()).to(weight_dtype)
+
         if is_first:
             print_rank_0(f'--->LoRA-GA re-init example: weight_B->{self.weight_b}', global_rank)
 
@@ -146,10 +154,12 @@ def lora_ga_reinit(
         model.to(args.device)
         model.train()
 
+        # Note that we only compute gradient for LoRA-GA layers.
+        # Avoiding unnecessary computing.
         hooks = [
             module.weight.register_hook(get_record_gradient_hook(model))
             for module in model.modules()
-            if isinstance(module, LinearWithLoRA)
+            if isinstance(module, LinearWithLoRAGA)
         ]
 
         for idx, batch in enumerate(dataloader):
@@ -157,6 +167,7 @@ def lora_ga_reinit(
             output = model(**batch)
             loss = output.loss if args.huggingface else output[0]
             loss.backward()
+            print_rank_0(f'--->LoRA-GA gradient computing step: {idx+1}, loss: {loss.item()}, remaining steps: {iters - (idx+1)} ', args.global_rank)
 
             for p in model.parameters():
                 p.grad = None
@@ -177,9 +188,27 @@ def lora_ga_reinit(
                 if args.world_size > 1:
                     p.grad_stored = reduce_tensor(p.grad_stored.to(args.device), args.world_size).to('cpu')
 
-        for if_first, (name, module) in enumerate(model.named_modules()):
+        is_first = True
+        for name, module in model.named_modules():
             if isinstance(module, LinearWithLoRAGA):
                 print_rank_0(f'--->Module {name} is reinitiating lora weight', args.global_rank)
-                module.gradient_reinit(scale=args.lora_ga_scale_method, global_rank=args.global_rank, is_first=(if_first == 0))
+                module.gradient_reinit(scale=args.lora_ga_scale_method, 
+                                       global_rank=args.global_rank, 
+                                       is_first=is_first,
+                                       reset_weight=args.lora_ga_reset_weight)
+                is_first = False
+
+        if args.lora_ga_reset_weight and args.global_rank==0:
+            save_path = os.path.join(args.output_path, args.experiment_name, 'lora_ga_init.ckpt')
+            if args.save_trainable:
+                trainable_params = {}
+                for name, param in model.named_parameters():
+                    if param.requires_grad:
+                        trainable_params[name] = param.data
+                model_state_dict = trainable_params
+            else:
+                model_state_dict = model.state_dict()
+
+            torch.save(model_state_dict, save_path)
 
     print_rank_0(f'--->Total time consumed for LoRA-GA initialization: {timer.time_cost}', args.global_rank)
