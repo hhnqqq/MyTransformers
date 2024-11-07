@@ -40,7 +40,7 @@ class LinearWithVeRA(LinearWithLoRA):
 
         Args:
             lambda_b_init_method (str, optional): Initialization method for lambda b. ['zero', 'ones', 'small_constant', 'random']. Default is 'zeros'.
-            lambda_d_init_method (str, optional): Initialization method for lambda d. ['zero', 'ones', 'small_constant', 'random']. Default is 'ones'.
+            lambda_d_init_method (str, optional): Initialization method for lambda d. ['zero', 'ones', 'small_constant', 'random']. Default is 'small_constant'.
         """
         super().__init__(lora_config)
         self._init_lambdas(lambda_b_init_method, lambda_d_init_method)
@@ -87,9 +87,10 @@ class LinearWithVeRA(LinearWithLoRA):
         # Called by forward method in LinearWithLoRA
         weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer).to(self._get_lora_dtype())
         weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer).to(self._get_lora_dtype())
-        print(self.lambda_b.device, self.lambda_d.device)
-        lora_result = self.lambda_b * F.linear(
-            self.lambda_d * F.linear(
+        lambda_b = self.lambda_b.to(self._get_lora_dtype())
+        lambda_d = self.lambda_d.to(self._get_lora_dtype())
+        lora_result = lambda_b * F.linear(
+            lambda_d * F.linear(
                 self.lora_dropout(x), 
                 weight_a
             ), 
@@ -98,14 +99,19 @@ class LinearWithVeRA(LinearWithLoRA):
 
         return result + self.lora_scaler * lora_result
     
-    def _compute_lora(self): 
+    def _compute_lora(self):
         # Called by merge lora method in LinearWithLoRA
         if self.has_lora_weights:
             # Compute adapted lora weights.
-            weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer) * self.lambda_d
-            weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer) * self.lambda_b
+            weight_a = (
+                self._quantize_weight(self.weight_a, self.weight_a_quantizer)
+                .to(self._get_lora_dtype()) * self.lambda_d.to(self._get_lora_dtype())
+            )
+            weight_b = (
+                self._quantize_weight(self.weight_b, self.weight_b_quantizer)
+                .to(self._get_lora_dtype()) * self.lambda_b.to(self._get_lora_dtype())
+            )
 
             lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
 
-            return lora_weight
-        
+            return lora_weight.to(self.weight.dtype)
