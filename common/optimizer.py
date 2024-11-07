@@ -157,15 +157,21 @@ def get_lorapro_optimizer(optim_type, args, model):
 
 def get_learning_rate_scheduler(optimizer, iteration, args):
     init_step = max(iteration - args.auto_warmup_steps, 0)
+    if args.relora_steps:
+        num_iters = args.relora_steps
+        auto_warmup_steps = 0
+    else:
+        num_iters = args.num_global_update_steps
+        auto_warmup_steps = args.auto_warmup_steps
     if optimizer is not None:
         lr_scheduler = AnnealingLR(optimizer,
                                 start_lr=args.lr,
                                 warmup_iter=args.num_warmup_steps,
-                                num_iters=args.num_micro_update_steps,
+                                num_iters=num_iters,
                                 decay_style=args.lr_decay_style,
                                 last_iter=init_step,
                                 decay_ratio=args.lr_decay_ratio,
-                                auto_warmup_steps=args.auto_warmup_steps,
+                                auto_warmup_steps=auto_warmup_steps,
                                 auto_warmup_rate=args.auto_warmup_rate
                                 )
     else:
