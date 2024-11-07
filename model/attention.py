@@ -3,7 +3,6 @@ import torch.nn.functional as F
 from typing import Optional
 from packaging import version
 from contextlib import nullcontext
-from transformers.utils.versions import require_version
 from deepspeed.sequence.layer import DistributedAttention
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
@@ -80,20 +79,36 @@ def attention_func(
     """
     atten_func = F.scaled_dot_product_attention
     ctx_manager = nullcontext()
+
+    if is_causal and atten_mask is not None:
+        is_causal = False
+
     if version.parse(torch.__version__) > version.parse("2.0"):
         # This context manager is beta and subject to change.
         if 'flash' in atten_type:
             ctx_manager = sdpa_kernel(SDPBackend.FLASH_ATTENTION)
+            if atten_mask is not None:
+            # Flash Attention does not support non-null attn_mask. 
+            # (Triggered internally at ../aten/src/ATen/native/transformers/sdp_utils_cpp.h:271.) 
+            # Triggered at torch 2.4 and higher.
+                atten_mask = None
+                is_causal = True
+
         elif 'memory_efficient' in atten_type:
             ctx_manager = sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION)
         elif 'math' in atten_type:
             ctx_manager = sdpa_kernel(SDPBackend.MATH)
+        elif 'all' in atten_type:
+            # Ensure that optimized attention is used
+            ctx_manager = sdpa_kernel([SDPBackend.FLASH_ATTENTION, 
+                                       SDPBackend.EFFICIENT_ATTENTION,
+                                       SDPBackend.MATH])
 
     if 'ulysses' in atten_type:
         # Enables sequence parallel attention computation.
         atten_func = DistributedAttention(atten_func, parallel_states.get_sequence_parallel_group(), scatter_idx=1, gather_idx=2)
     
     with ctx_manager:
-        output = atten_func(q, k, v, attn_mask=atten_mask, dropout_p=dropout_p, is_causal=is_causal)
+        output = atten_func(q, k, v, attn_mask=atten_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scaling)
 
     return output
