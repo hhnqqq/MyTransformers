@@ -84,9 +84,9 @@ def load_local_model(args):
 
     # Load model to training dtype.
     if args.fp16:
-        model.half().to(args.device)
+        model.half()
     elif args.bf16:
-        model.bfloat16().to(args.device)
+        model.bfloat16()
 
     # Convert model to trainable model for given training type.
     if args.num_pp_stages:
@@ -95,4 +95,11 @@ def load_local_model(args):
     else:
         train_model_cls = registry.get_train_model_class(args.model_name)
         model = train_model_cls(model, args)
+    model.to(args.device)
     return model, tokenizer, model_config, return_dataset_kwargs
+
+def load_model(args):
+    if args.huggingface:
+        return load_huggingface_model(args)
+    else:
+        return load_local_model(args)

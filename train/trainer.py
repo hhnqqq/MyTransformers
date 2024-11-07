@@ -26,6 +26,7 @@ class Trainer:
         self.wait = 0
         self.save_floder = os.path.join(args.output_path, args.experiment_name)
         self.save_config = True
+        self.lr = args.lr
         ensure_directory_exists(self.save_floder, self.args.global_rank)
 
     def train(
@@ -65,13 +66,13 @@ class Trainer:
             self.args.save_interval = (updates_per_epoch / self.args.gradient_accumulation_steps) * self.args.save_epoch
 
         with Timer(iterations=total_print_steps) as timer:
-            for step in range(self.args.num_micro_update_steps):
+            for step in range(1, self.args.num_micro_update_steps+1):
                 # Timer start
                 timer.average_time(entry='start')
                 
                 # Forward step
                 loss, metric = forward_step(model, train_data_loader, self.args, step)
-
+                self.lr = lr_scheduler.get_lr()
                 if loss.isnan() or loss.isinf():
                     print(f'Skipping backward and optimizer step for nan or inf in forwarding loss at rank {self.args.global_rank}!')
                     # Backward process is still needed for other ranks may have normal loss.
@@ -84,7 +85,7 @@ class Trainer:
 
                 # Backward step
                 if backward_step:
-                    backward_step(model, optimizer, loss)
+                    backward_step(model, optimizer, loss, lr_scheduler, self.args, step)
                 
                 if profiler:
                     profiler.step()
@@ -142,15 +143,16 @@ class Trainer:
 
         if self.args.global_rank == 0:
             # Log average loss and time at specified intervals.
-            if (step + 1) % self.args.gradient_accumulation_steps == 0:
+            if step % self.args.gradient_accumulation_steps == 0:
                 self.global_step += 1
                 if self.global_step % self.args.show_avg_loss_step == 0:
                     timer.average_time(entry='end')
                     avg_time = timer.loop_time / self.args.show_avg_loss_step
                     avg_loss = self.all_loss / (self.args.show_avg_loss_step * self.args.gradient_accumulation_steps)
                     remaining_time = timer.calculate_remaining_time()
-                    print_str = (f"--->global_step={self.global_step}, micro_step={step + 1}, "
+                    print_str = (f"--->global_step={self.global_step}, micro_step={step}, "
                                 f"avg_loss={avg_loss if avg_loss >= 1e-4 else f'{avg_loss:.4e}'}, "
+                                f"lr={self.lr:.4e}, "
                                 f"avg_time={avg_time:.2f}s, remaining_time={remaining_time}, "
                                 f"remaining_steps={self.args.num_global_update_steps - self.global_step}")
                     if self.writer is not None and self.args.global_rank == 0:
