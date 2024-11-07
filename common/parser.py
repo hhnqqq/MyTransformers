@@ -58,6 +58,7 @@ def train_parser(parser):
                        help='Train the model from a pretrained checkpoint')
     group.add_argument('--batch-size-per-gpu', type=int, default=4, 
                        help='Batch size on a single GPU. batch-size * world_size = total batch_size.')
+    group.add_argument('--disable-zero-optimizer', action='store_true')
     
     # --------------------------- parameters ----------------------------
     group.add_argument('--enable-list', nargs='+', type=str, default=None,
@@ -166,7 +167,10 @@ def peft_parser(parser):
                        help='Whether to use LoRA')
     group.add_argument('--use-vera', action='store_true', default=None,
                        help='Whether to use vera')
-    group.add_argument('--lambda-b-init-method', )
+    group.add_argument('--lambda-b-init-method', type=str, default=None,
+                       help='Init method for lora lambda b')
+    group.add_argument('--lambda-d-init-method', type=str, default=None,
+                       help='Init method for lora lambda b')
     group.add_argument('--use-lora-pro', action='store_true',
                        help='Whether to use LoRA-Pro optimizer')
     group.add_argument('--use-dora', action='store_true',
@@ -179,12 +183,15 @@ def peft_parser(parser):
                        help='Whether to use mos lora')
     group.add_argument('--use-me-lora', action='store_true',
                        help='Whether to use me lora')
+    group.add_argument('--me-lora-n-split', type=int, default=2)
     group.add_argument('--lora-fa', action='store_true',
                        help='Whether to use LoRA FA')
     group.add_argument('--use-rslora', action='store_true',
                        help='Whether to use rslora')
     group.add_argument('--use-pissa', action='store_true',
                        help='Whether to use pissa')
+    group.add_argument('--use-olora', action='store_true',
+                       help='Whether to use olora')
     group.add_argument('--pissa-n-iters', type=int, default=1, 
                        help='The number of iterations determines the trade-off \
                         between the error and computation time')
@@ -203,6 +210,11 @@ def peft_parser(parser):
                        help='Init method for lora weight ab mixer')
     group.add_argument('--use-lora-ga', action='store_true',
                        help='Wheather to use lora ga')
+    group.add_argument('--lora-ga-n-steps', type=int, default=8,
+                       help='N steps for lora-ga to estimate full-rank gradient.')
+    group.add_argument('--lora-ga-scale-method', type=str, default='gd')
+    group.add_argument('--lora-ga-reset-weight', action='store_true',
+                       help='Whether to reset pretrained weight when using LoRA-GA, this will improve numerical stability.')
     group.add_argument('--plora-steps', type=int,
                        help='How much step to merge and reset the lora weight')
     group.add_argument('--lora-dropout', type=float, default=None,
@@ -299,9 +311,9 @@ def get_args():
     #     args.bf16 = False
     
     mt_dir = os.path.dirname(os.path.dirname(__file__))
-    if args.zero_stage > 0:
+    if args.ds_config_path is None and args.zero_stage > 0:
         args.ds_config_path = os.path.join(mt_dir, "ds_config", f"zero{args.zero_stage}_config.json")
-        print_rank_0(f"--->Using {args.ds_config_path} as deepspeed config path", args.global_rank)
+    print_rank_0(f"--->Using {args.ds_config_path} as deepspeed config path", args.global_rank)
         
     if args.multimodal:
         if args.multimodal_projector_type == 'mlp':
@@ -313,8 +325,9 @@ def get_args():
         args.prefix = prompt_info['prefix']
         args.postfix = prompt_info['postfix']
     
-    if isinstance(args.replace_modules, str):
-        args.replace_modules = args.replace_modules.split('_')
+    # If args.test_code, the log file and tb writer will not be created.
+    if args.test_code:
+        os.environ['NO_LOG_FILE'] = 'true'
     return args
 
 def overwrite_args_by_dict(args, overwrite_args={}):
