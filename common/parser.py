@@ -215,8 +215,12 @@ def peft_parser(parser):
     group.add_argument('--lora-ga-scale-method', type=str, default='gd')
     group.add_argument('--lora-ga-reset-weight', action='store_true',
                        help='Whether to reset pretrained weight when using LoRA-GA, this will improve numerical stability.')
-    group.add_argument('--plora-steps', type=int,
+    group.add_argument('--relora-steps', type=int,
                        help='How much step to merge and reset the lora weight')
+    group.add_argument('--relora-counts', type=int, default=None)
+    group.add_argument('--relora-reset-optimizer', action='store_true')
+    group.add_argument('--relora-optimizer-random-pruning', type=float, default=None)
+    group.add_argument('--relora-optimizer-magnitude-pruning', type=float, default=None)
     group.add_argument('--lora-dropout', type=float, default=None,
                        help='The dropout rate for lora weight.')
     group.add_argument('--run-lora-in-fp32', action='store_true',
