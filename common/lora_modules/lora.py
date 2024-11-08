@@ -224,3 +224,9 @@ class LinearWithLoRA(nn.Linear):
         print(f"{self.__class__.__name__} Layer: in_features={self.in_features}, out_features={self.out_features}")
         print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, Quantized: {self.quant}")
             
+
+def find_lora_names(n):
+    for substring in ['weight_a', 'weight_b']:
+        if substring in n:
+            return substring
+    return ""

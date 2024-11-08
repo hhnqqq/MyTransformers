@@ -4,22 +4,20 @@ from common.utils import print_rank_0
 from common.lora_modules.lora import *
 from common.lora_modules.dora import LinearWithDoRA
 from common.lora_modules.melora import LinearWithMELoRA
-from common.lora_modules.plora import LinearWithPLoRA
 from common.lora_modules.lora_ga import LinearWithLoRAGA
 from common.lora_modules.mos_lora import LinearWithMosLoRA
 from common.lora_modules.rslora import LinearWithRSLoRA
 from common.lora_modules.pissa import LinearWithPiSSA
 from common.lora_modules.olora import LinearWithOLoRA
 from common.lora_modules.vera import LinearWithVeRA
+from common.lora_modules.delta_lora import LinearWithDeltaLoRA
 
 def get_lora_layer_class(args):
-    variant_config = {}
+    variant_config = dict()
     variant_print = ""
+    lora_layer_class = LinearWithLoRA
     if getattr(args, "use_dora", False):
         lora_layer_class = LinearWithDoRA
-    elif getattr(args, "plora_steps", False):
-        lora_layer_class = LinearWithPLoRA
-        variant_config = dict(plora_steps=args.plora_steps)
     elif getattr(args, "use_mos_lora", False):
         lora_layer_class = LinearWithMosLoRA
         variant_config = dict(weight_ab_mixer_init_method=args.weight_ab_mixer_init_method)
@@ -28,20 +26,25 @@ def get_lora_layer_class(args):
         variant_config = dict(me_lora_n_split=args.me_lora_n_split)
     elif getattr(args, "use_lora_ga", False):
         lora_layer_class = LinearWithLoRAGA
+        variant_print = f". The initialization of LoRA-GA requires some time which depends on args.lora_ga_n_steps: {args.lora_ga_n_steps}"
     elif getattr(args, "use_rslora", False):
         lora_layer_class = LinearWithRSLoRA
     elif getattr(args, "use_pissa", False):
         lora_layer_class = LinearWithPiSSA
         variant_config = dict(fast_svd_n_iters=args.pissa_n_iters)
-        variant_print = ", The initialization of Pissa requires some time especially for full svd decomposition, waiting..."
+        variant_print = ". The initialization of Pissa requires some time especially for full svd decomposition, waiting..."
     elif getattr(args, "use_olora", False):
         lora_layer_class = LinearWithOLoRA
-        variant_print = ", The initialization of Olora requires some time, waiting..."
+        variant_print = ". The initialization of Olora requires some time, waiting..."
     elif getattr(args, 'use_vera', False):
         lora_layer_class = LinearWithVeRA
-    else:
-        lora_layer_class = LinearWithLoRA
-
+    elif getattr(args, 'use_delta_lora', False):
+        lora_layer_class = LinearWithDeltaLoRA
+        variant_config = dict(update_ratio=args.delta_lora_update_ratio)
+    elif getattr(args, "relora_steps", False) or getattr(args, "relora_counts", False):
+        if args.relora_counts:
+            args.relora_steps = args.num_global_update_steps // (args.relora_counts + 1)
+        variant_print = f". Will reset lora weights every {args.relora_step} global update steps."
     print_rank_0(f'--->Using lora variant: {lora_layer_class.__name__}{variant_print}', rank=args.global_rank)
     return lora_layer_class, variant_config
 
@@ -60,14 +63,14 @@ def switch_to_lora(model: nn.Module,
         use_dora: Weather to use dora
         plora_steps: The steps to merge and reset lora weight.
     """
-    assert args.replace_modules is not None, 'Replace names can not be None'
+    assert args.replace_modules is not None, 'Replace modules can not be None'
     lora_layer_class, variant_config = get_lora_layer_class(args)
     if args.run_lora_in_fp32:
         print_rank_0('--->Will keep lora weights in float32', args.global_rank)
     for name, module in model.named_modules():
         replace_tag = False
-        for replace_name in args.replace_modules:
-            if replace_name in name:
+        for module_name in args.replace_modules:
+            if module_name in name or module_name == 'all-linear':
                 # Create LoRA layer instance.
                 replace_tag = True
                 if isinstance(module, LinearWithLoRA):
@@ -92,6 +95,8 @@ def switch_to_lora(model: nn.Module,
                             lora_layer.weight.data = module.weight.data
                         if quant:
                             lora_layer.weight_scaler = module.weight_scaler
+                        lora_layer.weight_a.data = lora_layer.weight_a.data.to(module.weight.device)
+                        lora_layer.weight_b.data = lora_layer.weight_b.data.to(module.weight.device)
                         # Replace the original layer with the LoRA layer.
                         parent = get_parent_model(model, module)
                         setattr(parent, list(parent._modules.items())[list(parent._modules.values()).index(module)][0], lora_layer)
@@ -101,15 +106,21 @@ def switch_to_lora(model: nn.Module,
 
 def setup_lora(model, args, model_config=None):
     if args.use_lora:
-        if args.replace_modules is None:
+        if args.replace_modules is not None:
+            if isinstance(args.replace_modules, str):
+                args.replace_modules = args.replace_modules.split('_')
+        else:
             args.replace_modules = model_config.lora_layers
         print_rank_0(f'--->LoRA targeting modules: {args.replace_modules}', args.global_rank)
         switch_to_lora(model, args)
         if args.lora_fa:
             lora_weight = ['weight_b', 'weight_ab_mixer']
+        elif args.use_vera:
+            lora_weight = ['lambda']
         else:
             lora_weight = ['weight_a','weight_b', 'weight_ab_mixer']
         args.enable_list = lora_weight if args.enable_list is None else list(set(args.enable_list + lora_weight))
+    model.to(args.device)
 
 def recover_linear(model: nn.Module):
     """

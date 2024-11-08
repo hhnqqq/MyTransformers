@@ -192,6 +192,10 @@ def peft_parser(parser):
                        help='Whether to use pissa')
     group.add_argument('--use-olora', action='store_true',
                        help='Whether to use olora')
+    group.add_argument('--use-delta-lora', action='store_true',
+                       help='Whether to use delta-lora')
+    group.add_argument('--delta-lora-start-steps', default=500,
+                       help='Start to compute delta lora weights')
     group.add_argument('--pissa-n-iters', type=int, default=1, 
                        help='The number of iterations determines the trade-off \
                         between the error and computation time')

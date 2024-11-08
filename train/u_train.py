@@ -23,9 +23,9 @@ set_random_seed(args.seed)
 print_rank_0(f'--->Data parallel world size: {parallel_states.get_data_parallel_world_size()}', args.global_rank)
 print_rank_0(f'--->Sequence parallel world size: {parallel_states.get_sequence_parallel_world_size()}', args.global_rank)
 print_rank_0(f'--->Pipeline parallel world size: {parallel_states.get_pipeline_model_parallel_world_size()}', args.global_rank)
-print_rank_0(f'--->registry contains {registry.list_all()}', args.global_rank)
+print_rank_0(f'--->Registry contains {registry.list_all()}', args.global_rank)
 
-print_rank_0('--->loading the model', args.global_rank)
+print_rank_0('--->Loading the model', args.global_rank)
 model, tokenizer, model_config, return_dataset_kwargs = load_model(args)
 
 setup_lora(model, args, model_config)

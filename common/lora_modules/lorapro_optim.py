@@ -13,12 +13,6 @@ from scipy.linalg import solve_sylvester
 
 from common.utils import print_rank_0
 
-def find_lora_names(n):
-    for substring in ['weight_a', 'weight_b']:
-        if substring in n:
-            return substring
-    return ""
-
 def _dispatch_sqrt(
     x: float,
 ):  # float annotation is needed because of torchscript type inference
