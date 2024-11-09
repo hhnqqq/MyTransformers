@@ -223,9 +223,9 @@ def peft_parser(parser):
     # --------------------------- adalora ----------------------------------
     group.add_argument('--use-adalora', action='store_true',
                        help='Whether to use adalora')
-    group.add_argument('--target-r', type=int, default=8,
+    group.add_argument('--target-r', type=int, default=16,
                        help='Target Lora matrix dimension.')
-    group.add_argument('--init-r', type=int, default=12,
+    group.add_argument('--init-r', type=int, default=8,
                        help='Initial Lora matrix dimension.')
     group.add_argument('--tinit', type=int, default=0,
                        help='The steps of initial warmup.')

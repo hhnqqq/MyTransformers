@@ -29,12 +29,9 @@ class LinearWithAdaLoRA(LinearWithLoRA):
         ranknum = self.ranknum + 1e-5
 
         lora_result = F.linear(
-            F.linear(
-                F.linear(self.lora_dropout(x), weight_a * weight_e),
-                torch.eye(weight_a.size(0)).to(weight_a.device),
-            ),
+            F.linear(self.lora_dropout(x), weight_a * weight_e),
             weight_b,
-        ).to(result.dtype)
+            ).to(result.dtype)
 
         return result + lora_result * self.lora_scaler / ranknum
 
@@ -54,8 +51,20 @@ class LinearWithAdaLoRA(LinearWithLoRA):
 
     def _init_lora_weights(self):
         # called by __init__ in LinearWithLoRA
-        super()._init_lora_weights()
+        # super()._init_lora_weights()
         dtype = self._get_lora_dtype()
+        requires_grad = not self.quant
+
+        self.weight_a = nn.Parameter(torch.randn((self.lora_rank, self.in_features), dtype=dtype), requires_grad=requires_grad)
+        self.weight_b = nn.Parameter(torch.randn((self.out_features, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
+
+        if self.quant:
+            self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
+            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
+
+        nn.init.normal_(self.weight_a, mean=0.0, std=0.02)
+        nn.init.normal_(self.weight_b, mean=0.0, std=0.02)
+
         requires_grad = not self.quant
 
         # In adalora, we have a diagonal matrix, but stored in singular values vector
@@ -207,8 +216,8 @@ class RankAllocator:
         )[0].item()
 
         # print(f"torch.cat(all_score): f{torch.cat(all_score)}")
-        print(f"self.init_bgt, budget: {self.init_bgt}, {budget}")
-        print("mask_threshold: ", mask_threshold)
+        # print(f"self.init_bgt, budget: {self.init_bgt}, {budget}")
+        # print("mask_threshold: ", mask_threshold)
 
         rank_pattern = {}
         # Mask the unimportant triplets

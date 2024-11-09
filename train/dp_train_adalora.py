@@ -23,7 +23,7 @@ def forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader,
 
         # reference: https://github.com/huggingface/peft/blob/main/src/peft/tuners/adalora/model.py#L238
         # orth_reg_weight = self.peft_config[self.trainable_adapter_name].orth_reg_weight
-        orth_reg_weight = 0.1
+        orth_reg_weight = 0.5
 
         if orth_reg_weight <= 0:
             raise ValueError("orth_reg_weight should be greater than 0. ")
@@ -85,6 +85,31 @@ def eval_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, ar
         with torch.no_grad():
             loss, metric = model(**batch)
             # TODO: all reduce metrics
+
+            orth_reg_weight = 0.5
+
+            if orth_reg_weight <= 0:
+                raise ValueError("orth_reg_weight should be greater than 0. ")
+
+            regu_loss = 0
+            num_param = 0
+            for n, p in model.named_parameters():
+                if "weight_a" in n or "weight_b" in n:
+                    if p.shape == torch.Size([0]):
+                        with gather_params_ctx(p, fwd_module=model):
+                            para_cov = p @ p.T if "weight_a" in n else p.T @ p
+                    else:
+                        para_cov = p @ p.T if "weight_a" in n else p.T @ p
+                    I = torch.eye(*para_cov.size(), out=torch.empty_like(para_cov))  # noqa: E741
+                    I.requires_grad = False
+                    num_param += 1
+                    regu_loss += torch.norm(para_cov - I, p="fro")
+            if num_param > 0:
+                regu_loss = regu_loss / num_param
+            else:
+                regu_loss = 0
+            loss += orth_reg_weight * regu_loss
+
         return loss.item(), metric
     
 def task_print_deepspeed(all_metric, args):
