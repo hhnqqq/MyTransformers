@@ -190,13 +190,19 @@ def peft_parser(parser):
                        help='Whether to use rslora')
     group.add_argument('--use-pissa', action='store_true',
                        help='Whether to use pissa')
+    group.add_argument('--use-milora', action='store_true',
+                       help='Whether to use milora')
     group.add_argument('--use-olora', action='store_true',
                        help='Whether to use olora')
     group.add_argument('--use-delta-lora', action='store_true',
                        help='Whether to use delta-lora')
-    group.add_argument('--delta-lora-start-steps', default=500,
+    group.add_argument('--delta-lora-start-steps', type=int, default=500,
                        help='Start to compute delta lora weights')
+    group.add_argument('--delta-lora-update-ratio', type=int, default=2)
     group.add_argument('--pissa-n-iters', type=int, default=1, 
+                       help='The number of iterations determines the trade-off \
+                        between the error and computation time')
+    group.add_argument('--milora-n-iters', type=int, default=1, 
                        help='The number of iterations determines the trade-off \
                         between the error and computation time')
     group.add_argument('--lora-rank', type=int, default=8,
@@ -225,6 +231,9 @@ def peft_parser(parser):
     group.add_argument('--relora-reset-optimizer', action='store_true')
     group.add_argument('--relora-optimizer-random-pruning', type=float, default=None)
     group.add_argument('--relora-optimizer-magnitude-pruning', type=float, default=None)
+    group.add_argument('--use-lora-moe', action='store_true')
+    group.add_argument('--lora-moe-n-experts', type=int, default=2)
+    group.add_argument('--lora-moe-top-k', type=int, default=2)
     group.add_argument('--lora-dropout', type=float, default=None,
                        help='The dropout rate for lora weight.')
     group.add_argument('--run-lora-in-fp32', action='store_true',
