@@ -6,7 +6,8 @@ from deepspeed.runtime.pipe.engine import DeepSpeedEngine
 from dataset_classes import RepeatingLoader
 from common.lora_modules.relora import optimizer_reset
 from common.lora_modules.lora import LinearWithLoRA, find_lora_names
-from common.utils import to_device, reduce_tensor, print_rank_0
+from common.lora_modules.delta_lora import LinearWithDeltaLoRA
+from common.utils import to_device, reduce_tensor
 
 def forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
     with torch.profiler.record_function("get_data"):
@@ -57,6 +58,17 @@ def backward_step_deepspeed_relora(model: DeepSpeedEngine, optimizer, loss, lr_s
                 optimizer_magnitude_pruning=args.relora_optimizer_magnitude_pruning,
                 args=args
             )
+        return model
+    
+def backward_step_deepspeed_deltalora(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
+    with record_function("backward_path"):
+        model.backward(loss)
+        model.step()
+
+    if args.delta_lora_start_steps and (step / args.gradient_accumulation_steps) > args.delta_lora_start_steps:
+        for module in model.modules():
+            if isinstance(module, LinearWithDeltaLoRA):
+                module.update_pretrained_weight()
         return model
     
 def reduce_gradients(model, world_size):
