@@ -248,6 +248,27 @@ def peft_parser(parser):
                        help='The scaler of Galore')
     group.add_argument('--galore-per-layer', action='store_true')
 
+
+    # --------------------------- adalora ----------------------------------
+    group.add_argument('--use-adalora', action='store_true',
+                       help='Whether to use adalora')
+    group.add_argument('--target-r', type=int, default=16,
+                       help='Target Lora matrix dimension.')
+    group.add_argument('--init-r', type=int, default=8,
+                       help='Initial Lora matrix dimension.')
+    group.add_argument('--tinit', type=int, default=0,
+                       help='The steps of initial warmup.')
+    group.add_argument('--tfinal', type=int, default=0,
+                       help='The steps of final warmup.')
+    group.add_argument('--deltaT', type=int, default=1,
+                       help='Step interval of rank allocation.')
+    group.add_argument('--beta1', type=float, default=0.85,
+                       help='Hyperparameter of EMA.')
+    group.add_argument('--beta2', type=float, default=0.85,
+                       help='Hyperparameter of EMA.')
+    group.add_argument('--orth-reg-weight', type=float, default=0.5,
+                       help='The orthogonal regularization coefficient.')
+
     return parser
 
 def multimodal_parser(parser):
