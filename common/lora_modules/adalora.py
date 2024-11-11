@@ -40,14 +40,13 @@ class LinearWithAdaLoRA(LinearWithLoRA):
             # Compute lora weight.
             weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
             weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
-            weight_ab_mixer = self._quantize_weight(
-                self.weight_ab_mixer, self.weight_ab_quantizer
-            )
+            weight_e = self.weight_quantizer
             # When using vanilla lora, the ab mixer is a identical matrix
 
-            weight_a_forward = torch.matmul(weight_ab_mixer, weight_a)
-            lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a_forward)
-            return lora_weight
+        ranknum = self.ranknum + 1e-5
+        lora_result = F.linear(weight_a * weight_e,weight_b,)
+        lora_weight =  lora_result * self.lora_scaler / ranknum
+        return lora_weight
 
     def _init_lora_weights(self):
         # called by __init__ in LinearWithLoRA

@@ -27,7 +27,7 @@ def forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader,
             
         return loss, metric
     
-def backward_step_deepspeed(model: DeepSpeedEngine, optimizer, loss):
+def backward_step_deepspeed(model: DeepSpeedEngine, optimizer, loss, step: int):
     with record_function("backward_path"):
         model.backward(loss)
         # deepspeed/runtime/engine.py ##line 2134
