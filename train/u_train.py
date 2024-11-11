@@ -1,8 +1,5 @@
-# TODO: 修改使用huggingface训练的代码
 import os
-
 import torch
-import deepspeed
 import torch.distributed
 from datetime import datetime
 
@@ -14,28 +11,22 @@ from common.registry import registry
 from common.optimizer import get_optimizer
 import common.utils.parallel_states as parallel_states
 from train.load_data import load_dataloder
-from train.load_model import load_huggingface_model, load_local_model
+from train.load_model import load_model
 from dataset_classes import RepeatingLoader
 from common.utils.params_manager import refresh_config, set_up_trainable_param
-from common.utils import print_rank_0, read_config, set_random_seed, to_device, reduce_tensor
+from common.utils import print_rank_0, read_config, set_random_seed, init_distributed_model
 
 args = get_args()
-# If args.test_code, the log file and tb writer will not be created.
-if args.test_code:
-    os.environ['NO_LOG_FILE'] = 'true'
 args = registry.get_paths(args)
 set_random_seed(args.seed)
 
 print_rank_0(f'--->Data parallel world size: {parallel_states.get_data_parallel_world_size()}', args.global_rank)
 print_rank_0(f'--->Sequence parallel world size: {parallel_states.get_sequence_parallel_world_size()}', args.global_rank)
 print_rank_0(f'--->Pipeline parallel world size: {parallel_states.get_pipeline_model_parallel_world_size()}', args.global_rank)
-print_rank_0(f'--->registry contains {registry.list_all()}', args.global_rank)
+print_rank_0(f'--->Registry contains {registry.list_all()}', args.global_rank)
 
-print_rank_0('--->loading the model', args.global_rank)
-if args.huggingface:
-    model, tokenizer, model_config, return_dataset_kwargs = load_huggingface_model(args)
-else:
-    model, tokenizer, model_config, return_dataset_kwargs = load_local_model(args)
+print_rank_0('--->Loading the model', args.global_rank)
+model, tokenizer, model_config, return_dataset_kwargs = load_model(args)
 
 setup_lora(model, args, model_config)
 
@@ -65,6 +56,9 @@ if args.use_lora_ga:
                    dataloader=train_dataloader,
                    args=args,
                    iters=args.lora_ga_n_steps)
+if args.use_adalora:
+    rank_allocator = RankAllocator(model, args)
+    model.rankallocator = rank_allocator
 # set up trainable before acquiring optimizer.
 set_up_trainable_param(model, args)
 
@@ -75,12 +69,12 @@ optimizer, lr_scheduler = get_optimizer(ds_config=ds_config,
                                         optimizer_sd=optimizer_sd, 
                                         lr_scheduler_sd=lr_scheduler_sd)
 
-engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, 
-                                               optimizer=optimizer, 
-                                               lr_scheduler=lr_scheduler,
-                                               config=ds_config, 
-                                               model_parameters=[p for p in model.parameters() if p.requires_grad],
-                                               mpu=None if args.num_pp_stages else parallel_states)
+engine, optimizer, lr_scheduler = init_distributed_model(args, 
+                                                         model, 
+                                                         optimizer, 
+                                                         lr_scheduler, 
+                                                         ds_config, 
+                                                         parallel_states)
 
 
 if __name__ == '__main__':
@@ -116,10 +110,23 @@ if __name__ == '__main__':
         backward_step = None
         task_print = task_print_pipeline
     else:
-        forward_step = forward_step_deepspeed
-        eval_step = eval_step_deepspeed
-        backward_step = backward_step_deepspeed
-        task_print = task_print_deepspeed
+        if args.use_adalora:
+            forward_step = forward_step_deepspeed_adalora
+            eval_step = eval_step_deepspeed_adalora
+        else:
+            forward_step = forward_step_deepspeed
+            eval_step = eval_step_deepspeed
+        if args.disable_zero_optimizer:
+            backward_step = backward_step_deepspeed_stage0
+        elif args.relora_steps:
+            backward_step = backward_step_deepspeed_relora
+        elif args.use_delta_lora:
+            backward_step = backward_step_deepspeed_deltalora
+        elif args.use_adalora:
+            backward_step = backward_step_deepspeed_adalora
+        else:
+            backward_step = backward_step_deepspeed
+        task_print = task_print_ntp
 
     trainer = Trainer(args, writer)
     trainer.register_task_print(task_print)

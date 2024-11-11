@@ -254,3 +254,45 @@ class RankAllocator:
                     key = n
                     mask = torch.Tensor(rank_pattern[key]).unsqueeze(-1).to(p.device)
                     p.masked_fill_(~mask.bool(), 0.0)
+
+def update_and_allocate(model, global_step, saved_gradients):
+    """
+    This method updates Adalora budget and mask.
+
+    This should be called in every training step after `loss.backward()` and before `zero_grad()`.
+
+    `tinit`, `tfinal` and `deltaT` are handled with in the method.
+
+    Args:
+        global_step (`int`): The current training step, it is used to calculate adalora budget.
+
+    Example:
+
+    ```python
+    >>> loss = model(**input).loss
+    >>> loss.backward()
+    >>> optimizer.step()
+    >>> model.base_model.update_and_allocate(i_step)
+    >>> optimizer.zero_grad()
+    ```
+    """
+    lora_config = model.rankallocator.peft_config
+    # Update the importance score and allocate the budget
+    if global_step < lora_config.num_micro_update_steps - lora_config.tfinal:
+        _, rank_pattern = model.rankallocator.update_and_allocate(model, global_step, saved_gradients)
+        if rank_pattern:
+            lora_config.rank_pattern = rank_pattern
+    # Finalize the budget allocation
+    elif global_step == lora_config.num_micro_update_steps - lora_config.tfinal:
+        _, rank_pattern = model.rankallocator.update_and_allocate(model, global_step, saved_gradients, force_mask=True)
+        # for some reason, this freezes the trainable parameters and nothing gets updates
+        # self.resize_modules_by_rank_pattern(rank_pattern, self.trainable_adapter_name)
+        lora_config.rank_pattern = rank_pattern
+        model.rankallocator.reset_ipt()
+    # Currently using inefficient way to mask the unimportant weights using the rank pattern
+    #  due to problem mentioned above
+    elif global_step > lora_config.num_micro_update_steps - lora_config.tfinal:
+        model.rankallocator.mask_using_rank_pattern(model, lora_config.rank_pattern)
+    # Pass the function and do forward propagation
+    else:
+        return None

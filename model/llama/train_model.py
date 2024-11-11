@@ -24,7 +24,10 @@ class LLaMaTrainModel(BaseModel):
         self.tok_embeddings = model.model.tok_embeddings
         self.output = model.model.output
         self.norm = model.model.norm
-        self.attention_mask = LLaMaTrainModel.get_masks(args.max_len)
+        if 'flash' in args.atten_type:
+            self.attention_mask = None
+        else:
+            self.attention_mask = LLaMaTrainModel.get_masks(args.max_len)
         self.freqs_cis = precompute_freqs_cis(args.head_dim,
                                             args.max_len,
                                             theta=args.rope_theta,
@@ -36,7 +39,10 @@ class LLaMaTrainModel(BaseModel):
     
     def embedding(self, input_ids):
         hidden_states = self.tok_embeddings(input_ids)
-        attention_mask = self.attention_mask.to(hidden_states.device).to(hidden_states.dtype)
+        if self.attention_mask is not None:
+            attention_mask = self.attention_mask.to(hidden_states.device).to(hidden_states.dtype)
+        else:
+            attention_mask = self.attention_mask
         return hidden_states, attention_mask
     
     def model_forward(self, logits, freqs_cis, attention_mask):

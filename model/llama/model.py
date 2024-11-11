@@ -184,13 +184,14 @@ class Attention(nn.Module):
         xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
         keys = keys.transpose(1, 2) # (bs, n_local_heads, cache_len + seqlen, head_dim)
         values = values.transpose(1, 2) # (bs, n_local_heads, cache_len + seqlen, head_dim)
+        is_causal = mask is None
         output = attention_func(q=xq, 
                                 k=keys, 
                                 v=values, 
                                 atten_mask=mask, 
                                 dropout_p=0.0, 
                                 scaling=1/math.sqrt(self.head_dim),
-                                is_causal=False,
+                                is_causal=is_causal,
                                 atten_type=atten_type) # (bs, n_local_heads, cache_len + seqlen, head_dim)
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
         return self.wo(output)

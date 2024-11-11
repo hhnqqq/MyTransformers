@@ -6,11 +6,13 @@ import time
 import json
 import random
 import logging
+import deepspeed
 import contextlib
 import configparser
 from typing import Optional, Dict, Union
 from datetime import datetime
 from traceback import format_exc
+from torch.nn.parallel import DistributedDataParallel as DDP
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef, precision_score, recall_score
 
 import pytz
@@ -260,8 +262,24 @@ def init_dist(args):
     args.device = device
     return args
     
+def init_distributed_model(args, model, optimizer, lr_scheduler, ds_config, parallel_states):
+    if args.disable_zero_optimizer:
+        engine, _, _, _ = deepspeed.initialize(model=model, 
+                                                config=ds_config, 
+                                                model_parameters=[p for p in model.parameters() if p.requires_grad],
+                                                mpu=None if args.num_pp_stages else parallel_states)
+    else:
+        engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, 
+                                                optimizer=optimizer, 
+                                                lr_scheduler=lr_scheduler,
+                                                config=ds_config, 
+                                                model_parameters=[p for p in model.parameters() if p.requires_grad],
+                                                mpu=None if args.num_pp_stages else parallel_states)
+    return engine, optimizer, lr_scheduler
+                                            
+
 def reduce_tensor(tensor, world_size):
-    rt = tensor.clone()
+    rt = tensor.detach().clone()
     dist.all_reduce(rt, op=dist.ReduceOp.SUM)
     rt /= world_size
     return rt

@@ -3,6 +3,7 @@ import torch.optim as optim
 import deepspeed.ops as ds_optim
 
 from functools import partial
+from traceback import format_exc
 from common.utils import print_rank_0
 from common.scheduler import AnnealingLR
 from common.lora_modules import LoRAProAdamW
@@ -21,7 +22,7 @@ def get_optimizer_instance(optim_type, args, model):
         print_rank_0(message, level=logging.ERROR, rank=args.global_rank)
         return get_galore_optimizer(optim_type, args, model)
     elif args.use_lora_pro:
-        message = 'You are using lorapro-adamw optmizer'
+        message = '--->You are using lorapro-adamw optmizer'
         print_rank_0(message, args.global_rank)
         return get_lorapro_optimizer(optim_type, args, model)
     else:
@@ -113,6 +114,8 @@ def get_regular_optimizer(optim_type, args, model):
             'cpuadam':partial(ds_optim.adam.DeepSpeedCPUAdam, adamw_mode=False),
             'adamax': optim.Adamax,
             'sparseadam': optim.SparseAdam,
+            'torchadam': optim.Adam,
+            'torchadamw': optim.AdamW
         }.get(optim_type)
         
         if optimizer_class is None:
@@ -125,7 +128,7 @@ def get_regular_optimizer(optim_type, args, model):
                                     betas=tuple(args.betas))
         isSuccess = True
     except Exception as e:
-        print_rank_0(f'Load local optimizer error as e: {e}', args.global_rank)
+        print_rank_0(f'--->Load local optimizer error as e: {e}', args.global_rank)
         isSuccess = False
         optimizer = None
     return isSuccess, optimizer
@@ -133,44 +136,42 @@ def get_regular_optimizer(optim_type, args, model):
 def get_lorapro_optimizer(optim_type, args, model):
     try:
         if args.use_lora_plus:
-            weight_b_group = ((n, p) for n, p in model.named_parameters() if p.requires_grad and 'weight_b' in n)
-            base_group = ((n, p) for n, p in model.named_parameters() if p.requires_grad and 'weight_b' not in n)
-            named_params = [{'params': weight_b_group, 'lr': args.lora_plus_scaler},
-                        {'params': base_group, 'lr': 1}]
-            print_rank_0(F'--->lora+ is enabled and the lr of weight b is set to {args.lr * args.lora_plus_scaler}', args.global_rank)
+            lora_plus_scaler = args.lora_plus_scaler
         else:
-            named_params = {n:p for n, p in model.named_parameters() if p.requires_grad}
-
-        optimizer_class = {
-            'adamw': LoRAProAdamW
-        }.get(optim_type)
+            lora_plus_scaler = 1
+        named_params = {'params' : ((n, p) for n, p in model.named_parameters() if p.requires_grad)}
         
-        if optimizer_class is None:
-            raise NotImplementedError('only support adamw for lorapro now')
-        
-        optimizer = optimizer_class(named_params,
-                                    lr=args.lr,
-                                    weight_decay=args.weight_decay,
-                                    eps=args.eps,
-                                    betas=tuple(args.betas))
+        optimizer = LoRAProAdamW(named_params,
+                                lr=args.lr,
+                                weight_decay=args.weight_decay,
+                                eps=args.eps,
+                                betas=tuple(args.betas),
+                                lora_plus_scaler=lora_plus_scaler)
         isSuccess = True
-    except Exception as e:
-        print_rank_0(f'Load local optimizer error as e: {e}', args.global_rank)
+    except Exception:
+        e = format_exc()
+        print_rank_0(f'--->Load local optimizer error as e: {e}', args.global_rank)
         isSuccess = False
         optimizer = None
     return isSuccess, optimizer
 
 def get_learning_rate_scheduler(optimizer, iteration, args):
     init_step = max(iteration - args.auto_warmup_steps, 0)
+    if args.relora_steps:
+        num_iters = args.relora_steps
+        auto_warmup_steps = 0
+    else:
+        num_iters = args.num_global_update_steps
+        auto_warmup_steps = args.auto_warmup_steps
     if optimizer is not None:
         lr_scheduler = AnnealingLR(optimizer,
                                 start_lr=args.lr,
                                 warmup_iter=args.num_warmup_steps,
-                                num_iters=args.num_micro_update_steps,
+                                num_iters=num_iters,
                                 decay_style=args.lr_decay_style,
                                 last_iter=init_step,
                                 decay_ratio=args.lr_decay_ratio,
-                                auto_warmup_steps=args.auto_warmup_steps,
+                                auto_warmup_steps=auto_warmup_steps,
                                 auto_warmup_rate=args.auto_warmup_rate
                                 )
     else:

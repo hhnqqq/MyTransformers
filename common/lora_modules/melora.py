@@ -57,8 +57,8 @@ class LinearWithMELoRA(LinearWithLoRA):
             mini_weight_b = nn.Parameter(torch.zeros((self.mini_out_features, self.mini_lora_rank), dtype=dtype), requires_grad=requires_grad)
             self.weight_a.append(mini_weight_a)
             self.weight_b.append(mini_weight_b)
-        self._init_weight(f'weight_a')
-        self._init_weight(f'weight_b')
+        self._init_weight('weight_a')
+        self._init_weight('weight_b')
 
     def _init_weight(self, weight_name: str):
         weight_list = getattr(self, weight_name)
@@ -75,17 +75,17 @@ class LinearWithMELoRA(LinearWithLoRA):
             mini_weight_b = self.weight_b[i].to(self._get_lora_dtype())
             mini_lora_result = F.linear(F.linear(self.lora_dropout(mini_x), mini_weight_a), mini_weight_b)
             lora_result.append(mini_lora_result)
-        lora_result = torch.cat(lora_result, dim=-1)
+        lora_result = torch.cat(lora_result, dim=-1).to(result.dtype)
 
         return result + self.lora_scaler * lora_result
     
     def _compute_lora_weight(self):
         if self.has_lora_weights:
             # Compute lora weight.
-            weight_a = self._diagonal_concat_weight_a()
-            weight_b = self._diagonal_concat_weight_b()
+            weight_a = self._diagonal_concat_weight_a().to(self._get_lora_dtype())
+            weight_b = self._diagonal_concat_weight_b().to(self._get_lora_dtype())
             lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
-            return lora_weight
+            return lora_weight.to(self.weight.dtype)
         
     def _diagonal_concat_weight_a(self):
         weight_a = torch.zeros(self.lora_rank, self.in_features)

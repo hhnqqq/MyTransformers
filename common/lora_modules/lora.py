@@ -86,6 +86,7 @@ class LinearWithLoRA(nn.Linear):
         return dtype
     
     def _init_lora_weights(self):
+        # Defualt is fp32 when LinearWithLora init.
         dtype = self._get_lora_dtype()
         requires_grad = not self.quant
 
@@ -102,10 +103,10 @@ class LinearWithLoRA(nn.Linear):
     def _compute_lora_weight(self): 
         if self.has_lora_weights:
             # Compute lora weight.
-            weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
-            weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
+            weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer).to(self._get_lora_dtype())
+            weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer).to(self._get_lora_dtype())
             lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
-            return lora_weight
+            return lora_weight.to(self.weight.dtype)
         
     def _merge_lora(self) -> bool:
         # Merge the lora weight into full rank weight if possible.
@@ -178,10 +179,12 @@ class LinearWithLoRA(nn.Linear):
     def get_weight_init_kwargs(self, weight_name: str, method: Optional[str] = None) -> Dict[str, Any]:
         init_configs = {
             'weight_a': {None:{'std': 1 / (self.in_features ** 0.5), 'mean': 0.0},
+                         'normal':{'std': 0.02, 'mean': 0.0},
                          'kaiming':{'a':5**0.5, 'mode':'fan_in'}},
             'weight_b': {None:{'method':'zeros'},
                          'guassian':{'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0},
                          'unit':{'std': 1 / (self.lora_rank ** 0.5), 'mean': 0.0},
+                         'normal':{'std': 0.02, 'mean': 0.0},
                          'kaiming':{'a':5**0.5, 'mode':'fan_in'}}
             ,
             'weight_ab_mixer': {
@@ -205,6 +208,8 @@ class LinearWithLoRA(nn.Linear):
                                mode=init_kwargs.get('mode', 'fan_in')),
             'xavier': nn.init.xavier_normal_,
             'zeros': nn.init.zeros_,
+            'normal': partial(nn.init.normal_, std=init_kwargs.get('std', 1), 
+                            mean=init_kwargs.get('mean', 0)),
             'unit': partial(nn.init.normal_, std=init_kwargs.get('std', 1), 
                             mean=init_kwargs.get('mean', 0)),
             'orthogonal': nn.init.orthogonal_
@@ -219,3 +224,9 @@ class LinearWithLoRA(nn.Linear):
         print(f"{self.__class__.__name__} Layer: in_features={self.in_features}, out_features={self.out_features}")
         print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, Quantized: {self.quant}")
             
+
+def find_lora_names(n):
+    for substring in ['weight_a', 'weight_b']:
+        if substring in n:
+            return substring
+    return ""
