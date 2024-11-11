@@ -2,31 +2,16 @@
 Code reference: https://github.com/mrflogs/LoRA-Pro/blob/main/peta/optim.py#L3
 This implementation only contain adamw implementation
 """
-import math
 import torch
 
-from typing import Tuple, Union, List
+from typing import cast, Tuple, Union, List
 
 from torch.optim import Optimizer
-from torch._utils import is_compiling
 from scipy.linalg import solve_sylvester
+from torch.optim.adamw import adamw
 
-from common.utils import print_rank_0
+from common.lora_modules.lora import find_lora_names
 
-def _dispatch_sqrt(
-    x: float,
-):  # float annotation is needed because of torchscript type inference
-    if not torch.jit.is_scripting() and isinstance(x, torch.Tensor):
-        return x.sqrt()
-    else:
-        return math.sqrt(x)
-
-def _get_value(x):
-    # item is significantly faster than a cpu tensor in eager mode
-    if not torch.jit.is_scripting() and is_compiling():
-        return x
-    else:
-        return x.item() if isinstance(x, torch.Tensor) else x
 
 def _get_scalar_dtype():
     return (
@@ -91,6 +76,7 @@ class LoRAProAdamW(Optimizer):
         self.step_ = 0
         self.lora_plus_scaler = lora_plus_scaler
         self.named_param_dtype = {}
+        self.fake_step =  torch.tensor(0.0, dtype=_get_scalar_dtype())
         
         if not isinstance(named_params, list):
             named_params = [named_params]
@@ -102,8 +88,7 @@ class LoRAProAdamW(Optimizer):
                 'params': [],
                 'params_fp32': [],
                 'names': [],
-                'grads': [],
-                'lr': named_params_group.get('lr', lr),
+                'lr': 1,
             }
 
             for name, param in named_params_group['params']:
@@ -128,9 +113,7 @@ class LoRAProAdamW(Optimizer):
         
         super().__init__(params, defaults)
                
-    def is_same(self, name_list):
-        return (name_list[0].split('.')[:-3] == name_list[1].split('.')[:-3])
-    
+
     @torch.no_grad()
     def step(self, closure=None):
         """Perform a single optimization step."""
@@ -143,13 +126,13 @@ class LoRAProAdamW(Optimizer):
                 
         for group in self.param_groups:
             self._update_group_params(group)
-            for name, param_fp32, param in zip(group["names"], group["params_fp32"], group["params"]):
+            for param_fp32, param in zip(group["params_fp32"], group["params"]):
                 param.data.copy_(param_fp32.data)
 
         return loss
 
     def _update_group_params(self, group):
-        beta1, beta2 = group["betas"]
+        beta1, beta2 = cast(Tuple[float, float], group["betas"])
         lora_scaler = group["lora_scaler"]
 
         param_dict, grad_dict = {}, {}
@@ -183,38 +166,55 @@ class LoRAProAdamW(Optimizer):
                 param_dict = {}
                 grad_dict = {}
             else:
-                self._update_standard_params(state, param_fp32, grad, group, beta1, beta2)
+                if group["amsgrad"]:
+                    max_exp_avg_sqs=[state["max_exp_avg_sq"]]
+                else:
+                    max_exp_avg_sqs=[]
+
+                adamw(params=[param_fp32],
+                    grads=[grad.to(torch.float32)],
+                    exp_avgs=[state["exp_avg"]],
+                    exp_avg_sqs=[state["exp_avg_sq"]],
+                    max_exp_avg_sqs=max_exp_avg_sqs,
+                    state_steps=[state["step"]],
+                    amsgrad=group["amsgrad"],
+                    beta1=beta1,
+                    beta2=beta2,
+                    lr=group["lr"],
+                    weight_decay=group["weight_decay"],
+                    eps=group["eps"],
+                    maximize=group["maximize"])
 
 
     def _initialize_state(self, state, param_dict, p, group):
         state["step"] = torch.tensor(0.0, dtype=_get_scalar_dtype())
         # Ensure optimizer states in torch.float32.
         if len(param_dict.keys()) == 2:
-            self._initialize_lora_state(state, param_dict, p.device, torch.float32, group["amsgrad"])
+            self._initialize_lora_state(state, param_dict, group["amsgrad"])
         else:
-            self._initialize_standard_state(state, p.shape, p.device, torch.flaot32, group["amsgrad"])
+            self._initialize_standard_state(state, p, group["amsgrad"])
 
-    def _initialize_lora_state(self, state, param_dict, device, dtype, amsgrad):
-        state["exp_avg_A"] = torch.zeros(param_dict['weight_a'].shape).to(device).to(dtype)
-        state["exp_avg_B"] = torch.zeros(param_dict['weight_b'].shape).to(device).to(dtype)
-        state["exp_avg_sq_A"] = torch.zeros(param_dict['weight_a'].shape).to(device).to(dtype)
-        state["exp_avg_sq_B"] = torch.zeros(param_dict['weight_b'].shape).to(device).to(dtype)
+    def _initialize_lora_state(self, state, param_dict, amsgrad):
+        state["exp_avg_A"] = torch.zeros_like(param_dict['weight_a'], memory_format=torch.preserve_format)
+        state["exp_avg_B"] = torch.zeros_like(param_dict['weight_b'], memory_format=torch.preserve_format)
+        state["exp_avg_sq_A"] = torch.zeros_like(param_dict['weight_a'], memory_format=torch.preserve_format)
+        state["exp_avg_sq_B"] = torch.zeros_like(param_dict['weight_b'], memory_format=torch.preserve_format)
 
         if amsgrad:
-            state["max_exp_avg_sq_A"] = torch.zeros(param_dict['weight_a'].shape).to(device).to(dtype)
-            state["max_exp_avg_sq_B"] = torch.zeros(param_dict['weight_b'].shape).to(device).to(dtype)
+            state["max_exp_avg_sq_A"] = torch.zeros_like(param_dict['weight_a'], memory_format=torch.preserve_format)
+            state["max_exp_avg_sq_B"] = torch.zeros_like(param_dict['weight_b'], memory_format=torch.preserve_format)
 
-    def _initialize_standard_state(self, state, shape, device, dtype, amsgrad):
-        state["exp_avg"] = torch.zeros(shape).to(device).to(dtype)
-        state["exp_avg_sq"] = torch.zeros(shape).to(device).to(dtype)
+    def _initialize_standard_state(self, state, p, amsgrad):
+        state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+        state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
         
         if amsgrad:
-            state["max_exp_avg_sq"] = torch.zeros(shape).to(device).to(dtype)
+            state["max_exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
     
     def _update_lora_params(self, state, param_dict, grad_dict, group, lora_scaler):
-        A = param_dict['weight_a']
-        B = param_dict['weight_b']
-        lora_rank, in_features = A.shape
+        A: torch.Tensor = param_dict['weight_a']
+        B: torch.Tensor = param_dict['weight_b']
+        lora_rank, _ = A.shape
         out_features, _ = B.shape
         grad_A_orin_fp32 = grad_dict['weight_a'].to(torch.float32)
         grad_B_orin_fp32 = grad_dict['weight_b'].to(torch.float32)
@@ -235,47 +235,35 @@ class LoRAProAdamW(Optimizer):
         grad_A_fp32 = grad_scale * torch.matmul(B_TB_inv, grad_A_orin_fp32) + torch.matmul(X, A)
         grad_B_fp32 = grad_scale * (torch.matmul(I_minus_BBT_inv, torch.matmul(grad_B_orin_fp32, AA_T_inv))) - torch.matmul(B, X)
 
-        exp_avg_A = state["exp_avg_A"]
-        exp_avg_sq_A = state["exp_avg_sq_A"]
+        exp_avg_A: torch.Tensor = state["exp_avg_A"]
+        exp_avg_sq_A: torch.Tensor = state["exp_avg_sq_A"]
         
-        exp_avg_B = state["exp_avg_B"]
-        exp_avg_sq_B = state["exp_avg_sq_B"]
+        exp_avg_B: torch.Tensor = state["exp_avg_B"]
+        exp_avg_sq_B: torch.Tensor = state["exp_avg_sq_B"]
 
-        step_t = state["step"]
-
-        step_t += 1
-
-        exp_avg_A.lerp_(grad_A_fp32, 1 - group["betas"][0])
-        exp_avg_B.lerp_(grad_B_fp32, 1 - group["betas"][0])
-        exp_avg_sq_A.mul_(group["betas"][1]).addcmul_(grad_A_fp32, grad_A_fp32.conj(), value=1 - group["betas"][1])
-        exp_avg_sq_B.mul_(group["betas"][1]).addcmul_(grad_B_fp32, grad_B_fp32.conj(), value=1 - group["betas"][1])
-
-        step = _get_value(step_t)
-        
-        bias_correction1 = 1 - group["betas"][0]**step
-        bias_correction2 = 1 - group["betas"][1]**step
-
-        step_size = group['lr'] 
-        step_size_b = self.lora_plus_scaler * step_size
-
-        bias_correction2_sqrt = _dispatch_sqrt(bias_correction2)
-        
-        if group['amsgrad']:
-            torch.maximum(state["max_exp_avg_sq_A"], exp_avg_sq_A, out=state["max_exp_avg_sq_A"])
-            torch.maximum(state["max_exp_avg_sq_B"], exp_avg_sq_B, out=state["max_exp_avg_sq_B"])
-
-            denom_A = (state["max_exp_avg_sq_A"].sqrt() / bias_correction2_sqrt).add_(group['eps'])
-            denom_B = (state["max_exp_avg_sq_B"].sqrt() / bias_correction2_sqrt).add_(group['eps'])
+        if group["amsgrad"]:
+            max_exp_avg_sq_A = state["max_exp_avg_sq_A"]
+            max_exp_avg_sq_B = state["max_exp_avg_sq_B"]
+            max_exp_avg_sqs = [max_exp_avg_sq_A, max_exp_avg_sq_B]
         else:
-            denom_A = (exp_avg_sq_A.sqrt() / bias_correction2_sqrt).add_(group['eps'])
-            denom_B = (exp_avg_sq_B.sqrt() / bias_correction2_sqrt).add_(group['eps'])
-            
-        if group['weight_decay'] != 0:
-            A.mul_(1 - group["weight_decay"] * group["lr"])
-            B.mul_(1 - group["weight_decay"] * group["lr"])
-            
-        A.addcdiv_(exp_avg_A / bias_correction1, denom_A, value=-step_size)
-        B.addcdiv_(exp_avg_B / bias_correction1, denom_B, value=-step_size_b)
+            max_exp_avg_sqs = []
+
+        
+        adamw(params=[A, B],
+             grads=[grad_A_fp32, grad_B_fp32],
+             exp_avgs=[exp_avg_A, exp_avg_B],
+             exp_avg_sqs=[exp_avg_sq_A, exp_avg_sq_B],
+             max_exp_avg_sqs=max_exp_avg_sqs,
+             state_steps=[state["step"], self.fake_step],
+             amsgrad=group["amsgrad"],
+             beta1=group["betas"][0],
+             beta2=group["betas"][1],
+             lr=group["lr"],
+             weight_decay=group["weight_decay"],
+             eps=group["eps"],
+             maximize=group["maximize"],
+             foreach=False)
+        
 
     def _compute_X(self, group, B, A, lora_scaler, grad_A_orin_fp32, grad_B_orin_fp32, B_TB_inv, AA_T, B_TB):
         if group['X_mode'] == "sylvester":
@@ -285,27 +273,3 @@ class LoRAProAdamW(Optimizer):
         else:
             return torch.zeros((B_TB_inv.shape[0], B_TB_inv.shape[0]))
 
-    def _update_standard_params(self, state, param, grad, group, beta1, beta2):
-        exp_avg = state["exp_avg"]
-        exp_avg_sq = state["exp_avg_sq"]
-        step_t = state["step"]
-
-        step_t += 1
-
-        grad_fp32 = grad.float()
-        exp_avg.lerp_(grad_fp32, 1 - beta1)
-        exp_avg_sq.mul_(beta2).addcmul_(grad_fp32, grad_fp32.conj(), value=1 - beta2)
-
-        step = _get_value(step_t)
-
-        bias_correction1 = 1 - beta1**step
-        bias_correction2 = 1 - beta2**step
-
-        step_size = group['lr'] 
-
-        bias_correction2_sqrt = _dispatch_sqrt(bias_correction2)
-        denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(group['eps'])
-        if group['weight_decay'] != 0:
-            param.mul_(1 - group["weight_decay"] * group["lr"])
-        
-        param.addcdiv_(exp_avg / bias_correction1, denom, value=-step_size)
