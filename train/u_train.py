@@ -56,6 +56,9 @@ if args.use_lora_ga:
                    dataloader=train_dataloader,
                    args=args,
                    iters=args.lora_ga_n_steps)
+if args.use_adalora:
+    rank_allocator = RankAllocator(model, args)
+    model.rankallocator = rank_allocator
 # set up trainable before acquiring optimizer.
 set_up_trainable_param(model, args)
 
@@ -107,8 +110,12 @@ if __name__ == '__main__':
         backward_step = None
         task_print = task_print_pipeline
     else:
-        forward_step = forward_step_deepspeed
-        eval_step = eval_step_deepspeed
+        if args.use_adalora:
+            forward_step = forward_step_deepspeed_adalora
+            eval_step = eval_step_deepspeed_adalora
+        else:
+            forward_step = forward_step_deepspeed
+            eval_step = eval_step_deepspeed
         if args.disable_zero_optimizer:
             backward_step = backward_step_deepspeed_stage0
         elif args.relora_steps:
@@ -117,6 +124,8 @@ if __name__ == '__main__':
             backward_step = backward_step_deepspeed_plora
         elif args.use_delta_lora:
             backward_step = backward_step_deepspeed_deltalora
+        elif args.use_adalora:
+            backward_step = backward_step_deepspeed_adalora
         else:
             backward_step = backward_step_deepspeed
         task_print = task_print_ntp
