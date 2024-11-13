@@ -10,7 +10,10 @@ from common.lora_modules.rslora import LinearWithRSLoRA
 from common.lora_modules.pissa import LinearWithPiSSA
 from common.lora_modules.olora import LinearWithOLoRA
 from common.lora_modules.vera import LinearWithVeRA
+from common.lora_modules.lora_moe import LinearWithLoRAMoE
+from common.lora_modules.milora import LinearWithMILoRA
 from common.lora_modules.delta_lora import LinearWithDeltaLoRA
+from common.lora_modules.plora import LinearWithPLoRA
 
 def get_lora_layer_class(args):
     variant_config = dict()
@@ -41,10 +44,22 @@ def get_lora_layer_class(args):
     elif getattr(args, 'use_delta_lora', False):
         lora_layer_class = LinearWithDeltaLoRA
         variant_config = dict(update_ratio=args.delta_lora_update_ratio)
+    elif getattr(args, 'use_lora_moe', False):
+        lora_layer_class = LinearWithLoRAMoE
+        variant_config = dict(lora_moe_n_experts=args.lora_moe_n_experts,
+                              lora_moe_top_k=args.lora_moe_top_k)
+    elif getattr(args, 'use_milora', False):
+        lora_layer_class = LinearWithMILoRA
+        variant_config = dict(fast_svd_n_iters=args.milora_n_iters)
+        variant_print = ". The initialization of milora requires some time especially for full svd decomposition, waiting..."
+    elif getattr(args, 'use_plora', False):
+        lora_layer_class = LinearWithPLoRA
+        variant_config = dict(plora_momentum=args.plora_momentum)
+        variant_print = f". PLoRA will reset lora weights with momentum: {args.plora_momentum} at every step."
     elif getattr(args, "relora_steps", False) or getattr(args, "relora_counts", False):
-        if args.relora_counts:
-            args.relora_steps = args.num_global_update_steps // (args.relora_counts + 1)
-        variant_print = f". Will reset lora weights every {args.relora_step} global update steps."
+        # if args.relora_counts:
+        #     args.relora_steps = args.num_global_update_steps // (args.relora_counts + 1)
+        variant_print = f". Will reset lora weights every {args.relora_steps} global update steps."
     print_rank_0(f'--->Using lora variant: {lora_layer_class.__name__}{variant_print}', rank=args.global_rank)
     return lora_layer_class, variant_config
 
@@ -95,8 +110,12 @@ def switch_to_lora(model: nn.Module,
                             lora_layer.weight.data = module.weight.data
                         if quant:
                             lora_layer.weight_scaler = module.weight_scaler
-                        lora_layer.weight_a.data = lora_layer.weight_a.data.to(module.weight.device)
-                        lora_layer.weight_b.data = lora_layer.weight_b.data.to(module.weight.device)
+                        if isinstance(lora_layer.weight_a, nn.ParameterList):
+                            lora_layer.weight_a = lora_layer.weight_a.to(module.weight.device)
+                            lora_layer.weight_b = lora_layer.weight_b.to(module.weight.device)
+                        else:
+                            lora_layer.weight_a.data = lora_layer.weight_a.data.to(module.weight.device)
+                            lora_layer.weight_b.data = lora_layer.weight_b.data.to(module.weight.device)
                         # Replace the original layer with the LoRA layer.
                         parent = get_parent_model(model, module)
                         setattr(parent, list(parent._modules.items())[list(parent._modules.values()).index(module)][0], lora_layer)
