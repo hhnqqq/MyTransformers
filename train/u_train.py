@@ -113,6 +113,8 @@ if __name__ == '__main__':
             backward_step = backward_step_deepspeed_stage0
         elif args.relora_steps:
             backward_step = backward_step_deepspeed_relora
+        elif args.use_plora:
+            backward_step = backward_step_deepspeed_plora
         elif args.use_delta_lora:
             backward_step = backward_step_deepspeed_deltalora
         else:

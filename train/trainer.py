@@ -240,20 +240,8 @@ class Trainer:
             model_state_dict = trainable_params
         else:
             model_state_dict = model.module.state_dict()
-        
 
-        # try:
-        #     if isinstance(dataloader, RepeatingLoader):
-        #         dataset = dataloader.data_iter._dataset
-        #         train_token_count = dataloader.train_token_count 
-        #         if isinstance(dataset, BaseDataset):
-        #             train_token_count += dataset.train_token_count
-        #     else:
-        #         train_token_count = 0
-        # except:
-        #     train_token_count = 0
-
-        if optimizer and lr_scheduler:
+        if optimizer and lr_scheduler and not self.args.relora_steps:
             ckpt_to_save = {'model_state_dict':model_state_dict,
                             'optimizer_state_dict':optimizer.state_dict(),
                             'lr_scheduler_state_dict':lr_scheduler.state_dict()}
