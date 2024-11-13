@@ -173,9 +173,11 @@ class Attention(nn.Module):
 
             keys = cache_k[:bsz, : start_pos + seqlen]
             values = cache_v[:bsz, : start_pos + seqlen]
+            is_causal = False
         else:
             keys = xk
             values = xv
+            is_causal = mask is None
 
         # repeat k/v heads if n_kv_heads < n_heads
         keys = repeat_kv(keys, self.n_rep)  # (bs, cache_len + seqlen, n_local_heads, head_dim)
@@ -184,7 +186,6 @@ class Attention(nn.Module):
         xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
         keys = keys.transpose(1, 2) # (bs, n_local_heads, cache_len + seqlen, head_dim)
         values = values.transpose(1, 2) # (bs, n_local_heads, cache_len + seqlen, head_dim)
-        is_causal = mask is None
         output = attention_func(q=xq, 
                                 k=keys, 
                                 v=values, 
@@ -352,8 +353,7 @@ class Transformer(nn.Module):
                 start_pos: int,
                 freqs_cis: torch.Tensor, 
                 atten_type: str = '',
-                caches_kv=None,
-                is_embed=False):
+                caches_kv=None):
         """
         Perform a forward pass through the Transformer model.
 
@@ -365,10 +365,10 @@ class Transformer(nn.Module):
             torch.Tensor: Output logits after applying the Transformer model.
 
         """
-        if not is_embed:
+        if tokens.dim() == 2:
             _bsz, seqlen = tokens.shape
             h = self.tok_embeddings(tokens)
-        else:
+        elif tokens.dim() == 3:
             _bsz, seqlen, hidden_size = tokens.shape
             h = tokens
         freqs_cis = freqs_cis.to(h.device)
@@ -422,7 +422,7 @@ class LlamaGenerate(nn.Module):
         echo: bool = False,
         eos: bool = False
     ) -> Tuple[List[List[int]], Optional[List[List[float]]]]:
-        assert hasattr(self, "tokenizer"), "Can inference with out a provieded tokenizer"
+        assert hasattr(self, "tokenizer"), "Can't inference with out a provieded tokenizer"
         if isinstance(prompt_tokens, str):
             prompt_tokens = [prompt_tokens]
         prompt_tokens = [self.tokenizer.encode(x, eos=eos) for x in prompt_tokens]
@@ -566,8 +566,8 @@ class Llama(LlamaGenerate):
         try:
             self.tokenizer = BaseTokenizer(model_args.tokenizer)
             model_args.vocab_size = self.tokenizer.n_words
-        except:
-            pass
+        except Exception as e:
+            print(f'load tokenizer at generate model error: {e}')
         self.tokenizer.eos_id = 1000000
         super().__init__(model_args=model_args)
 
@@ -577,7 +577,7 @@ class Llama3(LlamaGenerate):
         try:
             self.tokenizer = Llama3Tokenizer(model_args.tokenizer)
             model_args.vocab_size = self.tokenizer.n_words
-        except:
-            pass
+        except Exception as e:
+            print(f'load tokenizer at generate model error: {e}')
         super().__init__(model_args=model_args)
 
