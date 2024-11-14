@@ -95,9 +95,9 @@ class LinearWithVeRA(LinearWithLoRA):
                 weight_a
             ), 
             weight_b
-        ).to(result.dtype)
+        )
 
-        return result + self.lora_scaler * lora_result
+        return result + self.lora_scaler * lora_result.to(result.dtype)
     
     def _compute_lora(self):
         # Called by merge lora method in LinearWithLoRA
