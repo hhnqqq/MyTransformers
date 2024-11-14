@@ -15,6 +15,7 @@ from common.lora_modules.milora import LinearWithMILoRA
 from common.lora_modules.delta_lora import LinearWithDeltaLoRA
 from common.lora_modules.adalora import LinearWithAdaLoRA
 from common.lora_modules.plora import LinearWithPLoRA
+from common.lora_modules.mora import LinearWithMoRA
 
 def get_lora_layer_class(args):
     variant_config = dict()
@@ -68,6 +69,9 @@ def get_lora_layer_class(args):
         lora_layer_class = LinearWithPLoRA
         variant_config = dict(plora_momentum=args.plora_momentum)
         variant_print = f". PLoRA will reset lora weights with momentum: {args.plora_momentum} at every step."
+    elif getattr(args, 'use_mora', False):
+        lora_layer_class = LinearWithMoRA
+        variant_config = dict(mora_type=args.mora_type)
     elif getattr(args, "relora_steps", False) or getattr(args, "relora_counts", False):
         # if args.relora_counts:
         #     args.relora_steps = args.num_global_update_steps // (args.relora_counts + 1)
