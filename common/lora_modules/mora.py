@@ -1,3 +1,4 @@
+import math
 from common.lora_modules.lora import *
 
 class LinearWithMoRA(LinearWithLoRA):
@@ -6,24 +7,29 @@ class LinearWithMoRA(LinearWithLoRA):
             raise ValueError(f'Not supported mora type: {mora_type}!')
         self.mora_type = mora_type
         super().__init__(lora_config)
+        self._get_new_rank()
 
-    def _init_lora_weights(self):
+    def _get_new_rank(self):
+        self.lora_rank = int(math.sqrt((self.in_features + self.out_features)*self.lora_rank)+0.5)
+        if self.mora_type == 'rope':
+            self.lora_rank = self.lora_rank//2*2
+
+    def init_lora_weights(self):
         dtype = self._get_lora_dtype()
         requires_grad = not self.quant
 
-        self.weight_matrix_a = nn.Parameter(torch.empty((self.lora_rank, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
-
+        self.weight_b = nn.Parameter(torch.empty((self.lora_rank, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
         if self.quant:
-            self.weight_matrix_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
+            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
 
-        self._init_weight('weight_a')
+        self._init_weight('weight_b')
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         x = self.lora_dropout(x)
-        quantized_weight_a = self._quantize_weight(self.weight_matrix_a, self.weight_a_quantizer).to(self._get_lora_dtype())
+        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer).to(self._get_lora_dtype())
 
         compressed_input = self.compress_input(x)
-        mora_result = torch.matmul(compressed_input, quantized_weight_a)
+        mora_result = torch.matmul(compressed_input, weight_b)
         mora_result = self.decompress_result(mora_result, x)
 
         return result + mora_result.to(result.dtype)
@@ -54,14 +60,17 @@ class LinearWithMoRA(LinearWithLoRA):
         return compressed_input
 
     def decompress_result(self, mora_result, x):
+        repeat_time = self.out_features // mora_result.shape[-1]
+        if self.out_features % mora_result.shape[-1] != 0:
+            repeat_time += 1
+
         if self.mora_type == 'rope':
             mora_result = mora_result.view(*x.shape[:-1], -1)[..., :self.out_features]
             if mora_result.shape[-1] < self.out_features:
-                repeat_time = -(-self.out_features // mora_result.shape[-1])  # Ceiling division
                 mora_result = torch.cat([mora_result] * repeat_time, dim=-1)[..., :self.out_features]
+                
         elif self.mora_type == 'sharing':
-            repeat_count = -(-self.out_features // self.lora_rank)  # Ceiling division
-            mora_result = torch.cat([mora_result] * repeat_count, dim=-1)[..., :self.out_features]
+            mora_result = torch.cat([mora_result] * repeat_time, dim=-1)[..., :self.out_features]
         return mora_result
 
     def _merge_lora(self):
@@ -72,7 +81,7 @@ class LinearWithMoRA(LinearWithLoRA):
     
     @property
     def has_lora_weights(self):
-        has_attr = hasattr(self, 'weight_a')
+        has_attr = hasattr(self, 'weight_b')
         if has_attr:
-            is_not_None = self.weight_a is not None
+            is_not_None = self.weight_b is not None
         return has_attr and is_not_None
