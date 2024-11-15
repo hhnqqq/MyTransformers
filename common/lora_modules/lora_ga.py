@@ -94,12 +94,15 @@ class LinearWithLoRAGA(LinearWithLoRA):
         self.weight_b.data = B.contiguous().cuda()
         
         if reset_weight:
-            weight_dtype = self.weight.dtype
-            weight = self.weight.to(torch.float32)
-            self.weight.data = (weight - self._compute_lora_weight()).to(weight_dtype)
+            self.reset_weight()
 
         if is_first:
             print_rank_0(f'--->LoRA-GA re-init example: weight_B->{self.weight_b}', global_rank)
+
+    def reset_weight(self):
+        weight_dtype = self.weight.dtype
+        weight = self.weight.to(torch.float32)
+        self.weight.data = (weight - self._compute_lora_weight()).to(weight_dtype)
 
 def get_record_gradient_hook(model):
     def record_gradient_hook(grad):

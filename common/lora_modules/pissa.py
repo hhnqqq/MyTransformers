@@ -26,7 +26,7 @@ class LinearWithPiSSA(LinearWithLoRA):
         self.fast_svd = fast_svd_n_iters > 2
         super().__init__(lora_config)
 
-    def _init_lora_weights(self):
+    def init_lora_weights(self):
         # PiSSA share same functions with vinalla lora only with a different initialize method.
         dtype = self._get_lora_dtype()
         weight_dtype = self.weight.dtype

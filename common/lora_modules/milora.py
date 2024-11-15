@@ -2,6 +2,11 @@ from torch.linalg import svd as standard_svd
 from scipy.sparse.linalg import svds as fast_svd
 from common.lora_modules.lora import *
 
+def to_torch_tensor(np_array):
+    if np_array.strides[0] < 0:
+        np_array = np_array.copy()
+    return torch.from_numpy(np_array)
+
 class LinearWithMILoRA(LinearWithLoRA):
     def __init__(
         self,
@@ -12,7 +17,7 @@ class LinearWithMILoRA(LinearWithLoRA):
         self.fast_svd = fast_svd_n_iters > 2
         super().__init__(lora_config)
 
-    def _init_lora_weights(self):
+    def init_lora_weights(self):
         # PiSSA share same functions with vinalla lora only with a different initialize method.
         dtype = self._get_lora_dtype()
         weight_dtype = self.weight.dtype
@@ -21,7 +26,8 @@ class LinearWithMILoRA(LinearWithLoRA):
         weight = self.weight.to(torch.float32)
         if self.fast_svd:
             # Run fast svd.
-            Ur, Sr, Vr = map(torch.from_numpy, (fast_svd(weight.data.numpy(), self.lora_rank, which='SM', maxiter=self.n_iters)))
+            weight_copy = weight.data.numpy().copy()
+            Ur, Sr, Vr = map(to_torch_tensor, fast_svd(weight_copy, self.lora_rank, which='SM', tol=1E-2))
             Vhr = Vr.t()
         else:
             # Full svd, which is very slow.

@@ -51,7 +51,6 @@ class LinearWithLoRA(nn.Linear):
         self.weight_b_init_method = lora_config.weight_b_init_method
         self.run_lora_in_fp32 = lora_config.run_lora_in_fp32
             
-        self._init_lora_weights()
         if lora_config.lora_dropout:
             self.lora_dropout = nn.Dropout(lora_config.lora_dropout)
         else:
@@ -85,7 +84,7 @@ class LinearWithLoRA(nn.Linear):
             dtype = torch.float32
         return dtype
     
-    def _init_lora_weights(self):
+    def init_lora_weights(self):
         # Defualt is fp32 when LinearWithLora init.
         dtype = self._get_lora_dtype()
         requires_grad = not self.quant
@@ -122,7 +121,7 @@ class LinearWithLoRA(nn.Linear):
         if new_rank is not None:
             self.merge_and_del()
             self.lora_rank = new_rank
-            self._init_lora_weights()
+            self.init_lora_weights()
         else:
             if self._merge_lora():
                 self._init_weight('weight_a')
@@ -146,7 +145,7 @@ class LinearWithLoRA(nn.Linear):
 
     def reset(self):
         if not self.has_lora_weights:
-            self._init_lora_weights()
+            self.init_lora_weights()
 
     @property
     def weight_quantizer(self) -> Optional[torch.Tensor]:

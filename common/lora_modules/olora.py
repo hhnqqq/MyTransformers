@@ -26,7 +26,7 @@ class LinearWithOLoRA(LinearWithLoRA):
     ):
         super().__init__(lora_config)
 
-    def _init_lora_weights(self):
+    def init_lora_weights(self):
         dtype = self._get_lora_dtype()
         weight_dtype = self.weight.dtype
         requires_grad = not self.quant

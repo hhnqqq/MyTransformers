@@ -25,9 +25,6 @@ class LinearWithDoRA(LinearWithLoRA):
         if lora_config.lora_dropout:
             print(f'Dora is incompatible with lora dropout, skiped lora dropout')
 
-    def _init_lora_weights(self):
-        super()._init_lora_weights()
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # The origin weight of Linear layer.
         weight = self._quantize_weight(self.weight, self.weight_quantizer)

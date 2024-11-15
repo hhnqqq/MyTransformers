@@ -118,7 +118,7 @@ def switch_to_lora(model: nn.Module,
                                             in_features=module.in_features, 
                                             out_features=module.out_features, 
                                             quant=quant)
-                        lora_layer = lora_layer_class(lora_config, **variant_config)
+                        lora_layer: LinearWithLoRA = lora_layer_class(lora_config, **variant_config)
                         # Copy the original weight to the LoRA layer.
                         if transposition:
                             lora_layer.weight = nn.Parameter(module.weight.data.T)
@@ -126,12 +126,8 @@ def switch_to_lora(model: nn.Module,
                             lora_layer.weight.data = module.weight.data
                         if quant:
                             lora_layer.weight_scaler = module.weight_scaler
-                        if isinstance(lora_layer.weight_a, nn.ParameterList):
-                            lora_layer.weight_a = lora_layer.weight_a.to(module.weight.device)
-                            lora_layer.weight_b = lora_layer.weight_b.to(module.weight.device)
-                        else:
-                            lora_layer.weight_a.data = lora_layer.weight_a.data.to(module.weight.device)
-                            lora_layer.weight_b.data = lora_layer.weight_b.data.to(module.weight.device)
+                        # Manually init lora weights after read pretrianed weight.
+                        lora_layer.init_lora_weights()
                         # Replace the original layer with the LoRA layer.
                         parent = get_parent_model(model, module)
                         setattr(parent, list(parent._modules.items())[list(parent._modules.values()).index(module)][0], lora_layer)

@@ -47,9 +47,9 @@ class LinearWithMosLoRA(LinearWithLoRA):
             lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a_forward)
             return lora_weight
         
-    def _init_lora_weights(self):
+    def init_lora_weights(self):
         # called by __init__ in LinearWithLoRA
-        super()._init_lora_weights()
+        super().init_lora_weights()
         dtype = self._get_lora_dtype()
         requires_grad = not self.quant
 

@@ -47,7 +47,7 @@ class LinearWithMELoRA(LinearWithLoRA):
         if self.out_features % self.melora_n_split != 0:
             raise ValueError(f"out_features ({self.out_features}) must be divisible by melora_n_split ({self.melora_n_split})")
 
-    def _init_lora_weights(self):
+    def init_lora_weights(self):
         dtype = torch.int8 if self.quant else None
         requires_grad = not self.quant
 

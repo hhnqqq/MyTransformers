@@ -48,9 +48,8 @@ class LinearWithAdaLoRA(LinearWithLoRA):
         lora_weight =  lora_result * self.lora_scaler / ranknum
         return lora_weight
 
-    def _init_lora_weights(self):
+    def init_lora_weights(self):
         # called by __init__ in LinearWithLoRA
-        # super()._init_lora_weights()
         dtype = self._get_lora_dtype()
         requires_grad = not self.quant
 
@@ -247,7 +246,6 @@ class RankAllocator:
         return budget, rank_pattern
 
     def mask_using_rank_pattern(self, model, rank_pattern):
-        breakpoint()
         with torch.no_grad():
             for n, p in model.named_parameters():
                 if "weight_e" in n:

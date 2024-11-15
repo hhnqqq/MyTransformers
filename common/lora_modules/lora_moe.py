@@ -30,7 +30,7 @@ class LinearWithLoRAMoE(LinearWithLoRA):
     def requires_gate(self):
         return not(self.lora_moe_n_experts<=self.moe_top_k)
     
-    def _init_lora_weights(self):
+    def init_lora_weights(self):
         dtype = torch.int8 if self.quant else None
         requires_grad = not self.quant
 
