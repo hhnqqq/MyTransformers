@@ -196,6 +196,9 @@ def peft_parser(parser):
                        help='Whether to use olora')
     group.add_argument('--use-delta-lora', action='store_true',
                        help='Whether to use delta-lora')
+    group.add_argument('--use-mora', action='store_true',
+                       help='Whether to use mora.')
+    group.add_argument('--mora-type', type=str, default='rope')
     group.add_argument('--delta-lora-start-steps', type=int, default=500,
                        help='Start to compute delta lora weights')
     group.add_argument('--delta-lora-update-ratio', type=int, default=2)
@@ -229,6 +232,7 @@ def peft_parser(parser):
                        help='How much step to merge and reset the lora weight')
     group.add_argument('--relora-counts', type=int, default=None)
     group.add_argument('--relora-reset-optimizer', action='store_true')
+    group.add_argument('--relora-fully-reset-optimizer', action='store_true')
     group.add_argument('--relora-optimizer-random-pruning', type=float, default=None)
     group.add_argument('--relora-optimizer-magnitude-pruning', type=float, default=None)
     group.add_argument('--relora-auto-warmup-steps', type=int, default=20)
