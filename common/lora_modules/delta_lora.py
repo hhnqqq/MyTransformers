@@ -40,6 +40,8 @@ class LinearWithDeltaLoRA(LinearWithLoRA):
         self.previous_lora_weights['B'] = self.weight_b.clone().detach()
 
     def _compute_delta_lora_weight(self):
-        A = self.weight_a.to(self._get_lora_dtype()) - self.previous_lora_weights['A'].to(self._get_lora_dtype())
-        B = self.weight_b.to(self._get_lora_dtype()) - self.previous_lora_weights['B'].to(self._get_lora_dtype())
-        return (self.lora_scaler * torch.matmul(B, A)).to(self.weight.dtype)
+        previous_A = self.previous_lora_weights['A'].to(self._get_lora_dtype())
+        previous_B = self.previous_lora_weights['B'].to(self._get_lora_dtype())
+        previous_AB = self.lora_scaler * torch.matmul(previous_B, previous_A)
+        AB = self._compute_lora_weight()
+        return AB - previous_AB
