@@ -47,7 +47,7 @@ def backward_step_deepspeed_relora(model: DeepSpeedEngine, optimizer, loss, lr_s
         model.backward(loss)
         model.step()
 
-    if (step / args.gradient_accumulation_steps) % args.relora_steps == 0:
+    if model.global_steps % args.relora_steps == 0:
         for module in model.modules():
             if isinstance(module, LinearWithLoRA):
                 module.merge_and_reset()
@@ -58,7 +58,7 @@ def backward_step_deepspeed_relora(model: DeepSpeedEngine, optimizer, loss, lr_s
                 relora_auto_warmup_steps = args.relora_auto_warmup_steps,
                 relora_auto_warmup_ratio = args.relora_auto_warmup_ratio,
                 reset_params=[p for n, p in model.named_parameters() if p.requires_grad and find_lora_names(n)],
-                reset_optimizer_on_relora=args.relora_reset_optimizer,
+                reset_optimizer_on_relora=args.relora_fully_reset_optimizer,
                 optimizer_random_pruning=args.relora_optimizer_random_pruning,
                 optimizer_magnitude_pruning=args.relora_optimizer_magnitude_pruning,
                 args=args
@@ -70,7 +70,7 @@ def backward_step_deepspeed_plora(model: DeepSpeedEngine, optimizer, loss, lr_sc
         model.backward(loss)
         model.step()
 
-    if step % args.gradient_accumulation_steps == 0:
+    if model.is_gradient_accumulation_boundary():
         for module in model.modules():
             if isinstance(module, LinearWithPLoRA):
                 module.merge_and_reset_with_momentum()
@@ -81,7 +81,7 @@ def backward_step_deepspeed_deltalora(model: DeepSpeedEngine, optimizer, loss, l
         model.backward(loss)
         model.step()
 
-    if args.delta_lora_start_steps and (step / args.gradient_accumulation_steps) > args.delta_lora_start_steps:
+    if args.delta_lora_start_steps and model.global_steps > args.delta_lora_start_steps:
         for module in model.modules():
             if isinstance(module, LinearWithDeltaLoRA):
                 module.update_pretrained_weight()
