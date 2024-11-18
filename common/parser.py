@@ -67,6 +67,8 @@ def train_parser(parser):
                        help='List of disabled parameters')
     group.add_argument('--activation-checkpoint', action='store_true',
                        help='Train the model with activation checkpoint')
+    group.add_argument('--param-to-save', nargs='+', type=str, default=None,
+                       help='Params need to be saved even if they do not need gradients.')
     
     # -------------------------- others ----------------------------
     group.add_argument('--seed', type=int, default=None,
@@ -205,6 +207,7 @@ def peft_parser(parser):
     group.add_argument('--pissa-n-iters', type=int, default=1, 
                        help='The number of iterations determines the trade-off \
                         between the error and computation time')
+    group.add_argument('--pissa-keep-init-weights', action='store_true')
     group.add_argument('--milora-n-iters', type=int, default=1, 
                        help='The number of iterations determines the trade-off \
                         between the error and computation time')
