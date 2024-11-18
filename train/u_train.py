@@ -112,7 +112,8 @@ if __name__ == '__main__':
     else:
         if args.use_adalora:
             forward_step = forward_step_deepspeed_adalora
-            eval_step = eval_step_deepspeed_adalora
+            # eval_step = eval_step_deepspeed_adalora
+            eval_step = eval_step_deepspeed
         else:
             forward_step = forward_step_deepspeed
             eval_step = eval_step_deepspeed
