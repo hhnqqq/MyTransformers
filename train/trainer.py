@@ -8,7 +8,7 @@ from typing import Callable
 from argparse import Namespace
 from torch.utils.data import DataLoader
 
-from dataset_classes import RepeatingLoader, BaseDataset
+from dataset_classes import RepeatingLoader
 from common.utils import parallel_states as parallel_states
 from common.utils import Timer, print_rank_0, ensure_directory_exists
 
@@ -233,11 +233,11 @@ class Trainer:
                    dataloader: RepeatingLoader, 
                    save_path: str):
         if self.args.save_trainable:
-            trainable_params = {}
+            save_params = {}
             for name, param in model.module.named_parameters():
-                if param.requires_grad:
-                    trainable_params[name] = param.data
-            model_state_dict = trainable_params
+                if self.requires_save(name, param):
+                    save_params[name] = param.data
+            model_state_dict = save_params
         else:
             model_state_dict = model.module.state_dict()
 
@@ -248,6 +248,15 @@ class Trainer:
         else:
             ckpt_to_save = model_state_dict
         torch.save(ckpt_to_save, save_path)
+
+    def requires_save(self, param_name, param):
+        if param.requires_grad:
+            return True
+        if self.args.params_to_save:
+            for save_name in self.args.params_to_save:
+                if save_name in param_name:
+                    return True
+        return False
     
 if __name__ == '__main__':
     """A quick test for trainer"""
