@@ -24,7 +24,8 @@ from copy import deepcopy
 class AnnealingLR(_LRScheduler):
     """Anneals the learning rate from start to zero along a cosine curve."""
 
-    DECAY_STYLES = ['linear', 'cosine', 'exponential', 'constant', 'None']
+    # 增加一个新的 "cosine_restarts" lr decay
+    DECAY_STYLES = ['linear', 'cosine', 'exponential', 'cosine_restarts', 'constant', 'None']
 
     def __init__(self, 
                  optimizer, 
@@ -35,7 +36,18 @@ class AnnealingLR(_LRScheduler):
                  last_iter=-1, 
                  decay_ratio=0.5, 
                  auto_warmup_steps=50, 
-                 auto_warmup_rate=0.05):
+                 auto_warmup_rate=0.05,
+
+                 # 为了在尽量少改动源代码结果的情况下加入“cosine_restarts”方法，需要对原参数做以下假设。
+                 # warmup_iter为第一次warmup的步数（此时是正常的full rank fine-tuning或者Lora训练过程，并没有开始restart过程）。
+                 # num_iters为总训练步数。
+                 # last_iter当前的训练步数，即调用这个函数时模型已经完成的训练步数。
+                 # 所有的iter是global iter。
+                 # 原作者的学习率在wamup期间从 min_lr_ratio 增加到1，在cosine decay期间逐渐从1，在num_iters时减小回min_lr_ratio，
+                 # 这里设置的是最大学习率 last_iter，如果后期训练结果不理想，需考虑对这里进行修改。暂时只为实现锯齿状学习率方法。
+                 restart_warmup_steps=None,
+                 restart_every=None,
+                 ):
         """
         Initializes the AnnealingLR scheduler.
 
@@ -65,9 +77,22 @@ class AnnealingLR(_LRScheduler):
         self.decay_ratio = 1 / decay_ratio
         self.auto_warmup_steps = auto_warmup_steps
         self.auto_warmup_rate = auto_warmup_rate
+
+        ###################################### 改动 ######################################
+        if warmup_iter < 0 or num_iters <= warmup_iter:
+            raise ValueError(f"warmup_iter ({warmup_iter}) must be in range [0, num_iters ({num_iters})]")
+        if self.decay_style == self.DECAY_STYLES[3]:
+            if restart_every is None:
+                raise ValueError("restart_every must be specified for cosine_restarts scheduler")
+            if restart_warmup_steps is None:
+                raise ValueError("restart_warmup_steps must be specified for cosine_restarts scheduler")
+        self.restart_warmup_steps = restart_warmup_steps
+        self.restart_every = restart_every
+
         self.step(self.num_iters)
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             print_rank_0(f'--->learning rate decaying style {self.decay_style}, ratio {self.decay_ratio}')
+        ###################################### 改动 ######################################
 
     def get_lr(self):
         # auto_warmup_steps并不取决于warmup的设置，而是固定的进行warmup
@@ -89,6 +114,17 @@ class AnnealingLR(_LRScheduler):
                         (math.cos(math.pi * decay_step_ratio) + 1) * (self.decay_ratio - 1) / 2 + 1)
             elif self.decay_style == self.DECAY_STYLES[2]:
                 return self.start_lr
+            ###################################### 改动 ######################################
+            elif self.decay_style == self.DECAY_STYLES[3]:
+                return self._get_cosine_schedule_with_multiple_warmups(
+                    current_step=self.num_iters,
+                    num_training_steps=self.end_iter,
+                    first_warmup_steps=self.warmup_iter,
+                    restart_warmup_steps=self.restart_warmup_steps,
+                    restart_every=self.restart_every,
+                    start_lr=self.start_lr,
+                )
+            ###################################### 改动 ######################################
             else:
                 return self.start_lr
 
@@ -110,6 +146,46 @@ class AnnealingLR(_LRScheduler):
                 'decay_ratio': self.decay_ratio
         }
         return sd
+
+    ###################################### 改动 ######################################
+    def _get_cosine_schedule_with_multiple_warmups(
+            self,
+            current_step,
+            num_training_steps,
+            first_warmup_steps,
+            restart_warmup_steps,
+            restart_every,
+            start_lr,
+    ):
+
+        # 这个是我自己加的判断条件，不确定是否合理。
+        assert first_warmup_steps < restart_every, "restart_every should be grater than first_warmup_steps"
+        if num_training_steps % restart_every != 0:
+            raise ValueError(
+                f"num_training_steps ({num_training_steps}) must be divisible by restart_every ({restart_every})")
+
+        # 第一次warmup（非restart warmup）。循环从0开始。
+        if current_step < first_warmup_steps:
+            return start_lr * float(current_step) / float(max(1, first_warmup_steps))
+
+        # 计算restart次数以及当前restart的step。
+        restart_step = current_step % restart_every
+        restart_number = current_step // restart_every
+
+        # 处在restart warmup过程，线性增加学习率到 start_lr。
+        if restart_step < restart_warmup_steps and current_step >= restart_every:
+            # get expected lr multipler at the end of the warmup
+            warmup_lr_multiplier = start_lr * 0.5 * (1 + math.cos(math.pi * (
+                    float(restart_number * restart_every + restart_warmup_steps - first_warmup_steps) /
+                    float(max(1, num_training_steps - first_warmup_steps))
+            )))
+
+            return float(restart_step) / float(max(1, restart_warmup_steps)) * warmup_lr_multiplier
+
+        progress = float(current_step - first_warmup_steps) / float(max(1, num_training_steps - first_warmup_steps))
+
+        return start_lr * 0.5 * (1 + math.cos(math.pi * progress))
+        ###################################### 改动 ######################################
     
 
 if __name__ == '__main__':
@@ -123,9 +199,10 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(), lr=0.1)
 
     # Create an instance of AnnealingLR scheduler
-    decay_style = 'cosine'
-    lr_scheduler = AnnealingLR(optimizer=optimizer, start_lr=0.1, warmup_iter=1000, num_iters=5000,
-                            decay_style=decay_style)
+    # 实验验证
+    decay_style = 'cosine_restarts'
+    lr_scheduler = AnnealingLR(optimizer=optimizer, start_lr=0.1, warmup_iter=500, num_iters=5000,
+                            decay_style=decay_style, restart_every=1000, restart_warmup_steps=100)
 
     # Train the model with lr_scheduler
     iters = []
@@ -143,7 +220,8 @@ if __name__ == '__main__':
             lrs.append(optimizer.param_groups[0]['lr'])
             if i % 100 == 0:
                 print(f"Iteration: {i}, LR: {optimizer.param_groups[0]['lr']}")
-
+                
+    plt.plot(iters, lrs)
     plt.xlabel('Iterations')
     plt.ylabel('Learning Rate')
     plt.title('Learning Rate Decay')
