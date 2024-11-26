@@ -17,7 +17,7 @@ import torch
 from torch.optim.lr_scheduler import _LRScheduler
 import math
 
-# from common.utils import print_rank_0
+from common.utils import print_rank_0
 from copy import deepcopy
 
 
@@ -78,7 +78,7 @@ class AnnealingLR(_LRScheduler):
         self.auto_warmup_steps = auto_warmup_steps
         self.auto_warmup_rate = auto_warmup_rate
 
-        # 改动
+        ###################################### 改动 ######################################
         if warmup_iter < 0 or num_iters <= warmup_iter:
             raise ValueError(f"warmup_iter ({warmup_iter}) must be in range [0, num_iters ({num_iters})]")
         if self.decay_style == self.DECAY_STYLES[3]:
@@ -90,8 +90,9 @@ class AnnealingLR(_LRScheduler):
         self.restart_every = restart_every
 
         self.step(self.num_iters)
-        # if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-        #     print_rank_0(f'--->learning rate decaying style {self.decay_style}, ratio {self.decay_ratio}')
+        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+            print_rank_0(f'--->learning rate decaying style {self.decay_style}, ratio {self.decay_ratio}')
+        ###################################### 改动 ######################################
 
     def get_lr(self):
         # auto_warmup_steps并不取决于warmup的设置，而是固定的进行warmup
@@ -113,7 +114,7 @@ class AnnealingLR(_LRScheduler):
                         (math.cos(math.pi * decay_step_ratio) + 1) * (self.decay_ratio - 1) / 2 + 1)
             elif self.decay_style == self.DECAY_STYLES[2]:
                 return self.start_lr
-            # 改动
+            ###################################### 改动 ######################################
             elif self.decay_style == self.DECAY_STYLES[3]:
                 return self._get_cosine_schedule_with_multiple_warmups(
                     current_step=self.num_iters,
@@ -123,6 +124,7 @@ class AnnealingLR(_LRScheduler):
                     restart_every=self.restart_every,
                     start_lr=self.start_lr,
                 )
+            ###################################### 改动 ######################################
             else:
                 return self.start_lr
 
@@ -145,7 +147,7 @@ class AnnealingLR(_LRScheduler):
         }
         return sd
 
-    # 改动
+    ###################################### 改动 ######################################
     def _get_cosine_schedule_with_multiple_warmups(
             self,
             current_step,
@@ -183,6 +185,7 @@ class AnnealingLR(_LRScheduler):
         progress = float(current_step - first_warmup_steps) / float(max(1, num_training_steps - first_warmup_steps))
 
         return start_lr * 0.5 * (1 + math.cos(math.pi * progress))
+        ###################################### 改动 ######################################
     
 
 if __name__ == '__main__':
@@ -196,6 +199,7 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(), lr=0.1)
 
     # Create an instance of AnnealingLR scheduler
+    # 实验验证
     decay_style = 'cosine_restarts'
     lr_scheduler = AnnealingLR(optimizer=optimizer, start_lr=0.1, warmup_iter=500, num_iters=5000,
                             decay_style=decay_style, restart_every=1000, restart_warmup_steps=100)
@@ -206,11 +210,11 @@ if __name__ == '__main__':
     for epoch in range(10):
         print(f"Epoch: {epoch}")
         for i in range(500):
-            # optimizer.zero_grad()
-            # output = model(torch.randn(4, 3, 224, 224).to(device))
-            # loss = output.sum()
-            # loss.backward()
-            # optimizer.step()
+            optimizer.zero_grad()
+            output = model(torch.randn(4, 3, 224, 224).to(device))
+            loss = output.sum()
+            loss.backward()
+            optimizer.step()
             lr_scheduler.step()
             iters.append(epoch*500 + i)
             lrs.append(optimizer.param_groups[0]['lr'])
