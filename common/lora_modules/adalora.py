@@ -6,7 +6,7 @@ from common.lora_modules.lora import *
 
 
 class LinearWithAdaLoRA(LinearWithLoRA):
-    def __init__(self, lora_config: LoRAConfig, **ada_config):
+    def __init__(self, lora_config: LoRAConfig, init_r):
         """
         Initialize the LinearWithAdaLoRA layer.
 
@@ -15,8 +15,9 @@ class LinearWithAdaLoRA(LinearWithLoRA):
         Note:
         
         """
-        self.ada_config = ada_config
         super().__init__(lora_config)
+        self.lora_scaler = lora_config.lora_scaler
+        self.lora_rank = init_r
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer).to(
@@ -115,7 +116,7 @@ class RankAllocator:
     def budget_schedule(self, step: int):
         tinit = self.peft_config.tinit
         tfinal = self.peft_config.tfinal
-        total_step = self.peft_config.num_micro_update_steps
+        total_step = self.peft_config.num_global_update_steps
         # Initial warmup
         if step <= tinit:
             budget = self.init_bgt
@@ -134,7 +135,12 @@ class RankAllocator:
         return budget, mask_ind
 
     def update_ipt(self, model, saved_gradients):
-        # Update the sensitivity and uncertainty for every weight
+        """
+        Compute the sensitivity I(t) in (8) for every parameter in {P,E,Q};
+        Update I (t) as (9) and U(t) as (10) for every parameter in {P,E,Q};
+        Compute S(t)
+        k,i by (7), for k = 1,...,n and i = 1,...,r ;
+        """
         for n, p in model.named_parameters():
             if "weight_" in n:
                 if n not in self.ipt:
@@ -202,15 +208,9 @@ class RankAllocator:
             triplet_ipt[name_E] = sum_ipt.view(-1, 1)
             all_score.append(sum_ipt.view(-1))
 
-        # Get the threshold by ranking ipt
-        k_value = self.init_bgt - budget
-        # k must be at least 1
-        if k_value < 1:
-            k_value = 1
-
         mask_threshold = torch.kthvalue(
             torch.cat(all_score),
-            k=k_value,
+            k=self.init_bgt - budget,
         )[0].item()
 
         # print(f"torch.cat(all_score): f{torch.cat(all_score)}")
@@ -234,7 +234,7 @@ class RankAllocator:
         # # Update the importance score and allocate the budget
         if (
             global_step
-            < self.peft_config.num_micro_update_steps - self.peft_config.tfinal
+            < self.peft_config.num_global_update_steps - self.peft_config.tfinal
         ):
             self.update_ipt(model, saved_gradients)
         budget, mask_ind = self.budget_schedule(global_step)
@@ -276,12 +276,12 @@ def update_and_allocate(model, global_step, saved_gradients):
     """
     lora_config = model.rankallocator.peft_config
     # Update the importance score and allocate the budget
-    if global_step < lora_config.num_micro_update_steps - lora_config.tfinal:
+    if global_step < lora_config.num_global_update_steps - lora_config.tfinal:
         _, rank_pattern = model.rankallocator.update_and_allocate(model, global_step, saved_gradients)
         if rank_pattern:
             lora_config.rank_pattern = rank_pattern
     # Finalize the budget allocation
-    elif global_step == lora_config.num_micro_update_steps - lora_config.tfinal:
+    elif global_step == lora_config.num_global_update_steps - lora_config.tfinal:
         _, rank_pattern = model.rankallocator.update_and_allocate(model, global_step, saved_gradients, force_mask=True)
         # for some reason, this freezes the trainable parameters and nothing gets updates
         # self.resize_modules_by_rank_pattern(rank_pattern, self.trainable_adapter_name)
@@ -289,7 +289,7 @@ def update_and_allocate(model, global_step, saved_gradients):
         model.rankallocator.reset_ipt()
     # Currently using inefficient way to mask the unimportant weights using the rank pattern
     #  due to problem mentioned above
-    elif global_step > lora_config.num_micro_update_steps - lora_config.tfinal:
+    elif global_step > lora_config.num_global_update_steps - lora_config.tfinal:
         model.rankallocator.mask_using_rank_pattern(model, lora_config.rank_pattern)
     # Pass the function and do forward propagation
     else:
