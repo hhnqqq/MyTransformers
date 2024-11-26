@@ -17,7 +17,7 @@ import torch
 from torch.optim.lr_scheduler import _LRScheduler
 import math
 
-from common.utils import print_rank_0
+# from common.utils import print_rank_0
 from copy import deepcopy
 
 
@@ -45,7 +45,6 @@ class AnnealingLR(_LRScheduler):
                  # 所有的iter是global iter。
                  # 原作者的学习率在wamup期间从 min_lr_ratio 增加到1，在cosine decay期间逐渐从1，在num_iters时减小回min_lr_ratio，
                  # 这里设置的是最大学习率 last_iter，如果后期训练结果不理想，需考虑对这里进行修改。暂时只为实现锯齿状学习率方法。
-                 # restart_warmup_steps：每次restart后执行线性warmup的step数；restart_every：每隔多少step执行一次restart。
                  restart_warmup_steps=None,
                  restart_every=None,
                  ):
@@ -79,7 +78,7 @@ class AnnealingLR(_LRScheduler):
         self.auto_warmup_steps = auto_warmup_steps
         self.auto_warmup_rate = auto_warmup_rate
 
-        ######################################改动######################################
+        # 改动
         if warmup_iter < 0 or num_iters <= warmup_iter:
             raise ValueError(f"warmup_iter ({warmup_iter}) must be in range [0, num_iters ({num_iters})]")
         if self.decay_style == self.DECAY_STYLES[3]:
@@ -89,11 +88,10 @@ class AnnealingLR(_LRScheduler):
                 raise ValueError("restart_warmup_steps must be specified for cosine_restarts scheduler")
         self.restart_warmup_steps = restart_warmup_steps
         self.restart_every = restart_every
-        ######################################改动######################################
 
         self.step(self.num_iters)
-        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-            print_rank_0(f'--->learning rate decaying style {self.decay_style}, ratio {self.decay_ratio}')
+        # if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        #     print_rank_0(f'--->learning rate decaying style {self.decay_style}, ratio {self.decay_ratio}')
 
     def get_lr(self):
         # auto_warmup_steps并不取决于warmup的设置，而是固定的进行warmup
@@ -115,7 +113,7 @@ class AnnealingLR(_LRScheduler):
                         (math.cos(math.pi * decay_step_ratio) + 1) * (self.decay_ratio - 1) / 2 + 1)
             elif self.decay_style == self.DECAY_STYLES[2]:
                 return self.start_lr
-            ######################################改动######################################
+            # 改动
             elif self.decay_style == self.DECAY_STYLES[3]:
                 return self._get_cosine_schedule_with_multiple_warmups(
                     current_step=self.num_iters,
@@ -125,7 +123,6 @@ class AnnealingLR(_LRScheduler):
                     restart_every=self.restart_every,
                     start_lr=self.start_lr,
                 )
-            ######################################改动######################################
             else:
                 return self.start_lr
 
@@ -148,8 +145,9 @@ class AnnealingLR(_LRScheduler):
         }
         return sd
 
-    ######################################改动######################################
+    # 改动
     def _get_cosine_schedule_with_multiple_warmups(
+            self,
             current_step,
             num_training_steps,
             first_warmup_steps,
@@ -164,7 +162,7 @@ class AnnealingLR(_LRScheduler):
             raise ValueError(
                 f"num_training_steps ({num_training_steps}) must be divisible by restart_every ({restart_every})")
 
-        # 第一次warmup（非restart warmup）。
+        # 第一次warmup（非restart warmup）。循环从0开始。
         if current_step < first_warmup_steps:
             return start_lr * float(current_step) / float(max(1, first_warmup_steps))
 
@@ -172,19 +170,19 @@ class AnnealingLR(_LRScheduler):
         restart_step = current_step % restart_every
         restart_number = current_step // restart_every
 
-        # 处在restart warmup过程，线性增加学习率到 warmup_lr_multiplier。
+        # 处在restart warmup过程，线性增加学习率到 start_lr。
         if restart_step < restart_warmup_steps and current_step >= restart_every:
             # get expected lr multipler at the end of the warmup
-            warmup_lr_multiplier = start_lr * (
+            warmup_lr_multiplier = start_lr * 0.5 * (1 + math.cos(math.pi * (
                     float(restart_number * restart_every + restart_warmup_steps - first_warmup_steps) /
                     float(max(1, num_training_steps - first_warmup_steps))
-            )
+            )))
+
             return float(restart_step) / float(max(1, restart_warmup_steps)) * warmup_lr_multiplier
-            
-        # 非warmup过程，学习率采用 cosine decay
+
         progress = float(current_step - first_warmup_steps) / float(max(1, num_training_steps - first_warmup_steps))
-        return start_lr * math.cos(math.pi * progress)
-        ######################################改动######################################
+
+        return start_lr * 0.5 * (1 + math.cos(math.pi * progress))
     
 
 if __name__ == '__main__':
@@ -198,9 +196,9 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(), lr=0.1)
 
     # Create an instance of AnnealingLR scheduler
-    decay_style = 'cosine'
-    lr_scheduler = AnnealingLR(optimizer=optimizer, start_lr=0.1, warmup_iter=1000, num_iters=5000,
-                            decay_style=decay_style)
+    decay_style = 'cosine_restarts'
+    lr_scheduler = AnnealingLR(optimizer=optimizer, start_lr=0.1, warmup_iter=500, num_iters=5000,
+                            decay_style=decay_style, restart_every=1000, restart_warmup_steps=100)
 
     # Train the model with lr_scheduler
     iters = []
@@ -208,17 +206,18 @@ if __name__ == '__main__':
     for epoch in range(10):
         print(f"Epoch: {epoch}")
         for i in range(500):
-            optimizer.zero_grad()
-            output = model(torch.randn(4, 3, 224, 224).to(device))
-            loss = output.sum()
-            loss.backward()
-            optimizer.step()
+            # optimizer.zero_grad()
+            # output = model(torch.randn(4, 3, 224, 224).to(device))
+            # loss = output.sum()
+            # loss.backward()
+            # optimizer.step()
             lr_scheduler.step()
             iters.append(epoch*500 + i)
             lrs.append(optimizer.param_groups[0]['lr'])
             if i % 100 == 0:
                 print(f"Iteration: {i}, LR: {optimizer.param_groups[0]['lr']}")
-
+                
+    plt.plot(iters, lrs)
     plt.xlabel('Iterations')
     plt.ylabel('Learning Rate')
     plt.title('Learning Rate Decay')
