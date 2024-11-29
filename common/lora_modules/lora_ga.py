@@ -201,17 +201,5 @@ def lora_ga_reinit(
                                        reset_weight=args.lora_ga_reset_weight)
                 is_first = False
 
-        if args.lora_ga_reset_weight and args.global_rank==0:
-            save_path = os.path.join(args.output_path, args.experiment_name, 'lora_ga_init.ckpt')
-            if args.save_trainable:
-                trainable_params = {}
-                for name, param in model.named_parameters():
-                    if param.requires_grad:
-                        trainable_params[name] = param.data
-                model_state_dict = trainable_params
-            else:
-                model_state_dict = model.state_dict()
-
-            torch.save(model_state_dict, save_path)
 
     print_rank_0(f'--->Total time consumed for LoRA-GA initialization: {timer.time_cost}', args.global_rank)
