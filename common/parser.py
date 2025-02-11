@@ -191,9 +191,9 @@ def peft_parser(parser):
                        help='Whether to use LoRA FA')
     group.add_argument('--use-rslora', action='store_true',
                        help='Whether to use rslora')
-    group.add_argument('--use-tdlora', action='store_true',
-                       help='Whether to use tdlora')
-    group.add_argument('--tdlora-init-method', type=str, default='weight_svd')
+    group.add_argument('--use-gora', action='store_true',
+                       help='Whether to use gora')
+    group.add_argument('--gora-init-method', type=str, default='weight_svd')
     group.add_argument('--use-pissa', action='store_true',
                        help='Whether to use pissa')
     group.add_argument('--use-milora', action='store_true',
@@ -232,21 +232,21 @@ def peft_parser(parser):
                        help='Wheather to use lora ga')
     group.add_argument('--lora-ga-n-steps', type=int, default=8,
                        help='N steps for lora-ga to estimate full-rank gradient.')
-    group.add_argument('--tdlora-n-steps', type=int, default=8,
+    group.add_argument('--gora-n-steps', type=int, default=8,
                        help='N steps for lora-ga to estimate full-rank gradient.')
-    group.add_argument('--tdlora-max-rank', type=int, default=9999)
-    group.add_argument('--tdlora-min-rank', type=int, default=1)
-    group.add_argument('--tdlora-softmax-importance', action='store_true')
-    group.add_argument('--tdlora-scale-by-lr', action='store_true')
-    group.add_argument('--tdlora-lr', type=float, default=1e-3)
-    group.add_argument('--tdlora-features-func', type=str, default=None)
-    group.add_argument('--tdlora-temperature', type=int, default=0.5)
-    group.add_argument('--tdlora-rank-stablize', action='store_true')
-    group.add_argument('--tdlora-dynamic-scaling', action='store_true')
-    group.add_argument('--tdlora-allocate-stretagy', type=str, default='moderate')
-    group.add_argument('--tdlora-scale-importance', action='store_true')
-    group.add_argument('--tdlora-importance-type', type=str, default='union_frobenius_norm')
-    group.add_argument('--tdlora-stable-gemma', type=float, default=0.02)
+    group.add_argument('--gora-max-rank', type=int, default=9999)
+    group.add_argument('--gora-min-rank', type=int, default=1)
+    group.add_argument('--gora-softmax-importance', action='store_true')
+    group.add_argument('--gora-scale-by-lr', action='store_true')
+    group.add_argument('--gora-lr', type=float, default=1e-3)
+    group.add_argument('--gora-features-func', type=str, default=None)
+    group.add_argument('--gora-temperature', type=int, default=0.5)
+    group.add_argument('--gora-rank-stablize', action='store_true')
+    group.add_argument('--gora-dynamic-scaling', action='store_true')
+    group.add_argument('--gora-allocate-stretagy', type=str, default='moderate')
+    group.add_argument('--gora-scale-importance', action='store_true')
+    group.add_argument('--gora-importance-type', type=str, default='union_frobenius_norm')
+    group.add_argument('--gora-stable-gemma', type=float, default=0.02)
     group.add_argument('--lora-ga-scale-method', type=str, default='gd')
     group.add_argument('--lora-ga-reset-weight', action='store_true',
                        help='Whether to reset pretrained weight when using LoRA-GA, this will improve numerical stability.')

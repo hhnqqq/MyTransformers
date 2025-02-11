@@ -34,5 +34,5 @@ from common.lora_modules.lorapro_optim import *
 from common.lora_modules.lora_moe import *
 from common.lora_modules.plora import * 
 from common.lora_modules.adalora import *
-from common.lora_modules.tdlora import *
+from common.lora_modules.gora import *
 from common.lora_modules.increlora import *

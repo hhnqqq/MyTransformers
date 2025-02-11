@@ -16,7 +16,7 @@ from common.lora_modules.delta_lora import LinearWithDeltaLoRA
 from common.lora_modules.adalora import LinearWithAdaLoRA
 from common.lora_modules.plora import LinearWithPLoRA
 from common.lora_modules.mora import LinearWithMoRA
-from common.lora_modules.tdlora import LinearWithTDLoRA
+from common.lora_modules.gora import LinearWithGoRA
 from common.lora_modules.increlora import LinearWithIncreLoRA
 
 def get_lora_layer_class(args):
@@ -67,11 +67,11 @@ def get_lora_layer_class(args):
     elif getattr(args, 'use_mora', False):
         lora_layer_class = LinearWithMoRA
         variant_config = dict(mora_type=args.mora_type)
-    elif getattr(args, 'use_tdlora', False):
-        lora_layer_class = LinearWithTDLoRA
-        variant_config = dict(tdlora_init_method=args.tdlora_init_method,
-                              tdlora_rank_stablize=args.tdlora_rank_stablize,
-                              tdlora_dynamic_scaling=args.tdlora_dynamic_scaling)
+    elif getattr(args, 'use_gora', False):
+        lora_layer_class = LinearWithGoRA
+        variant_config = dict(gora_init_method=args.gora_init_method,
+                              gora_rank_stablize=args.gora_rank_stablize,
+                              gora_dynamic_scaling=args.gora_dynamic_scaling)
     elif getattr(args, "relora_steps", False) or getattr(args, "relora_counts", False):
         # if args.relora_counts:
         #     args.relora_steps = args.num_global_update_steps // (args.relora_counts + 1)

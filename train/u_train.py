@@ -56,11 +56,11 @@ if args.use_lora_ga:
                    dataloader=train_dataloader,
                    args=args,
                    iters=args.lora_ga_n_steps)
-if args.use_tdlora:
-    tdlora_reinit(model=model,
+if args.use_gora:
+    gora_reinit(model=model,
                   dataloader=train_dataloader,
                   args=args,
-                  iters=args.tdlora_n_steps)
+                  iters=args.gora_n_steps)
 if args.use_adalora:
     rank_allocator = RankAllocator(model, args)
     model.rankallocator = rank_allocator
