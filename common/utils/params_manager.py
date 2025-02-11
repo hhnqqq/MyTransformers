@@ -11,11 +11,15 @@ def format_param_count(num_params):
 
 def print_trainable_module_names(model, global_rank=0):
     print_rank_0('--->trainable modules are listed below:', global_rank)
+    total_params = 0
     for name, p in model.named_parameters():
         if p.requires_grad:
             num_trainable_params = p.numel()
+            total_params += num_trainable_params
             formatted_params = format_param_count(num_trainable_params)
-            print_rank_0(f'--->module: {name}, trainable parameters: {formatted_params}', global_rank)
+            print_rank_0(f'--->Module: {name}, trainable parameters: {formatted_params}', global_rank)
+    formatted_total_params = format_param_count(total_params)
+    print_rank_0(f'--->Model trainable parameters: {formatted_total_params}', global_rank)
 
 def disable_untrainable_params(model,unable_list):
     for n, p in model.named_parameters():
