@@ -91,6 +91,7 @@ class RankAllocator:
         self.peft_config = peft_config
         self.beta1 = peft_config.beta1
         self.beta2 = peft_config.beta2
+        self.rank_pattern = {}
         assert self.beta1 > 0 and self.beta1 < 1
         assert self.beta2 > 0 and self.beta2 < 1
 
@@ -279,18 +280,18 @@ def update_and_allocate(model, global_step, saved_gradients):
     if global_step < lora_config.num_global_update_steps - lora_config.tfinal:
         _, rank_pattern = model.rankallocator.update_and_allocate(model, global_step, saved_gradients)
         if rank_pattern:
-            lora_config.rank_pattern = rank_pattern
+            model.rankallocator.rank_pattern = rank_pattern
     # Finalize the budget allocation
     elif global_step == lora_config.num_global_update_steps - lora_config.tfinal:
         _, rank_pattern = model.rankallocator.update_and_allocate(model, global_step, saved_gradients, force_mask=True)
         # for some reason, this freezes the trainable parameters and nothing gets updates
         # self.resize_modules_by_rank_pattern(rank_pattern, self.trainable_adapter_name)
-        lora_config.rank_pattern = rank_pattern
+        model.rankallocator.rank_pattern = rank_pattern
         model.rankallocator.reset_ipt()
     # Currently using inefficient way to mask the unimportant weights using the rank pattern
     #  due to problem mentioned above
-    elif global_step > lora_config.num_global_update_steps - lora_config.tfinal:
-        model.rankallocator.mask_using_rank_pattern(model, lora_config.rank_pattern)
+    elif global_step > lora_config.num_global_update_steps - lora_config.tfinal and model.rankallocator.rank_pattern:
+        model.rankallocator.mask_using_rank_pattern(model, model.rankallocator.rank_pattern)
     # Pass the function and do forward propagation
     else:
         return None
