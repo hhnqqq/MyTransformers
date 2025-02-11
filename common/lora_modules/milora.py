@@ -1,5 +1,5 @@
 from torch.linalg import svd as standard_svd
-from scipy.sparse.linalg import svds as fast_svd
+from torch import svd_lowrank as fast_svd
 from common.lora_modules.lora import *
 
 def to_torch_tensor(np_array):
@@ -26,12 +26,11 @@ class LinearWithMILoRA(LinearWithLoRA):
         weight = self.weight.to(torch.float32)
         if self.fast_svd:
             # Run fast svd.
-            weight_copy = weight.data.numpy().copy()
-            Ur, Sr, Vr = map(to_torch_tensor, fast_svd(weight_copy, self.lora_rank, which='SM', tol=1E-2))
+            Vr, Sr, Ur = fast_svd(weight.data, self.lora_rank, niter=self.n_iters)
             Vhr = Vr.t()
         else:
             # Full svd, which is very slow.
-            U, S, Vh = standard_svd(self.weight.data, full_matrices=False)
+            U, S, Vh = standard_svd(weight.data, full_matrices=False)
             Ur, Sr, Vhr = U[:, -self.lora_rank:], S[-self.lora_rank:], Vh[-self.lora_rank:]
 
         Sr.div_(self.lora_scaler) 

@@ -21,9 +21,11 @@ class LinearWithPiSSA(LinearWithLoRA):
         self,
         lora_config: LoRAConfig,
         fast_svd_n_iters: Optional[int] = 1,
+        keep_init_weights: bool = False
     ):
         self.n_iters = fast_svd_n_iters
         self.fast_svd = fast_svd_n_iters > 2
+        self.keep_init_weights = keep_init_weights
         super().__init__(lora_config)
 
     def init_lora_weights(self):
@@ -39,7 +41,7 @@ class LinearWithPiSSA(LinearWithLoRA):
             Uhr = Ur.t()
         else:
             # Full svd, which is very slow.
-            V, S, Uh = standard_svd(self.weight.data, full_matrices=False)
+            V, S, Uh = standard_svd(weight.data, full_matrices=False)
             Vr, Sr, Uhr = V[:, :self.lora_rank], S[:self.lora_rank], Uh[:self.lora_rank]
 
         Sr.div_(self.lora_scaler) 
@@ -50,8 +52,19 @@ class LinearWithPiSSA(LinearWithLoRA):
         weight_b_data = Vr @ torch.diag(sqrt_Sr)
         self.weight_b = nn.Parameter(weight_b_data.to(dtype), requires_grad=requires_grad)
 
+        if self.keep_init_weights:
+            self.init_weight_a = nn.Parameter(weight_a_data.copy().to(dtype), requires_grad=requires_grad)
+            self.init_weight_b = nn.Parameter(weight_b_data.copy().to(dtype), requires_grad=requires_grad)
+
         if self.quant:
             self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
             self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
 
         self.weight.data = (weight - self._compute_lora_weight()).to(weight_dtype)
+
+    def convert_to_lora(self):
+        assert hasattr(self, "init_weight_a") and hasattr(self, "init_weight_b")
+        self.weight_a = torch.cat((self.weight_a, self.init_weight_a), dim=1)
+        self.weight_b = torch.cat((self.weight_b, -self.init_weight_b), dim=0)
+        del self.init_weight_a
+        del self.init_weight_b

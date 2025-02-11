@@ -16,6 +16,8 @@ from common.lora_modules.delta_lora import LinearWithDeltaLoRA
 from common.lora_modules.adalora import LinearWithAdaLoRA
 from common.lora_modules.plora import LinearWithPLoRA
 from common.lora_modules.mora import LinearWithMoRA
+from common.lora_modules.tdlora import LinearWithTDLoRA
+from common.lora_modules.increlora import LinearWithIncreLoRA
 
 def get_lora_layer_class(args):
     variant_config = dict()
@@ -36,7 +38,8 @@ def get_lora_layer_class(args):
         lora_layer_class = LinearWithRSLoRA
     elif getattr(args, "use_pissa", False):
         lora_layer_class = LinearWithPiSSA
-        variant_config = dict(fast_svd_n_iters=args.pissa_n_iters)
+        variant_config = dict(fast_svd_n_iters=args.pissa_n_iters,
+                              keep_init_weights=args.pissa_keep_init_weights)
         variant_print = ". The initialization of Pissa requires some time especially for full svd decomposition, waiting..."
     elif getattr(args, "use_olora", False):
         lora_layer_class = LinearWithOLoRA
@@ -45,15 +48,7 @@ def get_lora_layer_class(args):
         lora_layer_class = LinearWithVeRA
     elif getattr(args, 'use_adalora', False):
         lora_layer_class = LinearWithAdaLoRA
-        variant_config = dict(
-            init_r=args.init_r,
-            tinit=args.tinit,
-            tfinal=args.tfinal,
-            deltaT=args.deltaT,
-            beta1=args.beta1,
-            beta2=args.beta2,
-            orth_reg_weight=args.orth_reg_weight
-        )
+        variant_config = dict(init_r=args.init_r)
     elif getattr(args, 'use_delta_lora', False):
         lora_layer_class = LinearWithDeltaLoRA
         variant_config = dict(update_ratio=args.delta_lora_update_ratio)
@@ -72,10 +67,18 @@ def get_lora_layer_class(args):
     elif getattr(args, 'use_mora', False):
         lora_layer_class = LinearWithMoRA
         variant_config = dict(mora_type=args.mora_type)
+    elif getattr(args, 'use_tdlora', False):
+        lora_layer_class = LinearWithTDLoRA
+        variant_config = dict(tdlora_init_method=args.tdlora_init_method,
+                              tdlora_rank_stablize=args.tdlora_rank_stablize,
+                              tdlora_dynamic_scaling=args.tdlora_dynamic_scaling)
     elif getattr(args, "relora_steps", False) or getattr(args, "relora_counts", False):
         # if args.relora_counts:
         #     args.relora_steps = args.num_global_update_steps // (args.relora_counts + 1)
         variant_print = f". Will reset lora weights every {args.relora_steps} global update steps."
+    elif getattr(args, 'use_increlora', False):
+        lora_layer_class = LinearWithIncreLoRA
+        variant_config = dict(init_r=args.init_r)
     print_rank_0(f'--->Using lora variant: {lora_layer_class.__name__}{variant_print}', rank=args.global_rank)
     return lora_layer_class, variant_config
 
@@ -101,7 +104,7 @@ def switch_to_lora(model: nn.Module,
     for name, module in model.named_modules():
         replace_tag = False
         for module_name in args.replace_modules:
-            if module_name in name or module_name == 'all-linear':
+            if module_name in name or (module_name == 'all-linear' and 'lm_head' not in name):
                 # Create LoRA layer instance.
                 replace_tag = True
                 if isinstance(module, LinearWithLoRA):

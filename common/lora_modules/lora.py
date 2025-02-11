@@ -79,7 +79,7 @@ class LinearWithLoRA(nn.Linear):
         return weight
     
     def _get_lora_dtype(self):
-        dtype = torch.int8 if self.quant else None
+        dtype = torch.int8 if self.quant else self.weight.dtype
         if self.run_lora_in_fp32:
             dtype = torch.float32
         return dtype

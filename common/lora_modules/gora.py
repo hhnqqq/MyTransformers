@@ -20,22 +20,22 @@ def get_est_nuc_norm(tensor, rank):
     _, Sr, _ = fast_svd(tensor, rank, niter=8)
     return torch.sum(torch.log1p(Sr))
 
-class LinearWithTDLoRA(LinearWithLoRA):
+class LinearWithGoRA(LinearWithLoRA):
     def __init__(
         self,
         lora_config: LoRAConfig,
         fast_svd_n_iters: Optional[int] = 16,
-        tdlora_init_method: str = 'weight_svd',
-        tdlora_rank_stablize: bool = False,
-        tdlora_dynamic_scaling: bool = False
+        gora_init_method: str = 'weight_svd',
+        gora_rank_stablize: bool = False,
+        gora_dynamic_scaling: bool = False
     ):
         self.n_iters = fast_svd_n_iters
         self.fast_svd = fast_svd_n_iters > 2
-        self.init_method = tdlora_init_method
-        self.dynamic_scaling = tdlora_dynamic_scaling
-        self.rank_stablize = tdlora_rank_stablize
+        self.init_method = gora_init_method
+        self.dynamic_scaling = gora_dynamic_scaling
+        self.rank_stablize = gora_rank_stablize
         self.scaling_alpha = lora_config.lora_scaler
-        assert tdlora_init_method in ['vanilla', 'weight_svd', 'grad_svd', 'compress']
+        assert gora_init_method in ['vanilla', 'weight_svd', 'grad_svd', 'compress']
         super().__init__(lora_config)
 
     def init_lora_weights(self):
@@ -286,10 +286,10 @@ def compute_importance(param, grad_stored, features, scale_features, type, lora_
     return isinstance(importance, tuple), importance
     
 def get_normalized_importances(args, importances_tensor):
-    if args.tdlora_softmax_importance:
+    if args.gora_softmax_importance:
         normalized_importances = torch.softmax(
             (importances_tensor - importances_tensor.min()) /
-            (importances_tensor.max() - importances_tensor.min()) / args.tdlora_temperature,
+            (importances_tensor.max() - importances_tensor.min()) / args.gora_temperature,
             dim=0
         )
     else:
@@ -307,17 +307,17 @@ def get_allocated_rank(model, args):
         'radical': math.ceil,
         'moderate': round,
         'conserved': math.floor
-    }.get(args.tdlora_allocate_stretagy, round)
+    }.get(args.gora_allocate_stretagy, round)
 
     feature_adjust_func: Callable = {
         'sqrt': math.sqrt,
         'log1p': math.log1p,
         None: lambda x: x  
-    }.get(args.tdlora_features_func, lambda x: x)
+    }.get(args.gora_features_func, lambda x: x)
 
     with torch.no_grad():
         for name, module in model.named_modules():
-            if isinstance(module, LinearWithTDLoRA):
+            if isinstance(module, LinearWithGoRA):
                 # Calculate the importance
                 if not hasattr(module.weight, 'grad_stored'):
                     print_rank_0(f'--->Module: {name} do not have stored gradients', args.global_rank)
@@ -326,10 +326,10 @@ def get_allocated_rank(model, args):
                 is_tuple, importance = compute_importance(module.weight.data, 
                                                 module.weight.grad_stored, 
                                                 features, 
-                                                args.tdlora_scale_importance, 
-                                                args.tdlora_importance_type,
+                                                args.gora_scale_importance, 
+                                                args.gora_importance_type,
                                                 args.lora_rank,
-                                                args.tdlora_max_rank)
+                                                args.gora_max_rank)
                 named_importances[name] = importance
 
                 # Calculate features and budget
@@ -363,20 +363,20 @@ def get_allocated_rank(model, args):
             smooth_trainable = allocate_func(smooth_total_budget * normalized_importance.item())
 
             rank = smooth_trainable // named_smooth_features[name]
-            if args.tdlora_max_rank and args.tdlora_min_rank:
-                named_ranks[name] = min(max(allocate_func(rank), args.tdlora_min_rank), args.tdlora_max_rank)
+            if args.gora_max_rank and args.gora_min_rank:
+                named_ranks[name] = min(max(allocate_func(rank), args.gora_min_rank), args.gora_max_rank)
             actual_trainable += named_ranks[name] * named_features[name]
 
     return total_budget, actual_trainable, named_ranks, named_importances
 
-def tdlora_reinit(
+def gora_reinit(
     model: nn.Module, 
     dataloader, 
     args,
     iters: int = 1,
     task_name: str = ''
 ):
-    print_rank_0("--->Estimating gradient for tdlora.", rank=args.global_rank)
+    print_rank_0("--->Estimating gradient for gora.", rank=args.global_rank)
     with Timer() as timer:
         model.to(args.device)
         model.train()
@@ -386,11 +386,11 @@ def tdlora_reinit(
         hooks = [
             module.weight.register_hook(get_record_gradient_hook(model))
             for module in model.modules()
-            if isinstance(module, LinearWithTDLoRA)
+            if isinstance(module, LinearWithGoRA)
         ]
 
         for module in model.modules():
-            if isinstance(module, LinearWithTDLoRA):
+            if isinstance(module, LinearWithGoRA):
                 module.weight.requires_grad = True
 
         for idx, batch in enumerate(dataloader):
@@ -398,7 +398,7 @@ def tdlora_reinit(
             output = model(**batch)
             loss = output.loss if args.huggingface else output[0]
             loss.backward()
-            print_rank_0(f'--->TDLoRA gradient computing step: {idx+1}, loss: {loss.item()}, remaining steps: {iters - (idx+1)} ', args.global_rank)
+            print_rank_0(f'--->GoRA gradient computing step: {idx+1}, loss: {loss.item()}, remaining steps: {iters - (idx+1)} ', args.global_rank)
 
 
             if (idx + 1) == iters:
@@ -413,7 +413,7 @@ def tdlora_reinit(
         if args.world_size > 1:
             torch.distributed.barrier()
 
-        print_rank_0('--->All reduce TDLoRA stored gradients if needed.', args.global_rank)
+        print_rank_0('--->All reduce GoRA stored gradients if needed.', args.global_rank)
         for p in model.parameters():
             if hasattr(p, 'grad_stored'):
                 p.grad_stored /= p.iters
@@ -433,11 +433,11 @@ def tdlora_reinit(
             with open(os.path.join(save_floder, 'importance.json'), 'w') as f:
                 json.dump(named_importances, f)     
 
-        print_rank_0(f'--->TDLoRA total budget: {total_budget}, actual trainable: {actual_trainable}', args.global_rank)
+        print_rank_0(f'--->GoRA total budget: {total_budget}, actual trainable: {actual_trainable}', args.global_rank)
         for name, module in model.named_modules():
-            if isinstance(module, LinearWithTDLoRA) and name in named_ranks.keys():
+            if isinstance(module, LinearWithGoRA) and name in named_ranks.keys():
                 print_rank_0(f'--->Module {name} is initiating lora weight, rank is: {named_ranks[name]}', args.global_rank)
-                module.dynamic_init(args.lora_rank, named_ranks[name], args.tdlora_stable_gemma, args.tdlora_scale_by_lr, args.tdlora_lr)
+                module.dynamic_init(args.lora_rank, named_ranks[name], args.gora_stable_gemma, args.gora_scale_by_lr, args.gora_lr)
         torch.cuda.empty_cache()
 
-    print_rank_0(f'--->Total time consumed for TDLoRA initialization: {timer.time_cost}', args.global_rank)
+    print_rank_0(f'--->Total time consumed for GoRA initialization: {timer.time_cost}', args.global_rank)
