@@ -1,7 +1,7 @@
 import os
 from typing import Union, List
 
-class Regitry:
+class Registry:
     mapping = {
         "model_mapping":{},
         "pipeline_model_mapping":{},
@@ -268,4 +268,4 @@ supported paths are listed below:{cls.list_paths()}")
         return {k:sorted(v.keys()) for k,v in cls.mapping.items()}
 
     
-registry = Regitry()
+registry = Registry()
