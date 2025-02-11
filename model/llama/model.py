@@ -3,7 +3,6 @@ import torch
 import torch.nn.functional as F
 
 from torch import nn
-from dataclasses import dataclass
 from typing import Optional, Tuple, Union, Any
 
 from model.llama.config import *
