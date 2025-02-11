@@ -12,7 +12,6 @@ import configparser
 from typing import Optional, Dict, Union
 from datetime import datetime
 from traceback import format_exc
-from torch.nn.parallel import DistributedDataParallel as DDP
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef, precision_score, recall_score
 
 import pytz
@@ -192,8 +191,8 @@ class DataCollator():
     def __call__(self, examples):
         input_ids_list, labels_list, cal_metric_pos_list, dna_ids_list, before_dna_list = [], [], [], [], []
         for instance in examples:
-            input_ids = instance["input_ids"]
-            labels = instance["labels"]
+            input_ids = torch.LongTensor(instance["input_ids"]) if isinstance(instance["input_ids"], list) else instance["input_ids"]
+            labels = torch.LongTensor(instance["labels"]) if isinstance(instance["labels"], list) else instance["labels"]
             cal_metric_pos = instance.get("cal_metric_pos", None)
             dna_ids = instance.get("dna_ids", None)
             before_dna= instance.get("before_dna", None)
@@ -244,6 +243,8 @@ def init_dist(args):
     if args.device == 'cuda':
         if args.local_rank == -1:
             device = torch.device("cuda")
+            args.global_rank = 0
+            args.world_size = 1
         else:
             deepspeed.init_distributed(dist_backend="nccl")
             args.world_size = dist.get_world_size()
@@ -353,7 +354,7 @@ def get_merged_state_dict(ckpt_path: str = None,
                           partial_ckpt_path: str = None) -> dict:
     def load_state_dict(path):
         if path:
-            ckpt = torch.load(path, map_location='cpu', weights_only=True)
+            ckpt = torch.load(path, map_location='cpu', weights_only=False)
             return (ckpt.get('model_state_dict', ckpt),
                     ckpt.get('optimizer_state_dict', {}),
                     ckpt.get('lr_scheduler_state_dict', {}))
@@ -371,6 +372,7 @@ def load_ckpt(model:Module,
               ckpt_path: str = None, 
               partial_ckpt_path: str = None,
               model_sd: Optional[Dict] = None,
+              ignore_incompatible: bool = False,
               rank: int = 0):
     """
     load model checkpoint safely.
@@ -395,10 +397,11 @@ def load_ckpt(model:Module,
             incompatible_keys = model.load_state_dict(model_sd, strict=False)
         else:
             incompatible_keys = model.load_state_dict(model_sd, strict=False)
-            
-        print_rank_0(f'--->Loaded checkpoint for model instance of {model.__class__.__name__}. Incompatible keys are listed below:', rank=rank)
-        print_rank_0(f'--->Missing keys:{incompatible_keys.missing_keys}.', rank=rank)
-        print_rank_0(f'--->Unexpected keys:{incompatible_keys.unexpected_keys}.', rank=rank)
+        
+        print_rank_0(f'--->Loaded checkpoint for model instance of {model.__class__.__name__}. {"" if ignore_incompatible else "Incompatible keys are listed below:"}', rank=rank)
+        if not ignore_incompatible:
+            print_rank_0(f'--->Missing keys:{incompatible_keys.missing_keys}.', rank=rank)
+            print_rank_0(f'--->Unexpected keys:{incompatible_keys.unexpected_keys}.', rank=rank)
     except Exception:
         print_rank_0(f'--->Checkpoint loading failed as error: {format_exc()} occured.', rank=rank, level=logging.ERROR)
 
