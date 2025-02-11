@@ -12,7 +12,7 @@ from common.lora_modules.delta_lora import LinearWithDeltaLoRA
 from common.lora_modules.adalora import update_and_allocate
 from common.utils import to_device, reduce_tensor
 
-def forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
+def  forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
     with torch.profiler.record_function("get_data"):
         batch = next(data_loader)
         batch = to_device(batch, args.device)
@@ -54,9 +54,6 @@ def backward_step_deepspeed_relora(model: DeepSpeedEngine, optimizer, loss, lr_s
         if args.relora_reset_optimizer:
             optimizer_reset(
                 optimizer,
-                lr_scheduler,
-                relora_auto_warmup_steps = args.relora_auto_warmup_steps,
-                relora_auto_warmup_ratio = args.relora_auto_warmup_ratio,
                 reset_params=[p for n, p in model.named_parameters() if p.requires_grad and find_lora_names(n)],
                 reset_optimizer_on_relora=args.relora_fully_reset_optimizer,
                 optimizer_random_pruning=args.relora_optimizer_random_pruning,
@@ -110,9 +107,9 @@ def adalora_step(args, loss, model):
         regu_loss = regu_loss / num_param
     else:
         regu_loss = 0
-    loss += orth_reg_weight * regu_loss
+    adalora_loss = loss + orth_reg_weight * regu_loss
 
-    return loss
+    return adalora_loss
 
 @contextmanager
 def gather_params_ctx(param, modifier_rank: int = 0, fwd_module: torch.nn.Module = None):
@@ -134,9 +131,6 @@ def forward_step_deepspeed_adalora(model: DeepSpeedEngine, data_loader: Repeatin
         else:
             loss, metric = model(**batch)
 
-
-        loss = adalora_step(args, loss, model)
-
         if args.all_reduce_loss:
             # Reduce loss for average loss print, not for backpropagation.
             # DeepSpeed uses on-chip loss for backpropagation and all-reduces gradients afterwards.
@@ -148,7 +142,8 @@ def forward_step_deepspeed_adalora(model: DeepSpeedEngine, data_loader: Repeatin
     
 def backward_step_deepspeed_adalora(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
     with record_function("backward_path"):
-        model.backward(loss)
+        adalora_loss = adalora_step(args, loss, model)
+        model.backward(adalora_loss)
 
         update_flag = False
 
@@ -162,7 +157,9 @@ def backward_step_deepspeed_adalora(model: DeepSpeedEngine, optimizer, loss, lr_
         model.step()
 
         if update_flag:
-            update_and_allocate(model, step, saved_gradients)
+            # here the step should be the global step
+            # step starts from 1
+            update_and_allocate(model, model.global_steps, saved_gradients)
             update_flag = False
 
         return model
@@ -173,13 +170,37 @@ def eval_step_deepspeed_adalora(model: DeepSpeedEngine, data_loader: RepeatingLo
         batch = to_device(batch, args.device)
         with torch.no_grad():
             loss, metric = model(**batch)
-            loss = adalora_step(args, loss, model)
+            # loss = adalora_step(args, loss, model)
             # TODO: all reduce metrics
 
         return loss.item(), metric
 
-    return model
-    
+def backward_step_deepspeed_increlora_stage0(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
+    loss = loss / args.gradient_accumulation_steps
+    regu_weight = args.orth_reg_weight
+    regu_loss, num_param = 0., 0
+    for n, p in model.named_parameters():
+        if "weight_a" in n or "weight_b" in n:
+            para_cov = p @ p.T if "weight_a" in n else p.T @ p
+            I = torch.eye(*para_cov.size(), out=torch.empty_like(para_cov))
+            I.requires_grad = False
+            regu_loss += torch.norm(para_cov-I, p="fro")
+            num_param += 1
+    increlora_loss = loss + regu_weight*regu_loss/num_param
+    increlora_loss.backward()
+
+    # init
+    if (step-1) == 0:
+        curr_rank, incre_threshold = model.rankallocator.update_and_increase_increlora(model, 0, optimizer, lr_scheduler, args)
+
+    if step % args.gradient_accumulation_steps == 0 or step == args.num_micro_update_steps:
+        reduce_gradients(model, args.world_size)
+        optimizer.step()
+        curr_rank, incre_threshold = model.rankallocator.update_and_increase_increlora(model, (step+1)//model.gradient_accumulation_steps(), optimizer, lr_scheduler, args)
+        lr_scheduler.step()
+        optimizer.zero_grad()
+
+
 def reduce_gradients(model, world_size):
     for param in model.parameters():
         if param.requires_grad:
@@ -188,14 +209,10 @@ def reduce_gradients(model, world_size):
 def backward_step_deepspeed_stage0(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
     loss = loss / args.gradient_accumulation_steps
     loss.backward()
-    if step % args.gradient_accumulation_steps == 0:
+    if step % args.gradient_accumulation_steps == 0 or step == args.num_micro_update_steps:
         reduce_gradients(model, args.world_size)
         optimizer.step()
         lr_scheduler.step()
-        optimizer.zero_grad()
-    elif step == args.num_micro_update_steps:
-        reduce_gradients(model, args.world_size)
-        optimizer.step()
         optimizer.zero_grad()
 
 def eval_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
