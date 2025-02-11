@@ -1,5 +1,6 @@
 import os
 import json
+import inspect
 import argparse
 import deepspeed
 from typing import Union, List
@@ -67,7 +68,7 @@ def train_parser(parser):
                        help='List of disabled parameters')
     group.add_argument('--activation-checkpoint', action='store_true',
                        help='Train the model with activation checkpoint')
-    group.add_argument('--param-to-save', nargs='+', type=str, default=None,
+    group.add_argument('--params-to-save', nargs='+', type=str, default=None,
                        help='Params need to be saved even if they do not need gradients.')
     
     # -------------------------- others ----------------------------
@@ -115,7 +116,7 @@ def optimizer_parser(parser):
                        help='Percentage of data to warm up on (.01 = 1% of all training iters). Default 0.01')
     group.add_argument('--weight-decay', type=float, default=5e-4, 
                        help='Weight decay coefficient for L2 regularization')
-    group.add_argument('--lr-decay-style', type=str, default='cosine', choices=['constant', 'linear', 'cosine', 'exponential'], 
+    group.add_argument('--lr-decay-style', type=str, default='cosine', choices=['constant', 'linear', 'cosine', 'exponential', 'cosine_restarts'], 
                        help='Learning rate decay function')
     group.add_argument('--lr-decay-ratio', type=float, default=0.1)
     group.add_argument('--lr-decay-iters', type=int, default=None, 
@@ -190,6 +191,9 @@ def peft_parser(parser):
                        help='Whether to use LoRA FA')
     group.add_argument('--use-rslora', action='store_true',
                        help='Whether to use rslora')
+    group.add_argument('--use-tdlora', action='store_true',
+                       help='Whether to use tdlora')
+    group.add_argument('--tdlora-init-method', type=str, default='weight_svd')
     group.add_argument('--use-pissa', action='store_true',
                        help='Whether to use pissa')
     group.add_argument('--use-milora', action='store_true',
@@ -228,18 +232,32 @@ def peft_parser(parser):
                        help='Wheather to use lora ga')
     group.add_argument('--lora-ga-n-steps', type=int, default=8,
                        help='N steps for lora-ga to estimate full-rank gradient.')
+    group.add_argument('--tdlora-n-steps', type=int, default=8,
+                       help='N steps for lora-ga to estimate full-rank gradient.')
+    group.add_argument('--tdlora-max-rank', type=int, default=9999)
+    group.add_argument('--tdlora-min-rank', type=int, default=1)
+    group.add_argument('--tdlora-softmax-importance', action='store_true')
+    group.add_argument('--tdlora-scale-by-lr', action='store_true')
+    group.add_argument('--tdlora-lr', type=float, default=1e-3)
+    group.add_argument('--tdlora-features-func', type=str, default=None)
+    group.add_argument('--tdlora-temperature', type=int, default=0.5)
+    group.add_argument('--tdlora-rank-stablize', action='store_true')
+    group.add_argument('--tdlora-dynamic-scaling', action='store_true')
+    group.add_argument('--tdlora-allocate-stretagy', type=str, default='moderate')
+    group.add_argument('--tdlora-scale-importance', action='store_true')
+    group.add_argument('--tdlora-importance-type', type=str, default='union_frobenius_norm')
+    group.add_argument('--tdlora-stable-gemma', type=float, default=0.02)
     group.add_argument('--lora-ga-scale-method', type=str, default='gd')
     group.add_argument('--lora-ga-reset-weight', action='store_true',
                        help='Whether to reset pretrained weight when using LoRA-GA, this will improve numerical stability.')
-    group.add_argument('--relora-steps', type=int,
+    group.add_argument('--relora-steps', type=int, default=None,
                        help='How much step to merge and reset the lora weight')
+    group.add_argument('--relora-warmup-steps', type=int, default=None)
     group.add_argument('--relora-counts', type=int, default=None)
     group.add_argument('--relora-reset-optimizer', action='store_true')
     group.add_argument('--relora-fully-reset-optimizer', action='store_true')
     group.add_argument('--relora-optimizer-random-pruning', type=float, default=None)
     group.add_argument('--relora-optimizer-magnitude-pruning', type=float, default=None)
-    group.add_argument('--relora-auto-warmup-steps', type=int, default=20)
-    group.add_argument('--relora-auto-warmup-ratio', type=float, default=0.03)
     group.add_argument('--use-plora', action='store_true')
     group.add_argument('--plora-momentum', type=float, default=0.1)
     group.add_argument('--use-lora-moe', action='store_true')
@@ -279,6 +297,33 @@ def peft_parser(parser):
                        help='Hyperparameter of EMA.')
     group.add_argument('--orth-reg-weight', type=float, default=0.5,
                        help='The orthogonal regularization coefficient.')
+
+    # --------------------------- increlora ----------------------------------
+    group.add_argument('--use-increlora', action='store_true',
+                       help='Whether to use increlora')
+    # target_rank
+    # group.add_argument('--target-r', type=int, default=8,
+    #                    help=' The average target rank of final incremental matrices, i.e. the average number of singular values per matrix.')
+    # lora_r
+    # group.add_argument('--init-r', type=int, default=12,
+    #                    help='The initial rank of each incremental matrix.')
+    # init_warmup
+    # group.add_argument('--tinit', type=int, default=0,
+    #                    help='The steps of initial warmup for budget scheduler.')
+    # no corresponding
+    # group.add_argument('--tfinal', type=int, default=0,
+    #                    help='The steps of final warmup.')
+    # incre_interval
+    # group.add_argument('--deltaT', type=int, default=1,
+    #                    help='The time internval between two budget allocations.')
+    # group.add_argument('--beta1', type=float, default=0.85,
+    #                    help='Hyperparameter of EMA.')
+    # group.add_argument('--beta2', type=float, default=0.85,
+    #                    help='Hyperparameter of EMA.')
+    # group.add_argument('--orth-reg-weight', type=float, default=0.5,
+    #                    help='The orthogonal regularization coefficient.')
+    group.add_argument('--top-h', type=int, default=2,
+                       help='The number of selected modules per allocation.')
 
     return parser
 
@@ -323,7 +368,7 @@ def ds_parser(parser):
     group.add_argument('--save-trainable', action='store_true')
     group.add_argument('--encode-single-gene', action='store_true')
     group.add_argument('--all-reduce-loss', action='store_true')
-    group.add_argument('--zero-stage', type=int)
+    group.add_argument('--zero-stage', type=int, default=-1)
 
     # Include DeepSpeed configuration arguments
     parser = deepspeed.add_config_arguments(parser)
@@ -359,11 +404,16 @@ def get_args():
     #     args.fp16 = True
     #     args.bf16 = False
     
-    mt_dir = os.path.dirname(os.path.dirname(__file__))
+    mt_dir = os.path.dirname(os.path.dirname(os.path.abspath(inspect.getfile(lambda: None))))
     if args.ds_config_path is None and args.zero_stage > 0:
         args.ds_config_path = os.path.join(mt_dir, "ds_config", f"zero{args.zero_stage}_config.json")
     print_rank_0(f"--->Using {args.ds_config_path} as deepspeed config path", args.global_rank)
         
+    if args.params_to_save is not None:
+        if isinstance(args.params_to_save, str):
+            args.params_to_save = args.params_to_save.split('_')
+        print_rank_0(f"--->Parameters to save: {args.params_to_save}", args.global_rank)
+
     if args.multimodal:
         if args.multimodal_projector_type == 'mlp':
             assert args.multimodal_projector_layers > 1, 'Mlp module layer count must greater than 1'
