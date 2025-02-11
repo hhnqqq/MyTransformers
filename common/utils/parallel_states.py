@@ -43,101 +43,101 @@ def initialize_model_parallel(
         tensor parallelism plus data parallelism
         and single parallelism stretrgy
     """
-    assert dist.is_initialized()
-    world_size = dist.get_world_size()
-    rank = dist.get_rank()
+    if dist.is_initialized():
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
 
-    assert world_size % (tensor_model_parallel_size * pipeline_model_parallel_size) == 0
-    sequence_parallel_enabled = sequence_model_parallel_size > 1
-    if sequence_parallel_enabled:
-        if tensor_model_parallel_size != 1 or pipeline_model_parallel_size != 1:
-            raise ValueError('sequence parallel can not used with other \
-                             model parallel methods at the same time')
-        if world_size % sequence_model_parallel_size != 0:
-            raise ValueError(f'world size: {world_size} must be divisible by \
-                             sequence parallel size: {sequence_model_parallel_size}')
-    
-    data_parallel_size = world_size // (tensor_model_parallel_size * pipeline_model_parallel_size * sequence_model_parallel_size)
-    sequence_data_pallel_size = sequence_model_parallel_size * data_parallel_size
+        assert world_size % (tensor_model_parallel_size * pipeline_model_parallel_size) == 0
+        sequence_parallel_enabled = sequence_model_parallel_size > 1
+        if sequence_parallel_enabled:
+            if tensor_model_parallel_size != 1 or pipeline_model_parallel_size != 1:
+                raise ValueError('sequence parallel can not used with other \
+                                model parallel methods at the same time')
+            if world_size % sequence_model_parallel_size != 0:
+                raise ValueError(f'world size: {world_size} must be divisible by \
+                                sequence parallel size: {sequence_model_parallel_size}')
+        
+        data_parallel_size = world_size // (tensor_model_parallel_size * pipeline_model_parallel_size * sequence_model_parallel_size)
+        sequence_data_pallel_size = sequence_model_parallel_size * data_parallel_size
 
-    num_tensor_parallel_groups = world_size // tensor_model_parallel_size
-    num_pipeline_parallel_groups = world_size // pipeline_model_parallel_size
-    num_sequence_parallel_groups = world_size // sequence_model_parallel_size
-    num_sequence_data_parallel_groups = world_size // sequence_data_pallel_size
-    
-    # build data parallel group
-    global DATA_PARALLEL_GROUP
-    all_data_parallel_groups = []
-    for i in range(pipeline_model_parallel_size):
-        # pp=1 sp=4 gpus=8 ---> [0:8]
-        # PP=1 sp=1 gpus=8 ---> [0:8]
-        start_rank, end_rank = (_ * num_pipeline_parallel_groups for _ in [i, i+1])
-        # pp=1 sp=4 gpus=8 ---> 8
-        # PP=1 sp=1 gpus=8 ---> 1
-        tp_or_sp_size = sequence_model_parallel_size if sequence_parallel_enabled else tensor_model_parallel_size
-        for j in range(tp_or_sp_size):
-            # pp=1 sp=1 gpus=8 ---> [0, 1, 3, 4, 5, 6 , 7]
-            # pp=1 sp=4 gpus=8 ---> [0, 4] [1, 5] [2, 6] [3, 7] ---> world size 2
-            ranks = range(start_rank+j, end_rank, tp_or_sp_size)
+        num_tensor_parallel_groups = world_size // tensor_model_parallel_size
+        num_pipeline_parallel_groups = world_size // pipeline_model_parallel_size
+        num_sequence_parallel_groups = world_size // sequence_model_parallel_size
+        num_sequence_data_parallel_groups = world_size // sequence_data_pallel_size
+        
+        # build data parallel group
+        global DATA_PARALLEL_GROUP
+        all_data_parallel_groups = []
+        for i in range(pipeline_model_parallel_size):
+            # pp=1 sp=4 gpus=8 ---> [0:8]
+            # PP=1 sp=1 gpus=8 ---> [0:8]
+            start_rank, end_rank = (_ * num_pipeline_parallel_groups for _ in [i, i+1])
+            # pp=1 sp=4 gpus=8 ---> 8
+            # PP=1 sp=1 gpus=8 ---> 1
+            tp_or_sp_size = sequence_model_parallel_size if sequence_parallel_enabled else tensor_model_parallel_size
+            for j in range(tp_or_sp_size):
+                # pp=1 sp=1 gpus=8 ---> [0, 1, 3, 4, 5, 6 , 7]
+                # pp=1 sp=4 gpus=8 ---> [0, 4] [1, 5] [2, 6] [3, 7] ---> world size 2
+                ranks = range(start_rank+j, end_rank, tp_or_sp_size)
+                group = dist.new_group(ranks)
+                print(list(ranks))
+                all_data_parallel_groups.append(list(ranks))
+
+                if rank in ranks:
+                    DATA_PARALLEL_GROUP = group
+
+        # build sequence parallel group
+        global SEQUENCE_MODEL_PARALLEL_GROUP
+        all_sequence_model_parallel_groups = []
+        for i in range(num_sequence_parallel_groups):
+            # 8 GPUS, NUM SP STAGES 4 ---> [0,1,2,3], [4,5,6,7]
+            ranks = range(i*sequence_model_parallel_size, (i+1)*sequence_model_parallel_size)
             group = dist.new_group(ranks)
-            print(list(ranks))
-            all_data_parallel_groups.append(list(ranks))
+            all_sequence_model_parallel_groups.append(list(ranks))
+            if rank in ranks:
+                SEQUENCE_MODEL_PARALLEL_GROUP = group
+
+        # build sequence data parallel group
+        global SEQUENCE_DATA_PARALLEL_GROUP
+        if sequence_parallel_enabled:
+            all_sequence_data_parallel_groups = []
+            for i in range(num_sequence_data_parallel_groups):
+                # pp=1 sp=4 gpus=8 ---> sequence_data_pallel_size=8 ---> [0,1,2,3,4,5,6,7]
+                ranks = range(i*sequence_data_pallel_size, (i+1)*sequence_data_pallel_size)
+                group = dist.new_group(ranks)
+                all_sequence_data_parallel_groups.append(list(ranks))
+                if rank in ranks:
+                    SEQUENCE_DATA_PARALLEL_GROUP = group
+        else:
+            SEQUENCE_DATA_PARALLEL_GROUP = DATA_PARALLEL_GROUP
+
+        # build model parallel group
+        global MODEL_PARALLEL_GROUP
+        num_model_parallel_groups = sequence_data_pallel_size if sequence_parallel_enabled else data_parallel_size
+        model_parallel_groups = all_sequence_data_parallel_groups if sequence_parallel_enabled else all_data_parallel_groups
+        for i in range(num_model_parallel_groups):
+            ranks = [model_parallel_group[i] for model_parallel_group in model_parallel_groups]
+            group = dist.new_group(ranks)
 
             if rank in ranks:
-                DATA_PARALLEL_GROUP = group
+                MODEL_PARALLEL_GROUP = group
 
-    # build sequence parallel group
-    global SEQUENCE_MODEL_PARALLEL_GROUP
-    all_sequence_model_parallel_groups = []
-    for i in range(num_sequence_parallel_groups):
-        # 8 GPUS, NUM SP STAGES 4 ---> [0,1,2,3], [4,5,6,7]
-        ranks = range(i*sequence_model_parallel_size, (i+1)*sequence_model_parallel_size)
-        group = dist.new_group(ranks)
-        all_sequence_model_parallel_groups.append(list(ranks))
-        if rank in ranks:
-            SEQUENCE_MODEL_PARALLEL_GROUP = group
-
-    # build sequence data parallel group
-    global SEQUENCE_DATA_PARALLEL_GROUP
-    if sequence_parallel_enabled:
-        all_sequence_data_parallel_groups = []
-        for i in range(num_sequence_data_parallel_groups):
-            # pp=1 sp=4 gpus=8 ---> sequence_data_pallel_size=8 ---> [0,1,2,3,4,5,6,7]
-            ranks = range(i*sequence_data_pallel_size, (i+1)*sequence_data_pallel_size)
+        # build model parallel group
+        global TENSOR_MODEL_PARALLEL_GROUP
+        assert TENSOR_MODEL_PARALLEL_GROUP is None, 'tensor model parallel group is already initialized'
+        for i in range(num_tensor_parallel_groups):
+            ranks = range(i * tensor_model_parallel_size, (i + 1) * tensor_model_parallel_size)
             group = dist.new_group(ranks)
-            all_sequence_data_parallel_groups.append(list(ranks))
             if rank in ranks:
-                SEQUENCE_DATA_PARALLEL_GROUP = group
-    else:
-        SEQUENCE_DATA_PARALLEL_GROUP = DATA_PARALLEL_GROUP
+                TENSOR_MODEL_PARALLEL_GROUP = group
 
-    # build model parallel group
-    global MODEL_PARALLEL_GROUP
-    num_model_parallel_groups = sequence_data_pallel_size if sequence_parallel_enabled else data_parallel_size
-    model_parallel_groups = all_sequence_data_parallel_groups if sequence_parallel_enabled else all_data_parallel_groups
-    for i in range(num_model_parallel_groups):
-        ranks = [model_parallel_group[i] for model_parallel_group in model_parallel_groups]
-        group = dist.new_group(ranks)
-
-        if rank in ranks:
-            MODEL_PARALLEL_GROUP = group
-
-    # build model parallel group
-    global TENSOR_MODEL_PARALLEL_GROUP
-    assert TENSOR_MODEL_PARALLEL_GROUP is None, 'tensor model parallel group is already initialized'
-    for i in range(num_tensor_parallel_groups):
-        ranks = range(i * tensor_model_parallel_size, (i + 1) * tensor_model_parallel_size)
-        group = dist.new_group(ranks)
-        if rank in ranks:
-            TENSOR_MODEL_PARALLEL_GROUP = group
-
-    global PIPELINE_MODEL_PARALLEL_GROUP
-    assert PIPELINE_MODEL_PARALLEL_GROUP is None, 'pipeline model parallel group is already initialized'
-    for i in range(num_pipeline_parallel_groups):
-        ranks = range(i * pipeline_model_parallel_size, (i + 1) * pipeline_model_parallel_size)
-        group = dist.new_group(ranks)
-        if rank in ranks:
-            PIPELINE_MODEL_PARALLEL_GROUP = group
+        global PIPELINE_MODEL_PARALLEL_GROUP
+        assert PIPELINE_MODEL_PARALLEL_GROUP is None, 'pipeline model parallel group is already initialized'
+        for i in range(num_pipeline_parallel_groups):
+            ranks = range(i * pipeline_model_parallel_size, (i + 1) * pipeline_model_parallel_size)
+            group = dist.new_group(ranks)
+            if rank in ranks:
+                PIPELINE_MODEL_PARALLEL_GROUP = group
 
 def model_parallel_is_initialized():
     """Check if model and data parallel groups are initialized."""
