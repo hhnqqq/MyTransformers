@@ -12,9 +12,9 @@ def naive_attention_func(
    q: torch.Tensor,
    k: torch.Tensor,
    v: torch.Tensor,
-   atten_mask: Optional[torch.Tensor],
+   attn_mask: Optional[torch.Tensor],
    dropout_p: float,
-   scaling: float,
+   scale: float,
    is_causal: bool
 ):
     """
@@ -26,24 +26,24 @@ def naive_attention_func(
         v (torch.Tensor): Value tensor of shape [batch_size, n_local_heads, input_len, head_dim].
         atten_mask (torch.Tensor): Attention mask tensor of shape [batch_size, 1, 1, input_len].
         dropout_p (float): Dropout probability.
-        scaling (float): Scaling factor for the attention scores.
+        scale (float): Scaling factor for the attention scores.
         is_causal (bool): Whether the attention is causal (only attend to past tokens).
 
     Returns:
         torch.Tensor: Output tensor of shape [batch_size, n_local_heads, input_len, head_dim].
     """
     q_len, k_len = q.size(-2), k.size(-2)
-    scores = torch.matmul(q, k.transpose(2, 3)) * scaling
+    scores = torch.matmul(q, k.transpose(2, 3)) * scale
     atten_bias = torch.zeros(q_len, k_len, dtype=q.dtype)
 
     if is_causal:
-        assert atten_mask is None
+        assert attn_mask is None
         temp_mask = torch.ones(q_len, k_len, dtype=torch.bool).tril(diagonal=0)
         atten_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
-        atten_bias = atten_bias.to(q.dtype)
+        atten_bias = atten_bias.to(q.dtype).to(q.device)
         scores = scores + atten_bias
-    elif atten_mask is not None:
-        scores = scores + atten_mask
+    elif attn_mask is not None:
+        scores = scores + attn_mask
 
     scores = F.softmax(scores.float(), dim=-1).type_as(q)
     scores = torch.dropout(scores, dropout_p, train=True)

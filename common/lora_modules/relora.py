@@ -30,9 +30,6 @@ def magnitude_pruning_(tensor, prune_ratio):
 
 def optimizer_reset(
     optimizer,
-    lr_scheduler,
-    relora_auto_warmup_steps,
-    relora_auto_warmup_ratio,
     *,
     reset_params: list[torch.nn.Parameter],
     reset_optimizer_on_relora: bool,
@@ -90,7 +87,3 @@ def optimizer_reset(
     _zeroed = n_zeros / (1e-7 + n_total) * 100
     print_rank_0(f"--->Percent of optimizer states zeroed: {_zeroed:.2f}", args.global_rank)
     # start a new warmup
-    lr_scheduler.num_iters = 1
-    lr_scheduler.auto_warmup_steps = relora_auto_warmup_steps
-    lr_scheduler.auto_warmup_ratio = relora_auto_warmup_ratio
-    

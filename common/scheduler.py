@@ -24,7 +24,6 @@ from copy import deepcopy
 class AnnealingLR(_LRScheduler):
     """Anneals the learning rate from start to zero along a cosine curve."""
 
-    # 增加一个新的 "cosine_restarts" lr decay
     DECAY_STYLES = ['linear', 'cosine', 'exponential', 'cosine_restarts', 'constant', 'None']
 
     def __init__(self, 
@@ -37,14 +36,6 @@ class AnnealingLR(_LRScheduler):
                  decay_ratio=0.5, 
                  auto_warmup_steps=50, 
                  auto_warmup_rate=0.05,
-
-                 # 为了在尽量少改动源代码结果的情况下加入“cosine_restarts”方法，需要对原参数做以下假设。
-                 # warmup_iter为第一次warmup的步数（此时是正常的full rank fine-tuning或者Lora训练过程，并没有开始restart过程）。
-                 # num_iters为总训练步数。
-                 # last_iter当前的训练步数，即调用这个函数时模型已经完成的训练步数。
-                 # 所有的iter是global iter。
-                 # 原作者的学习率在wamup期间从 min_lr_ratio 增加到1，在cosine decay期间逐渐从1，在num_iters时减小回min_lr_ratio，
-                 # 这里设置的是最大学习率 last_iter，如果后期训练结果不理想，需考虑对这里进行修改。暂时只为实现锯齿状学习率方法。
                  restart_warmup_steps=None,
                  restart_every=None,
                  ):
@@ -78,7 +69,6 @@ class AnnealingLR(_LRScheduler):
         self.auto_warmup_steps = auto_warmup_steps
         self.auto_warmup_rate = auto_warmup_rate
 
-        ###################################### 改动 ######################################
         if warmup_iter < 0 or num_iters <= warmup_iter:
             raise ValueError(f"warmup_iter ({warmup_iter}) must be in range [0, num_iters ({num_iters})]")
         if self.decay_style == self.DECAY_STYLES[3]:
@@ -92,7 +82,6 @@ class AnnealingLR(_LRScheduler):
         self.step(self.num_iters)
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             print_rank_0(f'--->learning rate decaying style {self.decay_style}, ratio {self.decay_ratio}')
-        ###################################### 改动 ######################################
 
     def get_lr(self):
         # auto_warmup_steps并不取决于warmup的设置，而是固定的进行warmup
@@ -114,7 +103,6 @@ class AnnealingLR(_LRScheduler):
                         (math.cos(math.pi * decay_step_ratio) + 1) * (self.decay_ratio - 1) / 2 + 1)
             elif self.decay_style == self.DECAY_STYLES[2]:
                 return self.start_lr
-            ###################################### 改动 ######################################
             elif self.decay_style == self.DECAY_STYLES[3]:
                 return self._get_cosine_schedule_with_multiple_warmups(
                     current_step=self.num_iters,
@@ -124,7 +112,6 @@ class AnnealingLR(_LRScheduler):
                     restart_every=self.restart_every,
                     start_lr=self.start_lr,
                 )
-            ###################################### 改动 ######################################
             else:
                 return self.start_lr
 
@@ -147,7 +134,6 @@ class AnnealingLR(_LRScheduler):
         }
         return sd
 
-    ###################################### 改动 ######################################
     def _get_cosine_schedule_with_multiple_warmups(
             self,
             current_step,
@@ -185,7 +171,6 @@ class AnnealingLR(_LRScheduler):
         progress = float(current_step - first_warmup_steps) / float(max(1, num_training_steps - first_warmup_steps))
 
         return start_lr * 0.5 * (1 + math.cos(math.pi * progress))
-        ###################################### 改动 ######################################
     
 
 if __name__ == '__main__':

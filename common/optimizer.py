@@ -25,6 +25,10 @@ def get_optimizer_instance(optim_type, args, model):
         message = '--->You are using lorapro-adamw optmizer'
         print_rank_0(message, args.global_rank)
         return get_lorapro_optimizer(optim_type, args, model)
+    elif args.use_increlora:
+        message = '--->You are using increlora optmizer'
+        print_rank_0(message, args.global_rank)
+        return get_increlora_optimizer(optim_type, args, model)
     else:
         return get_regular_optimizer(optim_type, args, model)
 
@@ -155,24 +159,50 @@ def get_lorapro_optimizer(optim_type, args, model):
         optimizer = None
     return isSuccess, optimizer
 
+def get_increlora_optimizer(optim_type, args, model):
+    try:
+        params = [{'params':[p for p in model.parameters() if p.requires_grad], 'lr': 1}]
+
+        # optimizer_class = {
+        #     'adamw': optim.AdamW,
+        #     'adam': optim.Adam,
+        # }.get(optim_type)
+
+
+        optimizer_class = {
+            'adamw': partial(ds_optim.adam.FusedAdam, adam_w_mode=True),
+            'adam': partial(ds_optim.adam.FusedAdam, adam_w_mode=False),
+        }.get(optim_type)
+
+        if optimizer_class is None:
+            raise NotImplementedError('only support adam and its variants for now')
+        
+        optimizer = optimizer_class(params,
+                                    lr=args.lr,
+                                    weight_decay=args.weight_decay,
+                                    eps=args.eps,
+                                    betas=tuple(args.betas))
+        isSuccess = True
+    except Exception as e:
+        print_rank_0(f'--->Load local optimizer error as e: {e}', args.global_rank)
+        isSuccess = False
+        optimizer = None
+    return isSuccess, optimizer
+
 def get_learning_rate_scheduler(optimizer, iteration, args):
     init_step = max(iteration - args.auto_warmup_steps, 0)
-    if args.relora_steps:
-        num_iters = args.relora_steps
-        auto_warmup_steps = 0
-    else:
-        num_iters = args.num_global_update_steps
-        auto_warmup_steps = args.auto_warmup_steps
     if optimizer is not None:
         lr_scheduler = AnnealingLR(optimizer,
                                 start_lr=args.lr,
                                 warmup_iter=args.num_warmup_steps,
-                                num_iters=num_iters,
+                                num_iters=args.num_global_update_steps,
                                 decay_style=args.lr_decay_style,
                                 last_iter=init_step,
                                 decay_ratio=args.lr_decay_ratio,
-                                auto_warmup_steps=auto_warmup_steps,
-                                auto_warmup_rate=args.auto_warmup_rate
+                                auto_warmup_steps=args.auto_warmup_steps,
+                                auto_warmup_rate=args.auto_warmup_rate,
+                                restart_every=args.relora_steps,
+                                restart_warmup_steps=args.relora_warmup_steps
                                 )
     else:
         lr_scheduler = None
