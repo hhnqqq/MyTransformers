@@ -58,6 +58,7 @@ class ConcatDataset(BaseDataset):
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False,
         padding: bool = True,
+        apply_chat_template: bool = False,
         weights: Optional[List[int]] = None,
         *args,
         **kwargs
@@ -76,6 +77,7 @@ class ConcatDataset(BaseDataset):
         cal_metric_pos,
         encode_single_gene,
         padding,
+        apply_chat_template,
         weights
     )
         self.process_data_file()
@@ -102,6 +104,7 @@ class ConcatDataset(BaseDataset):
         cal_metric_pos: int | None = None, 
         encode_single_gene: bool = False,
         padding: bool = True,
+        apply_chat_template: bool = False,
         weights: Optional[List[int]] = None):
         if isinstance(data_paths, str):
             data_paths = [data_paths]
@@ -119,7 +122,8 @@ class ConcatDataset(BaseDataset):
                            postfix, 
                            cal_metric_pos, 
                            encode_single_gene,
-                           padding)
+                           padding,
+                           apply_chat_template)
         if weights is None:
             self.weights = [1] * len(self.datasets)
         else:
@@ -210,6 +214,7 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False,
         padding: bool = True,
+        apply_chat_template: bool = False,
         weights: Optional[List[int]] = None,
         read_sequential: bool = False,
         seed: int = 42, 
@@ -231,6 +236,7 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
         cal_metric_pos,
         encode_single_gene,
         padding,
+        apply_chat_template,
         weights
     )
         # ConcatDataset originally read sequential, so this feature only needed in IterableConcatDataset.

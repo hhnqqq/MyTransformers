@@ -3,7 +3,9 @@ import json
 import torch
 import logging
 from tqdm import tqdm
-from typing import Optional
+from typing import Optional, Union
+
+from transformers import PreTrainedTokenizerBase
 
 from torch.utils.data import Dataset
 from model.tokenizer import BaseTokenizer
@@ -30,12 +32,13 @@ class BaseDataset(Dataset):
         cal_metric_pos (Optional[int], optional): Position for calculating metrics. Default is None.
         encode_single_gene (bool, optional): Whether to encode single genes. Default is False.
         padding (bool, optional): Whether to pad the sequences. Default is True.
+        apply_chat_template (bool, optional): Whether to use `apply_chat_template` method for huggingface tokenizer. Default is True.
     """
 
     def __init__(
         self,
         data_path: str,
-        tokenizer: BaseTokenizer,
+        tokenizer: Union[BaseTokenizer, PreTrainedTokenizerBase],
         max_len: int,
         max_src_len: int,
         mode: str = 'pretrain',
@@ -47,6 +50,7 @@ class BaseDataset(Dataset):
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False,
         padding: bool = True,
+        apply_chat_template: bool = False,
         *args,
         **kwargs
     ):
@@ -63,7 +67,8 @@ class BaseDataset(Dataset):
         postfix,
         cal_metric_pos,
         encode_single_gene,
-        padding
+        padding,
+        apply_chat_template
     )
         self.process_data_file()
         
@@ -81,7 +86,8 @@ class BaseDataset(Dataset):
         postfix: str='A:',
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False,
-        padding: bool = True
+        padding: bool = True,
+        apply_chat_template: bool = False
     ):
     
         self.mininterval=0.1
@@ -106,7 +112,12 @@ class BaseDataset(Dataset):
         self.cal_metric_pos = cal_metric_pos
         self.encode_single_gene = encode_single_gene
         self.padding = padding 
-        self.init_data_format(meta_prompt, prefix, postfix)
+        self.apply_chat_template = apply_chat_template and isinstance(tokenizer, PreTrainedTokenizerBase)
+        if self.apply_chat_template:
+            self.meta_prompt = meta_prompt
+            print_rank_0('--->Prefix and postfix will be ignored when `apply_chat_template` is true', global_rank)
+        else:
+            self.init_data_format(meta_prompt, prefix, postfix)
         if max_src_len > max_len:
             # To ensure the assertion error would not be triggered.
             self.max_len = max_src_len
@@ -160,35 +171,56 @@ class BaseDataset(Dataset):
             input_ids (list): The preprocessed input sequence.
             output_ids (list): The preprocessed output sequence.
         """
-        input_text, output_text, input_ids, output_ids = self.preprocess_sample(sample)
-        if output_text:
-            if self.mode == 'sft':
-                # In the case of sft, the input sample must be a instance of dict.
-                output_ids = self._encode_text(output_text)
-                self.train_token_count += len(output_ids)
-            else:
-                # In the case of pretrain, the input sample can be a single string.:
-                # Make sure that the output text can be tokenized.
-                input_ids += [] if output_text is None else self._encode_text(output_text) 
-                self.train_token_count += len(input_ids)
-
-        if self.mode == 'pretrain':
-            # Make sure that the last token id is eos id
-            input_ids.append(self.tokenizer.eos_id)
+        if self.apply_chat_template:
+            # In case of HuggingFace tokenizer, we can use apply_chat_template for easy formatting.
+            # This require the mode is sft and max_src_len will be ignored.
+            input_text, output_text = self._extract_texts(sample)
+            assert self.mode == 'sft' and output_text
+            messages = [{'role':'system', 'content': self.meta_prompt}] if self.meta_prompt else []
+            messages.extend([{'role':'user', 'content': input_text}, {'role':'assistant', 'content': output_text}])
+            self.tokenizer: PreTrainedTokenizerBase
+            tokenized = self.tokenizer.apply_chat_template(
+                        messages,
+                        max_length=self.max_len,
+                        return_assistant_tokens_mask=True,
+                        truncation=True,
+                        return_dict=True)
+            input_ids, output_mask = tokenized['input_ids'], tokenized['assistant_masks']
+            input_len, output_len = len(input_ids) - len(output_mask), len(output_mask)
+            input_ids, output_ids = input_ids[:-output_len], input_ids[-output_len:]
+            self.train_token_count += output_len
         else:
-            # In the case of sft, try to acquire eot id (Only exist in Llama3Tokenzier class)
-            output_ids.append(getattr(self.tokenizer, "eot_id", self.tokenizer.eos_id))
+            input_text, output_text, input_ids, output_ids = self.preprocess_sample(sample)
+            if output_text:
+                if self.mode == 'sft':
+                    # In the case of sft, the input sample must be a instance of dict.
+                    output_ids = self._encode_text(output_text)
+                    self.train_token_count += len(output_ids)
+                else:
+                    # In the case of pretrain, the input sample can be a single string.:
+                    # Make sure that the output text can be tokenized.
+                    input_ids += [] if output_text is None else self._encode_text(output_text) 
+                    self.train_token_count += len(input_ids)
 
-        if len(input_ids) > self.max_src_len:
-            print(input_text)
-            print(f'--->Length of source data excceed at rank {self.global_rank}: required length: {len(input_ids)} while max source length: {self.max_src_len}, cuttfing off')
-            input_ids = input_ids[:self.max_src_len]
-        if len(output_ids) > (self.max_len - len(input_ids)):
-            print(f'--->Length of entire data instance excceed at rank {self.global_rank}, required length: {len(output_ids) + len(input_ids)} while max source length: {self.max_len}, cuttfing off')
-            output_ids = output_ids[:(self.max_len - len(input_ids))]
-        input_len = len(input_ids)
-        output_len = len(output_ids)
+            if self.mode == 'pretrain':
+                # Make sure that the last token id is eos id
+                input_ids.append(self.tokenizer.eos_id)
+            else:
+                # In the case of sft, try to acquire eot id (Only exist in Llama3Tokenzier class)
+                # output_ids.append(getattr(self.tokenizer, "eot_id", self.tokenizer.eos_id))
+                output_ids.append(self.tokenizer.eos_id)
+            if len(input_ids) > self.max_src_len:
+                print(input_text)
+                print(f'--->Length of source data excceed at rank {self.global_rank}: required length: {len(input_ids)} while max source length: {self.max_src_len}, cuttfing off')
+                input_ids = input_ids[:self.max_src_len]
+            if len(output_ids) > (self.max_len - len(input_ids)):
+                print(f'--->Length of entire data instance excceed at rank {self.global_rank}, required length: {len(output_ids) + len(input_ids)} while max source length: {self.max_len}, cuttfing off')
+                output_ids = output_ids[:(self.max_len - len(input_ids))]
+            input_len = len(input_ids)
+            output_len = len(output_ids)
+            
         input_ids = input_ids + output_ids
+
         if self.cal_metric_pos is not None:
             # 1 stand for eos token 
             cal_metric_pos = input_len + 1 + self.cal_metric_pos
@@ -196,16 +228,15 @@ class BaseDataset(Dataset):
             cal_metric_pos = input_len + 1 
         else:
             cal_metric_pos = None
-
         if self.mode == 'sft':
-            labels = [self.tokenizer.pad_id] * input_len + output_ids
+            labels = [getattr(self.tokenizer, 'label_pad_id', self.tokenizer.pad_id)] * input_len + output_ids
         elif self.mode == 'pretrain':
             labels = input_ids
         if self.padding:
             # Do not need to pad when stretegy is packing.
             pad_len = self.max_len - len(input_ids)
             input_ids = input_ids + [self.tokenizer.pad_id] * pad_len
-            labels = labels + [self.tokenizer.pad_id] * pad_len
+            labels = labels + [getattr(self.tokenizer, 'label_pad_id', self.tokenizer.pad_id)] * pad_len
 
         assert len(input_ids) == len(labels)
         assert len(input_ids) <= self.max_len
@@ -260,6 +291,7 @@ class BaseDataset(Dataset):
                 print_rank_0(r'--->Error! Traning mode is sft while sample is not a dict.', self.global_rank, logging.ERROR)
             return sample["input"], sample["output"]
         else:
+            # This is competible with pretraining mode and reinforce learning mode.
             if isinstance(sample, dict):
                 assert "input" in sample.keys(), "Can not find input information in the dataset"
                 input_text = sample["input"]
@@ -283,16 +315,21 @@ class BaseDataset(Dataset):
         """
         encoded_ids = self._encode_text(input_text)
         # Make sure that the bos id always be the first id of input ids.
-        input_ids = [self.tokenizer.bos_id] + self.meta_prompt + self.prefix + encoded_ids + self.postfix
+        # In some case (such as Qwen2.5-7b), these is no bos_id in tokenizer.
+        input_ids = [self.tokenizer.bos_id] if self.tokenizer.bos_id else []
+        input_ids += self.meta_prompt + self.prefix + encoded_ids + self.postfix
         return input_ids
 
     def _encode_text(self, text):
-        return self.tokenizer.encode(
-            text, 
-            bos=False, 
-            eos=False, 
-            encode_single_gene=self.encode_single_gene
-        )
+        if isinstance(self.tokenizer, PreTrainedTokenizerBase):
+            return self.tokenizer.encode(text, add_special_tokens=False)
+        else:
+            return self.tokenizer.encode(
+                text, 
+                bos=False, 
+                eos=False, 
+                encode_single_gene=self.encode_single_gene
+            )
 
     def _get_post_fix(self, count):
         if count >= 1e9:

@@ -1,7 +1,9 @@
 import json
 import math
 import numpy as np
-from typing import Optional
+from typing import Optional, Union
+
+from transformers import PreTrainedTokenizer
 
 from dataset_classes import BaseDataset
 from torch.utils.data import IterableDataset
@@ -30,7 +32,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
     def __init__(
         self,
         data_path: str,
-        tokenizer: BaseTokenizer,
+        tokenizer: Union[BaseTokenizer, PreTrainedTokenizer],
         max_len: int,
         max_src_len: int,
         mode: str = 'pretrain',
@@ -45,6 +47,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         cal_metric_pos: Optional[int] = None,
         encode_single_gene: bool = False,
         padding: bool = True,
+        apply_chat_template: bool = False,
         seed: int = 42,
         start_step: int = 0,
         *args,
@@ -64,7 +67,8 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         postfix,
         cal_metric_pos,
         encode_single_gene,
-        padding
+        padding,
+        apply_chat_template
     )
         self.init_parallel_and_shuffle(shuffle, num_dp_ranks, dp_rank, read_nums, seed, start_step)
 
@@ -166,19 +170,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
     
     def __len__(self):       
         return self.read_nums
-    
 
-    # def __iter__(self):
-    #     if self.shuffle:
-    #         print_rank_0('--->Dataset shuffle is enabled', self.global_rank)
-    #         yield from self._shuffle_iter()
-    #     else:
-    #         with open(self.data_path, "r", encoding="utf-8") as fh:
-    #             for i, line in enumerate(fh):
-    #                 if self.start <= i < self.end:
-    #                     sample = self._load_sample(i, line)
-    #                     yield BaseDataset.process_sample(self, sample)
-             
 
 if __name__ == "__main__":
     # Test example.
@@ -186,36 +178,40 @@ if __name__ == "__main__":
     import torch
     from common.utils import DataCollator, set_random_seed
     from torch.utils.data import DataLoader
-    from model.tokenizer import Llama3Tokenizer
+    from transformers import AutoTokenizer
     from dataset_classes import RepeatingLoader
 
     set_random_seed(114514)
     os.environ['NO_LOG_FILE'] = 'true'
-    file_path = '/home/bingxing2/ailab/group/ai4bio/public/qatext/dna-dev.jsonl'
-    tokenizer_path = '/home/bingxing2/ailab/scx6mh7/workspace/llama/llama3_tokenizer.model'
-    tokenizer = Llama3Tokenizer(tokenizer_path)
+    file_path = '/ailab/user/hehaonan/data/nlp/math/MetaMathQA/train.jsonl'
+    tokenizer_path = '/ailab/user/hehaonan/pretrained_model/Qwen2.5-7B-Instruct'
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    tokenizer.pad_id, tokenizer.bos_id, tokenizer.eos_id = tokenizer.pad_token_id, tokenizer.bos_token_id, tokenizer.eos_token_id
+    tokenizer.label_pad_id = -100
     data_collator = DataCollator(tokenizer)
 
     iterable_dataset = BaseIterableDataset(file_path,
                                        tokenizer,
-                                       max_len=650,
-                                       max_src_len=600,
+                                       max_len=512,
+                                       max_src_len=256,
                                        mode='sft',
-                                       prefix='<|start_header_id|>user<|end_header_id|>\n\n',
-                                       postfix='<|start_header_id|>assistant<|end_header_id|>\n\n',
-                                       meta_prompt='<|start_header_id|>system<|end_header_id|>\n\nYou are a knowledgeable and helpful biology assistant. Please answer my biology sequence-related questions in a clear and concise manner.',
-                                       read_nums=100,
-                                       shuffle=True)
+                                       meta_prompt='<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n',
+                                       prefix='<|im_start|>user\n',
+                                       postfix='<|im_end|>\n<|im_start|>assistant\n',
+                                       read_nums=None,
+                                       shuffle=True,
+                                       apply_chat_template=False)
         
     g = torch.Generator()
     dataloader = RepeatingLoader(DataLoader(iterable_dataset,
                             collate_fn=data_collator,
                             shuffle=False,
                             drop_last=True,
-                            batch_size=50,
+                            batch_size=1,
                             generator=g))
     
     for i, data in enumerate(dataloader):
-        # print(i)
-        # pass
-        print(dataloader.train_token_count)
+        if i ==0:
+            print('input_ids', data['input_ids'].tolist())
+            print('labels', data['labels'].tolist())
+            break

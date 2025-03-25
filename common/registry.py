@@ -211,24 +211,37 @@ supported dataset are listed below:{cls.list_datasets()}")
         # by doing this you are not need to provide paths in your script
         paths_mapping = cls.mapping["paths_mapping"]
         for k,v in cls.mapping["paths_mapping"].items():
+            # Ensure the paths in mapping exist
+            if isinstance(v, str) and not os.path.exists(v):
+                paths_mapping[k] = None
+            elif isinstance(v, list) and not (all([os.path.exists(item) for item in v])):
+                paths_mapping[k] = None
 
-            if isinstance(v, str) and not os.path.isfile(v):
-                paths_mapping[k] = None
-            elif isinstance(v, list) and not (all([os.path.isfile(item) for item in v])):
-                paths_mapping[k] = None
-                
-        tokenizer_name = "tokenizer_" + args.model_name
-        model_name = "model_"  + '_'.join([args.model_name, args.variant])
-        args.eval_dataset_name = '' if args.eval_dataset_name is None else args.eval_dataset_name
+        # Acquire model and tokenizer checkpoint paths first.
+        # If use huggingface, then we only need model_name_or_path to acquire model and tokenizer.
+        model_name = '_'.join([args.model_name, args.variant])
+        if args.huggingface:
+            args.model_name_or_path = paths_mapping.get(f"huggingface_{model_name}", None)
+            if args.model_name_or_path is None:
+                hf_mappings = {k:v for k, v in paths_mapping.items() if 'huggingface' in k}
+                raise ValueError('model_name_or_path can not be None when using huggingface models.'
+                                 f'huggingface_{model_name} not found in {hf_mappings}.')
+        else:
+            tokenizer_name = "tokenizer_" + args.model_name
+            model_name = "model_"  + model_name
+            args.tokenizer_path = args.tokenizer_path if args.tokenizer_path else paths_mapping.get(tokenizer_name, None)
+            args.ckpt_path = args.ckpt_path if args.ckpt_path else paths_mapping.get(model_name, None)
+
+        # Acquire the dataset file paths.
         train_dataset_name = "train_dataset_" + args.train_dataset_name
-        eval_dataset_name = "eval_dataset_" + args.eval_dataset_name
-        args.tokenizer_path = args.tokenizer_path if args.tokenizer_path else paths_mapping.get(tokenizer_name, None)
+        eval_dataset_name = '' if args.eval_dataset_name is None else args.eval_dataset_name
+        eval_dataset_name = "eval_dataset_" + eval_dataset_name
         args.train_dataset_path = args.train_dataset_path if args.train_dataset_path else paths_mapping.get(train_dataset_name, None)
         args.eval_dataset_path = args.eval_dataset_path if args.eval_dataset_path else paths_mapping.get(eval_dataset_name, None)
-        args.ckpt_path = args.ckpt_path if args.ckpt_path else paths_mapping.get(model_name, None)
+        
         if args.train_dataset_path is None:
-            raise ValueError(f"Can not find name:{train_dataset_name} in paths mapping, \
-supported paths are listed below:{cls.list_paths()}")
+            raise ValueError(f"Can not find name:{train_dataset_name} in paths mapping,"
+                              "supported paths are listed below:{cls.list_paths()}")
         return args
     
     @classmethod

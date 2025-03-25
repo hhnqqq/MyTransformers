@@ -25,7 +25,7 @@ def load_dataloder(args, tokenizer, dp_rank, num_dp_ranks, dataset_kwargs, is_tr
     print_rank_0(f'--->Using dataset class: {args.dataset_class_name}', args.global_rank)
     dataset_class = registry.get_dataset_class(args.dataset_class_name)
     dataset_kwargs = dict(mode=args.mode, 
-                        tokenizer = tokenizer,
+                        tokenizer=tokenizer,
                         global_rank=args.global_rank,
                         meta_prompt=args.meta_prompt,
                         prefix=args.prefix,
@@ -35,6 +35,7 @@ def load_dataloder(args, tokenizer, dp_rank, num_dp_ranks, dataset_kwargs, is_tr
                         num_dp_ranks=num_dp_ranks,
                         encode_single_gene=args.encode_single_gene,
                         shuffle=True,
+                        apply_chat_template=False,
                         **dataset_kwargs)
     
     dataset = dataset_class(

@@ -1,11 +1,11 @@
 import os
+import json
 import torch
 import torch.distributed
 from datetime import datetime
 
 from model import *
 from common.lora_modules import *
-from train.trainer import Trainer
 from common.parser import get_args
 from common.registry import registry
 from common.optimizer import get_optimizer
@@ -23,7 +23,7 @@ set_random_seed(args.seed)
 print_rank_0(f'--->Data parallel world size: {parallel_states.get_data_parallel_world_size()}', args.global_rank)
 print_rank_0(f'--->Sequence parallel world size: {parallel_states.get_sequence_parallel_world_size()}', args.global_rank)
 print_rank_0(f'--->Pipeline parallel world size: {parallel_states.get_pipeline_model_parallel_world_size()}', args.global_rank)
-print_rank_0(f'--->Registry contains {registry.list_all()}', args.global_rank)
+print_rank_0(f'--->Registry contains {json.dumps(registry.list_all(), indent=4, ensure_ascii=False)}', args.global_rank)
 
 print_rank_0('--->Loading the model', args.global_rank)
 model, tokenizer, model_config, return_dataset_kwargs = load_model(args)
@@ -87,7 +87,7 @@ engine, optimizer, lr_scheduler = init_distributed_model(args,
 
 if __name__ == '__main__':
 
-    # import wandb
+    import wandb
     import logging
     import traceback
     import torch.profiler as profiler
@@ -95,13 +95,17 @@ if __name__ == '__main__':
     from torch.profiler import ProfilerActivity
     from train.pp_train import *
     from train.dp_train import *
+    from train.trainer import Trainer
 
     def get_writer(args):
-        # if args.wandb:
-        #     wandb.init(project=args.experiment_name,
-        #                config=args,
-        #                entity='Shanghai AI Lab',
-        #                sync_tensorboard=True)
+        if args.wandb:
+            os.environ['WANDB_CACHE_DIR'] = args.wandb_cache_dir
+            os.environ['WANDB_DIR'] = args.wandb_dir
+            wandb.init(project='MyTransformers',
+                       name=args.experiment_name,
+                       config=args,
+                       entity=None,
+                       sync_tensorboard=True)
         if args.tensorboard and not args.test_code:
             try:
                 from torch.utils.tensorboard import SummaryWriter
@@ -140,8 +144,9 @@ if __name__ == '__main__':
         else:
             backward_step = backward_step_deepspeed
         task_print = task_print_ntp
-
+    
     trainer = Trainer(args, writer)
+        
     trainer.register_task_print(task_print)
 
     def train_with_profiler(profiler):

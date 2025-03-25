@@ -1,6 +1,7 @@
 import torch
 import deepspeed
 from argparse import Namespace
+from transformers import PreTrainedModel, Qwen2ForCausalLM
 from torch.profiler import record_function
 from deepspeed.runtime.pipe.engine import DeepSpeedEngine
 
@@ -19,7 +20,8 @@ def  forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader
 
     with torch.profiler.record_function("forward_path"):
         if args.huggingface:
-            loss = model(**batch).loss
+            loss = model(input_ids=batch['input_ids'],
+                         labels=batch['labels']).loss
             metric = {}
         else:
             loss, metric = model(**batch)
@@ -41,7 +43,7 @@ def backward_step_deepspeed(model: DeepSpeedEngine, optimizer, loss, lr_schedule
         model.step()
 
     return model
-
+    
 def backward_step_deepspeed_relora(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
     with record_function("backward_path"):
         model.backward(loss)
@@ -220,7 +222,12 @@ def eval_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, ar
         batch = next(data_loader)
         batch = to_device(batch, args.device)
         with torch.no_grad():
-            loss, metric = model(**batch)
+            if args.huggingface:
+                loss = model(input_ids=batch['input_ids'],
+                            labels=batch['labels']).loss
+                metric = {}
+            else:
+                loss, metric = model(**batch)
             # TODO: all reduce metrics
         return loss.item(), metric
     
