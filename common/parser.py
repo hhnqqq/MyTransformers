@@ -9,16 +9,26 @@ from common.utils import print_rank_0, init_dist
 
 def base_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--train-dataset-path',type=str, default=None)
-    parser.add_argument('--eval-dataset-path',type=str, default=None)
-    parser.add_argument('--ckpt-path',type=str, default=None)
-    parser.add_argument('--tokenizer-path',type=str, default=None)
-    parser.add_argument('--output-path',type=str, required=True)
-    parser.add_argument('--tokenizer-name',type=str, default=None)
-    parser.add_argument('--model-name',type=str, default=None)
+    parser.add_argument('--train-dataset-path',type=str, default=None,
+                        help='The path of training dataset.')
+    parser.add_argument('--eval-dataset-path',type=str, default=None,
+                        help='The path of evaluating dataset.')
+    parser.add_argument('--ckpt-path',type=str, default=None,
+                        help='The path of model checkpoint (local model).')
+    parser.add_argument('--tokenizer-path',type=str, default=None,
+                        help='The path of tokenizer checkpoint (local model)')
+    parser.add_argument('--output-path',type=str, required=True,
+                        help='The path of output floder.')
+    parser.add_argument('--tokenizer-name',type=str, default=None,
+                        help='The name of tokenizer, can used to acquire tokenizer_path')
+    parser.add_argument('--model-name',type=str, default=None,
+                        help='The name of model, can used to acquire model_path (local model) or model_name_or_path (huggingface)')
+    parser.add_argument('--model-name-or-path', type=str, default=None,
+                        help='`model_name_or_path` is used to init huggingface model and tokenizer')
     parser.add_argument('--train-dataset-name',type=str, default=None)
     parser.add_argument('--eval-dataset-name',type=str, default=None)
     parser.add_argument('--tensorboard', action='store_true')
+    parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--test-code', action='store_true', help='add this argument to avoid creating log file.')
     parser.add_argument('--partial-ckpt-path',type=str, default=None, 
                         help='This argument is useful when train model base on previous trainable params from previous experiment.')
@@ -43,7 +53,7 @@ def train_parser(parser):
                        help='Run the model in fp16 mode')
     group.add_argument('--bf16', action='store_true', 
                        help='Run the model in bf16 mode')
-    group.add_argument('--variant', type=str, default='2b', choices=['test', '2b', '7b', '8b', '13b', '65b', 'large'], 
+    group.add_argument('--variant', type=str, default='2b', 
                        help='The variant of the model.')
     group.add_argument('--save-interval', type=int, default=None, 
                        help='Number of iterations between saves')
@@ -53,8 +63,8 @@ def train_parser(parser):
                        help='Number of iterations between evaluations')
     group.add_argument('--device', type=str, default='cuda', 
                        help='The device to load the model')
-    group.add_argument('--mode', type=str, default='pretrain',
-                       help='The training mode, currently this argument only change the behavior of dataset')
+    group.add_argument('--mode', type=str, default='pretrain', choices=['pretrain', 'sft', 'dual_rl', 'rlhf'],
+                       help='The training mode')
     group.add_argument('--from-pretrained', action='store_true',
                        help='Train the model from a pretrained checkpoint')
     group.add_argument('--batch-size-per-gpu', type=int, default=4, 
@@ -220,7 +230,7 @@ def peft_parser(parser):
     group.add_argument('--lora-plus-scaler', type=int, default=16,
                        help='The scaler of learning rate of LoRA weight b \
                        In the default case, the learning rate of weight b is 16 times of a')
-    group.add_argument('--replace-modules', type=str, default=None,
+    group.add_argument('--replace-modules', type=str, nargs='+', default=None,
                        help='List of modules to be replaced by LoRA')
     group.add_argument('--weight-a-init-method', type=str, default=None,
                        help='Init method for lora weight a')
@@ -364,7 +374,6 @@ def ds_parser(parser):
                        help='the pipeline stages, this value must be divisible by your GPU num')
     group.add_argument('--num-sp-stages', type=int, default=None,
                        help='the sequence parallel stages, this value must be divisible by your GPU num')
-    group.add_argument('--model-name-or-path', type=str, default=None)
     group.add_argument('--save-trainable', action='store_true')
     group.add_argument('--encode-single-gene', action='store_true')
     group.add_argument('--all-reduce-loss', action='store_true')
