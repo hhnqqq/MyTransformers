@@ -1,14 +1,8 @@
 ## 使用方法：
-- dp_train为序列并行和数据并行的文件，是否使用序列并行由num-sp-stages控制
-- pp_train为流水线并行的文件
-- trainer为训练器的代码，使用实例详见文件中的测试示例
+- 训练的入口统一是u_train，在使用时只需要指定训练相关的参数，用deepspeed或者torchrun启动程序即可
 
-## 关于注册器
-训练代码会大量使用到注册器，使用说明如下：
-- 使用数据并行或序列并行训练时：
-    1. 首先使用注册器获得tokenizer（与model_name和tokenizer_name参数有关）
-    2. 使用注册器获得模型config （与model_name和variant参数有关）
-    3. 使用注册器获得模型类 （与model_name参数有关）
-    4. 使用注册器获得模型训练类，即TrainModel类 （与model_name参数有关）
-- 使用流水线并行训练时：
-    4. 使用注册器获得流水线训练类，即PipelineModule类
+## 代码可读性
+- 加载模型相关的代码在load_model.py中，支持transformers模型和torch实现的模型，但是transformers库模型未经过完整测试
+- 加载数据集相关的代码在lora_dataset.py中。
+- forward_step和backward_step则在dp_train.py和pp_train.py中
+- 本仓库基于注册器机制构建，具体请参考common.registry

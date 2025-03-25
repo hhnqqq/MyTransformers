@@ -6,6 +6,7 @@
 - 优化器
 - parser
 - 注册器等
+- 各种LoRA算法，本仓库实现了大部分的lora算法，比peft多，比peft清晰！！
 
 ## 常见用法如下：
 ### 常用函数的导入：
@@ -41,10 +42,34 @@ from common.utils.params_manager import (
 ### parser的使用
 ```python
 # 必须这样调用，否则参数空间会不全，导致报错
-from common.parser import base_parser, train_parser, ds_parser
-args = ds_parser(train_parser(base_parser())).parse_args()
+from common.parser import get_args
+args = get_args()
 ```
-    
-### 数据集的格式
-数据集需要是jsonl或者txt格式，jsonl每一行需要是一个字典，字典需要包含input和output两个键，当使用pretrain模式时可以只有input键
-txt则每一行为一条数据（仅支持pretrain模式）
+
+### LoRA的使用
+```python
+from train.load_model import load_model
+from common.lora_modules import * # 或者导入setup函数也可以
+
+model, tokenizer, model_config, return_dataset_kwargs = load_model(args)
+
+setup_lora(model, args, model_config)
+
+# 注意，如果需要使用gora或者lora-ga或者adalora等，那么以下代码是必须的
+if args.use_lora_ga:
+    lora_ga_reinit(model=model,
+                   dataloader=train_dataloader,
+                   args=args,
+                   iters=args.lora_ga_n_steps)
+if args.use_gora:
+    gora_reinit(model=model,
+                  dataloader=train_dataloader,
+                  args=args,
+                  iters=args.gora_n_steps)
+if args.use_adalora:
+    rank_allocator = RankAllocator(model, args)
+    model.rankallocator = rank_allocator
+if args.use_increlora:
+    rank_allocator = IncreRankAllocator(model, args)
+    model.rankallocator = rank_allocator
+```
