@@ -3,7 +3,7 @@ import os
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 from transformers.utils import is_liger_kernel_available
 if is_liger_kernel_available():
-    pass
+    from liger_kernel.transformers import AutoLigerKernelForCausalLM as AutoModelForCausalLM
 
 from model import *
 from common.lora_modules import *
@@ -29,14 +29,15 @@ def load_huggingface_model_config(args):
 def load_huggingface_model(args):
     # Train with huggingface pretrained model. Only support data parallel training.
     return_dataset_kwargs = {}
-    assert args.num_pp_stages is None
     print_rank_0(f'--->Using tokenizer and model from huggingface with path: {args.model_name_or_path}', args.global_rank)
     model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(args.model_name_or_path,
                                                  trust_remote_code=True,
                                                  torch_dtype=STR_DTYPE_TO_TORCH_DTYPE[args.default_dtype],
-                                                 attn_implementation="sdpa")
+                                                 attn_implementation="sdpa",
+                                                 device_map=f"cuda:{args.local_rank}")
     if args.activation_checkpoint:
-        model.gradient_checkpointing_enable()
+        model.model.gradient_checkpointing=True
+        model.enable_input_require_grads()
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, trust_remote_code=True)
 
     # The main checkpoint is loaded by `from_pretrained` function. Partial checkpoint is used for LoRA.
@@ -45,6 +46,8 @@ def load_huggingface_model(args):
     model_config = load_huggingface_model_config(args)
     if args.num_pp_stages:
         print_rank_0(f'Pipeline parallelism is not supported for huggingface models, ignore.')
+    if args.num_sp_stages:
+        print_rank_0(f'Sequence parallelism is not supported for huggingface models, ignore.')
 
     # For compatibility with Dataset classes.
     tokenizer.pad_id, tokenizer.bos_id, tokenizer.eos_id = tokenizer.pad_token_id, tokenizer.bos_token_id, tokenizer.eos_token_id
@@ -119,6 +122,7 @@ def load_model(args):
         model, tokenizer, model_config, return_dataset_kwargs = load_huggingface_model(args)
     else:
         model, tokenizer, model_config, return_dataset_kwargs = load_local_model(args)
+    print_rank_0(f'--->Using dataset class: {model.__class__.__name__}', args.global_rank)
     # Load model to training dtype.
     if args.fp16:
         model.half()
