@@ -28,8 +28,9 @@ class LinearWithDoRA(LinearWithLoRA):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # The origin weight of Linear layer.
         weight = self._quantize_weight(self.weight, self.weight_quantizer)
-        weight = self._apply_dora(weight)
-        return F.linear(x, weight)
+        if not self.disable_lora:
+            weight = self._apply_dora(weight)
+        return F.linear(x, weight, self.bias)
     
     def _apply_dora(self, weight: torch.Tensor) -> torch.Tensor:
         # Make sure that the dtype of weight same as dtype of lora weights.

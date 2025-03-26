@@ -17,6 +17,7 @@ from typing import Optional, Dict, Any
 class LoRAConfig:
     in_features: int
     out_features: int
+    bias: bool = False
     lora_rank: int = 4
     lora_scaler: float = 32.0
     lora_dropout: Optional[float] = None
@@ -43,13 +44,14 @@ class LinearWithLoRA(nn.Linear):
             weight_b_init_method (str, optional): The init method for weight_b.
             run_lora_in_fp32 (bool): Whether to keep lora weight in fp32 regardless of dtype of forzen weight. (Defualt setting in peft's lora implementation.)
         """
-        super().__init__(lora_config.in_features, lora_config.out_features, bias=False)
+        super().__init__(lora_config.in_features, lora_config.out_features, bias=lora_config.bias)
         self.lora_rank = lora_config.lora_rank
         self.lora_scaler = lora_config.lora_scaler / lora_config.lora_rank
         self.quant = lora_config.quant
         self.weight_a_init_method = lora_config.weight_a_init_method
         self.weight_b_init_method = lora_config.weight_b_init_method
         self.run_lora_in_fp32 = lora_config.run_lora_in_fp32
+        self.disable_lora = False
             
         if lora_config.lora_dropout:
             self.lora_dropout = nn.Dropout(lora_config.lora_dropout)
@@ -60,10 +62,13 @@ class LinearWithLoRA(nn.Linear):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # The origin weight of Linear layer.
         weight = self._quantize_weight(self.weight, self.weight_quantizer)
-        result = F.linear(x, weight)
-        # Make sure the input of lora have same dtype with lora weights.
-        x = x.to(self._get_lora_dtype())
-        return self._lora_forward(x, result)
+        result = F.linear(x, weight, self.bias)
+        if self.disable_lora:
+            return result
+        else:
+            # Make sure the input of lora have same dtype with lora weights.
+            x = x.to(self._get_lora_dtype())
+            return self._lora_forward(x, result)
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         # If self.run_lora_in_fp32, then the dtype of lora_result will be fp32.
@@ -113,6 +118,13 @@ class LinearWithLoRA(nn.Linear):
             # Compute lora weight.
             lora_weight = self._compute_lora_weight()
             self.weight.data += lora_weight
+            return True
+        return False
+    
+    def _unmerge_lora(self) -> bool:
+        if self.has_lora_weights:
+            lora_weight = self._compute_lora_weight()
+            self.weight.data -= lora_weight
             return True
         return False
 

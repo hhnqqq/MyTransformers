@@ -112,6 +112,7 @@ def switch_to_lora(model: nn.Module,
                 elif isinstance(module, nn.Module):
                     if  all(hasattr(module, attr) for attr in ["in_features", "out_features", "weight"]):
                         quant = getattr(module, "quant", False)
+                        bias = getattr(module, "bias", None)
                         lora_config = LoRAConfig(lora_rank=args.lora_rank, 
                                             lora_scaler=args.lora_scaler, 
                                             lora_dropout=args.lora_dropout,
@@ -119,7 +120,8 @@ def switch_to_lora(model: nn.Module,
                                             weight_a_init_method=args.weight_a_init_method,
                                             weight_b_init_method=args.weight_b_init_method,
                                             in_features=module.in_features, 
-                                            out_features=module.out_features, 
+                                            out_features=module.out_features,
+                                            bias=(bias is not None), 
                                             quant=quant)
                         lora_layer: LinearWithLoRA = lora_layer_class(lora_config, **variant_config)
                         # Copy the original weight to the LoRA layer.
@@ -129,6 +131,7 @@ def switch_to_lora(model: nn.Module,
                             lora_layer.weight.data = module.weight.data
                         if quant:
                             lora_layer.weight_scaler = module.weight_scaler
+                        lora_layer.bias = bias
                         # Manually init lora weights after read pretrianed weight.
                         lora_layer.init_lora_weights()
                         # Replace the original layer with the LoRA layer.

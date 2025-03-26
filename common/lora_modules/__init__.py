@@ -24,6 +24,7 @@ Currently suppored LoRA variants are listed below:
 20. LoRA-FA
 21. IncreLoRA [IncreLoRA: Incremental Parameter Allocation Method for Parameter-Efficient Fine-tuning](https://arxiv.org/abs/2308.12043)
 """
+import contextlib
 from common.lora_modules.lora import *
 from common.lora_modules.melora import *
 from common.lora_modules.lora_ga import *
@@ -36,3 +37,40 @@ from common.lora_modules.plora import *
 from common.lora_modules.adalora import *
 from common.lora_modules.gora import *
 from common.lora_modules.increlora import *
+
+@contextlib.contextmanager
+def DisableLoRA(model):
+    """
+    Context manager to disable LoRA functionality for all LinearWithLoRA layers in the model.
+
+    Args:
+        model: The PyTorch model containing LinearWithLoRA layers.
+
+    Usage:
+        with DisableLoRA(model):
+            # LoRA is disabled within this block
+            output = model(input)
+    """
+    for module in model.modules():
+        if isinstance(module, LinearWithLoRA):
+            module.disable_lora = True
+
+    try:
+        yield
+    finally:
+        for module in model.modules():
+            if isinstance(module, LinearWithLoRA):
+                module.disable_lora = False
+
+@contextlib.contextmanager
+def MergeLoRA(model):
+    for module in model.modules():
+        if isinstance(module, LinearWithLoRA):
+            module._merge_lora()
+
+    try:
+        yield
+    finally:
+        for module in model.modules():
+            if isinstance(module, LinearWithLoRA):
+                module._unmerge_lora()

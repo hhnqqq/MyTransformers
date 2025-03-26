@@ -36,7 +36,7 @@ class LinearWithGoRA(LinearWithLoRA):
         self.rank_stablize = gora_rank_stablize
         self.scaling_alpha = lora_config.lora_scaler
         assert gora_init_method in ['vanilla', 'weight_svd', 'grad_svd', 'compress']
-        super().__init__(lora_config)
+        super().__init__(lora_config,)
 
     def init_lora_weights(self):
         self.lora_rank = 0
@@ -376,6 +376,9 @@ def gora_reinit(
     iters: int = 1,
     task_name: str = ''
 ):
+    # TODO：for real large model (such as 32b), 1. off load the model to cpu, 2. create a model using zero3 inference mode
+    # 3. forward and compute grad 4. all gather to collect grad and save to cpu, 5. delete the deepspeed model and load the origin model to gpu
+    # 6. initializing lora parameters for the model
     print_rank_0("--->Estimating gradient for gora.", rank=args.global_rank)
     with Timer() as timer:
         model.to(args.device)
