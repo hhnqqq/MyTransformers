@@ -4,6 +4,7 @@ import math
 import torch
 import logging
 
+import deepspeed
 from typing import Callable
 from argparse import Namespace
 from torch.utils.data import DataLoader
@@ -24,10 +25,10 @@ class Trainer:
         self.eval_metric = []
         self.best_eval_index = 0.0
         self.wait = 0
-        self.save_floder = os.path.join(args.output_path, args.experiment_name)
+        self.save_folder = os.path.join(args.output_path, args.experiment_name)
         self.save_config = True
         self.lr = args.lr
-        ensure_directory_exists(self.save_floder, self.args.global_rank)
+        ensure_directory_exists(self.save_folder, self.args.global_rank)
 
     def train(
         self,
@@ -66,6 +67,7 @@ class Trainer:
             self.args.save_interval = (updates_per_epoch / self.args.gradient_accumulation_steps) * self.args.save_epoch
 
         with Timer(iterations=total_print_steps) as timer:
+            model.train()
             for step in range(1, self.args.num_micro_update_steps+1):
                 # Timer start
                 timer.average_time(entry='start')
@@ -92,9 +94,10 @@ class Trainer:
 
                 # Evaluation
                 if step % self.args.eval_interval == 0 and eval_step is not None:
-                    assert eval_data_loader is not None, 'evaluation dataset cannot be None'
-                    self.eval_loss, eval_metric = eval_step(model, eval_data_loader, self.args, step)
-                    self.eval_metric.append(eval_metric)
+                    with torch.no_grad():
+                        assert eval_data_loader is not None, 'evaluation dataset cannot be None'
+                        self.eval_loss, eval_metric = eval_step(model, eval_data_loader, self.args, step)
+                        self.eval_metric.append(eval_metric)
 
                 # Logging and saving
                 self.info_manager(step, timer, log_loss)
@@ -193,7 +196,7 @@ class Trainer:
             lr_scheduler (torch.optim.lr_scheduler._LRScheduler): The learning rate scheduler to be saved.
             step (int): The current training step.
         """
-        config_path = os.path.join(self.save_floder, 'config.json')
+        config_path = os.path.join(self.save_folder, 'config.json')
 
         # Save the training configuration if required
         if self.save_config and isinstance(self.args, Namespace) and self.args.global_rank == 0:
@@ -208,55 +211,62 @@ class Trainer:
             should_save = (not self.end and (step + 1) % self.args.save_interval == 0) or (self.end and (step + 1) % self.args.save_interval != 0)
             if should_save:
                 tag = f'step_{step+1}' if not self.end else 'final'
-                print_rank_0(f'--->Start saving model at {step+1}th step in {self.save_floder}.', self.args.global_rank)
-                model.save_checkpoint(self.save_floder, tag=tag)
+                print_rank_0(f'--->Start saving model at {step+1}th step in {self.save_folder}.', self.args.global_rank)
+                model.save_checkpoint(self.save_folder, tag=tag)
                 print_rank_0('--->Saved the model.', self.args.global_rank)
-            return
-
-        # Handle saving for other cases
-        if self.args.global_rank <= 0:
+        else:
+            # Handle saving for other cases
             if not self.end and (step + 1) % self.args.save_interval == 0:
-                save_path = os.path.join(self.save_floder, f'step_{step+1}.ckpt')
+                save_path = os.path.join(self.save_folder, f'step_{step+1}.ckpt')
                 print_rank_0(f'--->Start saving model at step {step+1} in {save_path}.', self.args.global_rank)
                 self.torch_save(model, optimizer, lr_scheduler, dataloader, save_path)
                 print_rank_0('--->Saved the model.', self.args.global_rank)
             elif self.end:
-                save_path = os.path.join(self.save_floder, 'final.ckpt')
+                save_path = os.path.join(self.save_folder, 'final.ckpt')
                 print_rank_0(f'--->Start saving model at final step in {save_path}.', self.args.global_rank)
                 self.torch_save(model, optimizer, lr_scheduler, dataloader, save_path)
                 print_rank_0('--->Saved the model.', self.args.global_rank)
 
     def torch_save(self, 
-                   model:torch.nn.Module, 
-                   optimizer: Callable, 
-                   lr_scheduler: Callable, 
-                   dataloader: RepeatingLoader, 
-                   save_path: str):
-        if self.args.save_trainable:
-            save_params = {}
+                model:torch.nn.Module, 
+                optimizer: Callable, 
+                lr_scheduler: Callable, 
+                dataloader: RepeatingLoader, 
+                save_path: str):
+        is_zero3 = hasattr(model, 'module') and hasattr(model.module, 'zero_optimization_partition_weights')
+        model_state_dict = {}
+
+        if is_zero3:
+            print_rank_0('--->Gathering full model weights from all GPUs for ZeRO-3...', self.args.global_rank)
+            for name, param in model.module.named_parameters():         
+                with deepspeed.zero.GatheredParameters(param):
+                    if self.requires_save(name, param):
+                        model_state_dict[name] = param.data.clone().detach().cpu()
+        else:
             for name, param in model.module.named_parameters():
                 if self.requires_save(name, param):
-                    save_params[name] = param.data
-            model_state_dict = save_params
-        else:
-            model_state_dict = model.module.state_dict()
+                    model_state_dict[name] = param.data
 
-        if optimizer and lr_scheduler and not self.args.relora_steps:
-            ckpt_to_save = {'model_state_dict':model_state_dict,
-                            'optimizer_state_dict':optimizer.state_dict(),
-                            'lr_scheduler_state_dict':lr_scheduler.state_dict()}
-        else:
-            ckpt_to_save = model_state_dict
-        torch.save(ckpt_to_save, save_path)
+        if self.args.global_rank == 0:
+            if optimizer and lr_scheduler and not self.args.relora_steps:
+                ckpt_to_save = {'model_state_dict': model_state_dict,
+                                'optimizer_state_dict': optimizer.state_dict(),
+                                'lr_scheduler_state_dict': lr_scheduler.state_dict()}
+            else:
+                ckpt_to_save = model_state_dict
+            torch.save(ckpt_to_save, save_path)
 
     def requires_save(self, param_name, param):
-        if param.requires_grad:
+        if self.args.save_trainable:
+            if param.requires_grad:
+                return True
+            if self.args.params_to_save:
+                for save_name in self.args.params_to_save:
+                    if save_name in param_name:
+                        return True
+            return False
+        else:
             return True
-        if self.args.params_to_save:
-            for save_name in self.args.params_to_save:
-                if save_name in param_name:
-                    return True
-        return False
     
 if __name__ == '__main__':
     """A quick test for trainer"""
