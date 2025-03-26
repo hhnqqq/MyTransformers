@@ -1,6 +1,6 @@
 import os
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, Qwen2ForCausalLM, Trainer
 from transformers.utils import is_liger_kernel_available
 if is_liger_kernel_available():
     from liger_kernel.transformers import AutoLigerKernelForCausalLM as AutoModelForCausalLM
@@ -36,7 +36,7 @@ def load_huggingface_model(args):
                                                  attn_implementation="sdpa",
                                                  device_map=f"cuda:{args.local_rank}")
     if args.activation_checkpoint:
-        model.model.gradient_checkpointing=True
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         model.enable_input_require_grads()
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, trust_remote_code=True)
 
