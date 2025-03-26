@@ -232,16 +232,19 @@ class BaseDataset(Dataset):
             labels = [getattr(self.tokenizer, 'label_pad_id', self.tokenizer.pad_id)] * input_len + output_ids
         elif self.mode == 'pretrain':
             labels = input_ids
+        attention_masks = [1] * len(input_ids)
         if self.padding:
             # Do not need to pad when stretegy is packing.
             pad_len = self.max_len - len(input_ids)
             input_ids = input_ids + [self.tokenizer.pad_id] * pad_len
             labels = labels + [getattr(self.tokenizer, 'label_pad_id', self.tokenizer.pad_id)] * pad_len
+            attention_masks += [0] * pad_len
 
-        assert len(input_ids) == len(labels)
+        assert len(input_ids) == len(labels) == len(attention_masks)
         assert len(input_ids) <= self.max_len
         return {"input_ids": torch.LongTensor(input_ids), 
                 "labels": torch.LongTensor(labels),
+                "attention_masks": torch.LongTensor(attention_masks),
                 "cal_metric_pos": cal_metric_pos}
 
     def preprocess_sample(self, sample):

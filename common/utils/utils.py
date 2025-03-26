@@ -186,18 +186,20 @@ def to_device(batch, device):
 class DataCollator():
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
-        self.pad_token_id = tokenizer.pad_id
 
     def __call__(self, examples):
         input_ids_list, labels_list, cal_metric_pos_list, dna_ids_list, before_dna_list = [], [], [], [], []
+        attention_masks_list = []
         for instance in examples:
             input_ids = torch.LongTensor(instance["input_ids"]) if isinstance(instance["input_ids"], list) else instance["input_ids"]
             labels = torch.LongTensor(instance["labels"]) if isinstance(instance["labels"], list) else instance["labels"]
+            attention_masks = torch.LongTensor(instance["attention_masks"]) if isinstance(instance["labels"], list) else instance["labels"]
             cal_metric_pos = instance.get("cal_metric_pos", None)
             dna_ids = instance.get("dna_ids", None)
             before_dna= instance.get("before_dna", None)
             input_ids_list.append(input_ids) 
             labels_list.append(labels)
+            attention_masks_list.append(attention_masks)
             cal_metric_pos_list.append(cal_metric_pos)
             dna_ids_list.append(dna_ids)
             before_dna_list.append(before_dna)
@@ -211,13 +213,13 @@ class DataCollator():
         return {"input_ids": torch.stack(input_ids_list),
                 "dna_ids": rnn_utils.pad_sequence(dna_ids_list, batch_first=True, padding_value=4) if dna_ids_list is not None else None,
                 "labels": torch.stack(labels_list),
+                "attention_mask": torch.stack(attention_masks_list),
                 "cal_metric_pos_tensor": torch.tensor(cal_metric_pos_list) if cal_metric_pos_list is not None else None,
                 "before_dna": torch.tensor(before_dna_list) if before_dna_list is not None else None}
 
 class PipeLine_Datacollator():
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
-        self.pad_token_id = tokenizer.pad_id
 
     def __call__(self, examples):
         input_ids_list, labels_list = [], []
@@ -284,6 +286,22 @@ def reduce_tensor(tensor, world_size):
     dist.all_reduce(rt, op=dist.ReduceOp.SUM)
     rt /= world_size
     return rt
+
+def gather_tensor(tensor, world_size, device):
+    """
+    Gather tensors in first dimension.
+    Example:
+        world_size: 8
+        tensor shape: [2,2]
+        output tensor shape: [8, 2, 2]
+    """
+    output_tensors = torch.empty(
+                    world_size * tensor.numel(),
+                    dtype=tensor.dtype,
+                    device=device,
+                )
+    dist.all_gather_into_tensor(output_tensors, tensor)
+    return output_tensors.view(-1, *tensor.size()[1:])
 
 # ------------------logging----------------------------
 def configure_logging(log_path, rank: Optional[int] = 0):
@@ -458,4 +476,36 @@ def set_default_tensor_type(dtype: Union[torch.dtype, str]):
     yield
     torch.set_default_dtype(torch.float)
 
+def selective_log_softmax(logits, index):
+    """
+    A memory-efficient implementation of the common `log_softmax -> gather` operation.
 
+    This function is equivalent to the following naive implementation:
+    ```python
+    logps = torch.gather(logits.log_softmax(-1), dim=-1, index=index.unsqueeze(-1)).squeeze(-1)
+    ```
+
+    Args:
+        logits (`torch.Tensor`):
+            Logits tensor of shape `(..., num_classes)`.
+        index (`torch.Tensor`):
+            Index tensor of shape `(...)`, specifying the positions to gather from the log-softmax output.
+
+    Returns:
+        `torch.Tensor`:
+            Gathered log probabilities with the same shape as `index`.
+    """
+    if logits.dtype in [torch.float32, torch.float64]:
+        selected_logits = torch.gather(logits, dim=-1, index=index.unsqueeze(-1)).squeeze(-1)
+        # loop to reduce peak mem consumption
+        logsumexp_values = torch.stack([torch.logsumexp(lg, dim=-1) for lg in logits])
+        per_token_logps = selected_logits - logsumexp_values  # log_softmax(x_i) = x_i - logsumexp(x)
+    else:
+        # logsumexp approach is unstable with bfloat16, fall back to slightly less efficent approach
+        per_token_logps = []
+        for row_logits, row_labels in zip(logits, index):  # loop to reduce peak mem consumption
+            row_logps = F.log_softmax(row_logits, dim=-1)
+            row_per_token_logps = row_logps.gather(dim=-1, index=row_labels.unsqueeze(-1)).squeeze(-1)
+            per_token_logps.append(row_per_token_logps)
+        per_token_logps = torch.stack(per_token_logps)
+    return per_token_logps

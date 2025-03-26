@@ -1,7 +1,6 @@
 import torch
 import deepspeed
 from argparse import Namespace
-from transformers import PreTrainedModel, Qwen2ForCausalLM
 from torch.profiler import record_function
 from deepspeed.runtime.pipe.engine import DeepSpeedEngine
 
@@ -21,7 +20,8 @@ def  forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader
     with torch.profiler.record_function("forward_path"):
         if args.huggingface:
             loss = model(input_ids=batch['input_ids'],
-                         labels=batch['labels']).loss
+                         labels=batch['labels'],
+                         attention_mask=batch['attention_mask']).loss
             metric = {}
         else:
             loss, metric = model(**batch)
@@ -224,7 +224,8 @@ def eval_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, ar
         with torch.no_grad():
             if args.huggingface:
                 loss = model(input_ids=batch['input_ids'],
-                            labels=batch['labels']).loss
+                            labels=batch['labels'],
+                            attention_mask=batch['attention_mask']).loss
                 metric = {}
             else:
                 loss, metric = model(**batch)
