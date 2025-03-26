@@ -1,6 +1,6 @@
 import os
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, Qwen2ForCausalLM, Trainer
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 from transformers.utils import is_liger_kernel_available
 if is_liger_kernel_available():
     from liger_kernel.transformers import AutoLigerKernelForCausalLM as AutoModelForCausalLM
@@ -18,7 +18,7 @@ def load_huggingface_model_config(args):
     model_name_or_path = args.model_name_or_path
     if os.path.exists(model_name_or_path):
         config_path = os.path.join(model_name_or_path, 'config.json')
-        # Expecially, write lora layers config in the config file is needed.
+        # Especially, write lora layers config in the config file is needed.
         model_config = read_config(config_path)
         # Convert dict config to dataclass.
         model_config = dict_to_dataclass('model_config', model_config)
@@ -54,31 +54,20 @@ def load_huggingface_model(args):
     tokenizer.label_pad_id = -100
     return model, tokenizer, model_config, return_dataset_kwargs
 
+def load_local_model(args):
+    return_dataset_kwargs = {}
 
-def load_local_model_tokenizer(args):
+    # Train with local defined model.
     print_rank_0(f'--->Using tokenizer: {args.tokenizer_name} with path: {args.tokenizer_path}', args.global_rank)
     tokenizer = registry.get_tokenizer_class(args.tokenizer_name)(args.tokenizer_path)
     config_type = '_'.join([args.model_name, args.variant])
     model_config = registry.get_model_config_class(config_type)()
     print_rank_0(f'--->Using model config: {config_type}', args.global_rank)
     model_config.vocab_size = tokenizer.n_words
+    # Load model in default dtype to avoid OOM in limited GPU VRAM.
     with set_default_tensor_type(args.default_dtype):
         model = registry.get_model_class(args.model_name)(model_config)
-    return model, model_config, tokenizer
 
-def load_dataset_kwargs(args):
-    return_dataset_kwargs = {}
-    if args.multimodal:
-        set_up_multimodal_config(model_config, args)
-        return_dataset_kwargs['multimodal_k_tokens'] = args.multimodal_k_tokens
-    if 'concat' in args.dataset_class_name and args.dataset_weights is not None:
-        return_dataset_kwargs['weights'] = [int(i) for i in args.dataset_weights.split('_')]
-    return return_dataset_kwargs
-    
-def load_local_model(args):
-    # Train with local defined model.
-    model, model_config, tokenizer = load_local_model_tokenizer(args)
-    return_dataset_kwargs = load_dataset_kwargs(args)
     print_rank_0(f'--->Using model: {args.model_name}, and loading its trainning variant', args.global_rank)
 
     # Load checkpoint if checkpoint path is provieded.
@@ -91,7 +80,9 @@ def load_local_model(args):
         model_config.optimizer_sd = optimizer_sd
         model_config.lr_scheduler_sd = lr_scheduler_sd
 
-        if args.multimodal and hasattr(model, 'multimodal_model'):
+        if args.multimodal and hasattr(model, 'multimodal_model') and args.multimodal_model_ckpt_path:
+            set_up_multimodal_config(model_config, args)
+            return_dataset_kwargs['multimodal_k_tokens'] = args.multimodal_k_tokens
             load_ckpt(model=model.multimodal_model, ckpt_path=args.multimodal_model_ckpt_path, rank=args.global_rank)
             print_rank_0(f'--->Using pretrained multimodal model checkpoint at {args.multimodal_model_ckpt_path}', args.global_rank)
             multimodal_tokenizer = registry.get_tokenizer_class(args.multimodal_tokenizer_name)(model_config.multimodal_model_config.tokenizer)
@@ -114,18 +105,13 @@ def load_local_model(args):
     else:
         train_model_cls = registry.get_train_model_class(args.model_name)
         model = train_model_cls(model, args)
-    model.to(args.device)
+        
+    # Convert dtype to avoid inconsistency between default dtype and checkpoint dtype.
+    model.to(args.device).to(STR_DTYPE_TO_TORCH_DTYPE[args.default_dtype])
     return model, tokenizer, model_config, return_dataset_kwargs
 
 def load_model(args):
     if args.huggingface:
-        model, tokenizer, model_config, return_dataset_kwargs = load_huggingface_model(args)
+        return load_huggingface_model(args)
     else:
-        model, tokenizer, model_config, return_dataset_kwargs = load_local_model(args)
-    print_rank_0(f'--->Using dataset class: {model.__class__.__name__}', args.global_rank)
-    # Load model to training dtype.
-    if args.fp16:
-        model.half()
-    elif args.bf16:
-        model.bfloat16()
-    return model, tokenizer, model_config, return_dataset_kwargs
+        return load_local_model(args)
