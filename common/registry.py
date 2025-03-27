@@ -208,6 +208,19 @@ supported dataset are listed below:{cls.list_datasets()}")
     
     @classmethod
     def get_paths(cls, args):
+        """
+        Get paths of model, tokenizer and dataset from `paths.json` into args.
+        By utilizing this function, you can acquire the path by name.
+
+        Examples:
+            args.model_name == llama3 ---> args.ckpt_path == `path_to_llama3_model` 
+
+            args.model_name == llama3 ---> args.tokenizer_path == `path_to_llama3_tokenizer` 
+
+            args.model_name == llama3 ---> args.model_name_or_path == `path_to_llama3_hf_model` 
+            
+            args.train_dataset_name == gsm8k ---> args.train_dataset_path == `path_to_gsm8k`
+        """
         # by doing this you are not need to provide paths in your script
         paths_mapping = cls.mapping["paths_mapping"]
         for k,v in cls.mapping["paths_mapping"].items():

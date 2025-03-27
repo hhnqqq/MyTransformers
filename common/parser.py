@@ -69,7 +69,6 @@ def train_parser(parser):
                        help='Train the model from a pretrained checkpoint')
     group.add_argument('--batch-size-per-gpu', type=int, default=4, 
                        help='Batch size on a single GPU. batch-size * world_size = total batch_size.')
-    group.add_argument('--disable-zero-optimizer', action='store_true')
     
     # --------------------------- parameters ----------------------------
     group.add_argument('--enable-list', nargs='+', type=str, default=None,
@@ -104,6 +103,8 @@ def optimizer_parser(parser):
     group.add_argument('--diy-optimizer', action='store_true', 
                        help='Whether to DIY the optimizer. '
                        'DeepSpeed optimizer will be used as default optimizer.')
+    group.add_argument('--disable-zero-optimizer', action='store_true')
+    group.add_argument('--offload-optimizer', action='store_true')
     group.add_argument('--eval-batch-size-per-gpu', type=int, default=4, 
                        help='Evaluation batch size on a single GPU. batch-size * world_size = total batch_size.')
     group.add_argument('--lr', type=float, default=1.0e-4, 
@@ -167,7 +168,7 @@ def dataset_parser(parser):
     group.add_argument('--prompt-path', type=str, default=None)
     group.add_argument('--batching-stretegy', type=str, default='padding', choices=['padding', 'packing'],
                        help='The stretegy for batching dataset')
-    group.add_argument('--dataset-weights', type=str, default=None)
+    group.add_argument('--dataset-weights', type=int, nargs='+', default=None)
     group.add_argument('--read-start-step', type=int, default=None)
     
     return parser
@@ -384,6 +385,9 @@ def ds_parser(parser):
     return parser
 
 def get_args():
+    """
+    Parse arguments from ArgumentParser and check if the arguments are legeal.
+    """
     parser = base_parser()
     parser = dataset_parser(parser)
     parser = train_parser(parser)
@@ -395,7 +399,15 @@ def get_args():
     args = parser.parse_args()
     args = init_dist(args)
     
-    assert not (args.fp16 and args.bf16), "cannot specify both fp16 and bf16."
+    if args.fp16 and args.bf16:
+        raise ValueError("cannot specify both fp16 and bf16.")
+    if args.train_iters is not None and args.epochs is not None:
+        raise ValueError('only one of train_iters and epochs should be set.')
+    if args.multimodal:
+        if args.multimodal_projector_type == 'mlp':
+            if not args.multimodal_projector_layers > 1:
+                raise ValueError('Mlp module layer count must greater than 1')
+    
     if args.fp16:
         args.default_dtype = 'fp16'
     elif args.bf16:
@@ -403,15 +415,14 @@ def get_args():
     else:
         args.default_dtype = 'fp32'
 
-    assert (args.train_iters is None) or (args.epochs is None), 'only one of train_iters and epochs should be set.'
     if args.train_iters is None and args.epochs is None:
         args.train_iters = 10000 # default 10k iters
-        print_rank_0('No train_iters (recommended) or epochs specified, use default 10k iters.', level='WARNING')
+        print_rank_0('No train_iters (recommended) or epochs specified, use default 10k iters.', level='WARNING', rank=args.global_rank)
 
-    # if args.zero_stage > 0 and not args.fp16 and not args.bf16:
-    #     print_rank_0('Automatically set fp16=True to use ZeRO.', args.global_rank)     
-    #     args.fp16 = True
-    #     args.bf16 = False
+    if args.zero_stage > 0 and not args.fp16 and not args.bf16:
+        print_rank_0('Automatically set fp16=True to use ZeRO.', args.global_rank)     
+        args.fp16 = True
+        args.bf16 = False
     
     mt_dir = os.path.dirname(os.path.dirname(os.path.abspath(inspect.getfile(lambda: None))))
     if args.ds_config_path is None and args.zero_stage > 0:
@@ -422,10 +433,6 @@ def get_args():
         if isinstance(args.params_to_save, str):
             args.params_to_save = args.params_to_save.split('_')
         print_rank_0(f"--->Parameters to save: {args.params_to_save}", args.global_rank)
-
-    if args.multimodal:
-        if args.multimodal_projector_type == 'mlp':
-            assert args.multimodal_projector_layers > 1, 'Mlp module layer count must greater than 1'
 
     if args.prompt_path:
         prompt_info = json.load(open(args.prompt_path, 'r'))

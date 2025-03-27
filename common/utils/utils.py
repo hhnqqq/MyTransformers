@@ -229,6 +229,9 @@ class PipeLine_Datacollator():
         return ((torch.stack(input_ids_list), torch.stack(labels_list)), torch.stack(labels_list))
 
 def set_random_seed(seed):
+    """
+    Setup random seed for `numpy`, `torch` and `random`.
+    """
     global seed_set
     if seed is not None:
         random.seed(seed)
@@ -266,6 +269,9 @@ def init_dist(args):
     return args
     
 def init_distributed_model(args, model, optimizer, lr_scheduler, ds_config, parallel_states):
+    """
+    Set up distributed training enviroment.
+    """
     if args.disable_zero_optimizer:
         engine, _, _, _ = deepspeed.initialize(model=model, 
                                                 config=ds_config, 

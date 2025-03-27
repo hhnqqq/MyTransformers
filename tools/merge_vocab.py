@@ -1,3 +1,6 @@
+"""
+This file can merge to vocab file in one.
+"""
 import json
 from sentencepiece import sentencepiece_model_pb2 as pb2model
 

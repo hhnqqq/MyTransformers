@@ -1,5 +1,5 @@
 from common.utils import print_rank_0
-from common.lora import LinearWithLoRA
+from common.lora_modules import LinearWithLoRA
 
 def format_param_count(num_params):
     if num_params >= 1e9:
@@ -46,6 +46,18 @@ def enable_trainable_params(model,enable_list):
             p.requires_grad_(True)
 
 def set_up_trainable_param(model, args):
+    """
+    Set up trainable parameters of the model according to `args.enable_list` and `args_diable_list`
+    and print trainable paramters.
+
+    `args.enable_list will be considered at first`
+
+    For example:
+        if `args.enable_list == ['wq']` then wq will be trainable and other weights are not.
+
+        if `args.enable_list is None` and `args.diable_list == ['tok_embeddings']` then tok_embeddings
+        will be disabled and other weights are trainable
+    """
     if args.enable_list is not None:
         enable_trainable_params(model, args.enable_list)
     elif args.disable_list is not None:
@@ -54,7 +66,7 @@ def set_up_trainable_param(model, args):
         disable_untrainable_params(model, [])
     for module in model.modules():
         if isinstance(module, LinearWithLoRA) and module.weight.requires_grad:
-            # If the lora layer's weight is trainable, disable the lora weight....
+            # If the lora layer's pretrained weight is trainable, disable the lora weight....
             module.weight_a = None
             module.weight_b = None
             del module._parameters['weight_a']
@@ -66,9 +78,14 @@ def set_up_trainable_param(model, args):
         print_trainable_module_names(model, args.global_rank)
         
 def refresh_config(ds_config, args):
+    """
+    Refresh the deepspeed config from args.
+    The deepspeed config originally read from static config file.
+    """
     ds_config['gradient_accumulation_steps'] = args.gradient_accumulation_steps
     ds_config['train_micro_batch_size_per_gpu'] = args.batch_size_per_gpu
     ds_config['optimizer']['params']['lr'] = args.lr
+    ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = args.num_warmup_steps
     if 'train_batch_size' in ds_config:
         ds_config['train_batch_size'] = args.batch_size_per_gpu * args.gpu_count
     if args.csv_monitor:

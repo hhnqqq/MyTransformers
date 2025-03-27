@@ -175,10 +175,10 @@ class BaseDataset(Dataset):
             # In case of HuggingFace tokenizer, we can use apply_chat_template for easy formatting.
             # This require the mode is sft and max_src_len will be ignored.
             input_text, output_text = self._extract_texts(sample)
-            assert self.mode == 'sft' and output_text
+            if not (self.mode == 'sft' and output_text):
+                raise ValueError("apply_chat_template requires SFT mode and non-empty output text.")
             messages = [{'role':'system', 'content': self.meta_prompt}] if self.meta_prompt else []
             messages.extend([{'role':'user', 'content': input_text}, {'role':'assistant', 'content': output_text}])
-            self.tokenizer: PreTrainedTokenizerBase
             tokenized = self.tokenizer.apply_chat_template(
                         messages,
                         max_length=self.max_len,
@@ -186,9 +186,11 @@ class BaseDataset(Dataset):
                         truncation=True,
                         return_dict=True)
             input_ids, output_mask = tokenized['input_ids'], tokenized['assistant_masks']
-            input_len, output_len = len(input_ids) - len(output_mask), len(output_mask)
+            output_len = sum(output_mask) or len(input_ids)
+            # If assistant can not be accessed, input_ids will also used to compute loss.
+            input_len = len(input_ids) - output_len
             input_ids, output_ids = input_ids[:-output_len], input_ids[-output_len:]
-            self.train_token_count += output_len
+            self.train_token_count += output_len if output_len else input_len
         else:
             input_text, output_text, input_ids, output_ids = self.preprocess_sample(sample)
             if output_text:

@@ -1,3 +1,7 @@
+"""
+This file can transfer pipeline parallelism checkpoint to normal checkpoint
+And merge LoRA to pretrained weight if needed.
+"""
 import json
 import torch
 import shutil
@@ -8,7 +12,7 @@ from os.path import join
 from model import *
 from common.registry import registry
 from common.utils import get_merged_state_dict
-from common.lora import switch_to_lora, LinearWithLoRA
+from common.lora_modules import switch_to_lora, LinearWithLoRA
 
 
 def convert_model_to_hf(args):
@@ -92,11 +96,11 @@ def convert_model_to_hf(args):
 
 def set_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--pretrained_model_path',default='/home/bingxing2/ailab/scx6mh7/workspace/llama-3.1-chat/consolidated.00.pth', type=str, help='')
-    parser.add_argument('--model_path',default='/home/bingxing2/ailab/scx6mh7/workspace/MyTransformers/output/llama3.1_pretrain_exp_2/final.ckpt', type=str, help='')
+    parser.add_argument('--pretrained_model_path',default=None, type=str, help='')
+    parser.add_argument('--model_path',default=None, type=str, help='')
     parser.add_argument('--pipeline_model', action='store_true')
-    parser.add_argument('--save_model_dir', default='/home/bingxing2/ailab/scx6mh7/workspace/MyTransformers/output/llama3.1_pretrain_exp_2/', type=str, help='')
-    parser.add_argument('--tokenizer', default='/home/bingxing2/ailab/scx6mh7/workspace/log',type=str)
+    parser.add_argument('--save_model_dir', default=None, type=str, help='')
+    parser.add_argument('--tokenizer', default=None,type=str)
     parser.add_argument('--save_name', default='final_full', type=str, help='')
     parser.add_argument('--model_name', default='llama3', type=str, help='')
     parser.add_argument('--variant', default='8b', type=str, help='')

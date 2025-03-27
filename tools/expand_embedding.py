@@ -1,3 +1,6 @@
+"""
+This file can expand the vocab and embedding of a pretrained model.
+"""
 import os
 import torch
 import torch.nn as nn
@@ -106,14 +109,14 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--pretrained-ckpt-path', type=str, default='/home/bingxing2/ailab/scx6mh7/workspace/llama/llama2.pth')
+    parser.add_argument('--pretrained-ckpt-path', type=str, default=None)
     parser.add_argument('--hidden-size', type=int, default=4096)
     parser.add_argument('--embeddings-layer-name', type=str, default='tok_embeddings')
     parser.add_argument('--output-layer-name', type=str, default='output')
-    parser.add_argument('--base-tokenizer-path', type=str, default='/home/bingxing2/ailab/scx6mh7/workspace/llama/llama2_tokenizer.model')
-    parser.add_argument('--expanded-tokenizer-path', type=str, default='/home/bingxing2/ailab/scx6mh7/workspace/dnabert2/merged_tokenizer.model')
+    parser.add_argument('--base-tokenizer-path', type=str, default=None)
+    parser.add_argument('--expanded-tokenizer-path', type=str, default=None)
     parser.add_argument('--init-method', type=str, default='normal', choices=['normal', 'uniform', 'xavier', 'kaiming', 'sub_words'])
-    parser.add_argument('--save-dir', type=str, default='/home/bingxing2/ailab/scx6mh7/workspace/dnabert2')
+    parser.add_argument('--save-dir', type=str, default=None)
     args = parser.parse_args()
 
     main(args)

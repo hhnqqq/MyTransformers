@@ -241,6 +241,7 @@ class Trainer:
             for name, param in model.module.named_parameters():         
                 with deepspeed.zero.GatheredParameters(param):
                     if self.requires_save(name, param):
+                        # Avoid OOM when zero3 is utilized.
                         model_state_dict[name] = param.data.clone().detach().cpu()
         else:
             for name, param in model.module.named_parameters():

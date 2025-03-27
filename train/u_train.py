@@ -27,6 +27,7 @@ print_rank_0(f'--->Registry contains {json.dumps(registry.list_all(), indent=4, 
 
 print_rank_0('--->Loading the model', args.global_rank)
 model, tokenizer, model_config, return_dataset_kwargs = load_model(args)
+print_rank_0(f'--->Using model class: {model.__class__.__name__}', args.global_rank)
 
 setup_lora(model, args, model_config)
 
@@ -46,27 +47,11 @@ eval_dataloader = load_dataloder(args, tokenizer, dp_rank, num_dp_rank, return_d
 
 ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)
-ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = args.num_warmup_steps
 
 # start tranning
 
 # Run this befor set up trainable parameters.
-if args.use_lora_ga:
-    lora_ga_reinit(model=model,
-                   dataloader=train_dataloader,
-                   args=args,
-                   iters=args.lora_ga_n_steps)
-if args.use_gora:
-    gora_reinit(model=model,
-                  dataloader=train_dataloader,
-                  args=args,
-                  iters=args.gora_n_steps)
-if args.use_adalora:
-    rank_allocator = RankAllocator(model, args)
-    model.rankallocator = rank_allocator
-if args.use_increlora:
-    rank_allocator = IncreRankAllocator(model, args)
-    model.rankallocator = rank_allocator
+prepare_lora(model, train_dataloader, args)
 # set up trainable before acquiring optimizer.
 set_up_trainable_param(model, args)
 

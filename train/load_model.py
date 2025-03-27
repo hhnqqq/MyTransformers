@@ -111,6 +111,16 @@ def load_local_model(args):
     return model, tokenizer, model_config, return_dataset_kwargs
 
 def load_model(args):
+    """
+    Load model from args.
+    If `args.huggingface`, then the model and tokenizer will be loaded from transformers.
+    Else the model and tokenizer will be load from MyTransformers.
+
+    Note that huggingface models do not support pipeline parallelism and sequence parallelism for now.
+
+    It is possisble to support sequence parallelism by replace the Attention class of huggingface models 
+    using a monkey patch.
+    """
     if args.huggingface:
         return load_huggingface_model(args)
     else:

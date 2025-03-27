@@ -33,13 +33,21 @@ def get_optimizer_instance(optim_type, args, model):
         return get_regular_optimizer(optim_type, args, model)
 
 def get_optimizer(ds_config, args, model, optimizer_sd = None, lr_scheduler_sd = None):
+    """
+    Set up optimizer and learning rate scheduler.
+
+    If `args.diy_optimizer == True` then optimzer will be created according to args.
+    else deepseed will create optimizer for you according to ds_config.
+
+    This function provide clear optimizer prepare process and can adjust the parameter groups if needed.
+    """
     if not args.diy_optimizer:
         return None, None
 
     optim_type = get_optimizer_type(args, ds_config)
     offload_config = ds_config["zero_optimization"].get("offload_optimizer", {})
     offload_device = offload_config.get("device", None)
-    if offload_device == 'cpu':
+    if offload_device == 'cpu' or args.optimizer_offload:
         optim_type = 'cpu' + optim_type
     isSuccess, optimizer = get_optimizer_instance(optim_type, args, model)
 
