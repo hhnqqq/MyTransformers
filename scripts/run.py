@@ -1,4 +1,4 @@
-# TODO:利用多张显卡跑测试集
+# TODO:改成用vllm跑（可能需要把lora merge进pretrained权重）
 import os
 import json
 import argparse
@@ -10,7 +10,7 @@ from functools import partial
 
 from model import *
 from common.registry import registry
-from common.lora_modules import switch_to_lora
+from common.lora_modules import switch_to_lora, LinearWithGoRA
 from common.utils import set_random_seed, load_ckpt
 from common.utils.utils import set_default_tensor_type
 from common.utils import parallel_states as parallel_states
@@ -24,6 +24,13 @@ format_dict = {
     "json": pd.read_json,
     "jsonl": partial(pd.read_json, lines=True)
 }
+
+INPUT_PROMPT='''===>Please enter your prompt
+Enter quit() to quit
+Enter output_len() to change output_len
+Enter prefix() to change prefix
+Enter meta_prompt() to change meta prompt
+Enter clear() to clear meta prompt and prefix:'''
 
 def stratified_sample(df, strata_col, total_sample_size, equal_sample=False, replace=False):
     strata_sizes = df[strata_col].value_counts()
@@ -64,7 +71,7 @@ def main(args):
     else:
         training_config = None
     model_config = registry.get_model_config_class('_'.join([args.model_name, args.variant]))()
-    model = registry.get_model_class(args.model_name)
+    model: nn.Module = registry.get_model_class(args.model_name)
     if training_config:
         if training_config.bf16:
             model_config.dtype = "bf16" 
@@ -73,7 +80,6 @@ def main(args):
     else:
         model_config.dtype = "fp32"
     model_config.quant = args.quant
-    # model_config.tokenizer = args.tokenizer
     model_config.tokenizer = args.tokenizer if args.tokenizer is not None else training_config.tokenizer_path 
     print(model_config.tokenizer)    
 
@@ -85,19 +91,25 @@ def main(args):
     print("Start loading model")
     with set_default_tensor_type(model_config.get_dtype()):
         model = model(model_config)
-        if args.use_lora:
+        print("load checkpoint")
+        if args.pretrained_ckpt is not None:
+            load_ckpt(model=model.model, ckpt_path=args.pretrained_ckpt)
+            print(f"loaded pretrained weight at{args.pretrained_ckpt}")
+        if training_config.use_lora:
             print("Replacing model with lora layers")
             switch_to_lora(model, 
-            args=training_config,
-            replace_names=training_config.replace_modules if training_config is not None else model_config.lora_layers, 
-            rank=training_config.lora_rank, )
-
-        if args.pretrained_ckpt or args.ckpt is not None:
-            print("load checkpoint")
-            load_ckpt(model=model.model, ckpt_path=args.pretrained_ckpt, partial_ckpt_path=args.ckpt)
+            args=training_config)
+            if hasattr(training_config, 'use_gora') and training_config.use_gora:
+                rank_config_file = os.path.join(os.path.dirname(args.ckpt), 'rank.json')
+                rank_config = json.load(open(rank_config_file,'r'))
+                for name,module in model.model.named_modules():
+                    if isinstance(module, LinearWithGoRA):
+                        rank = rank_config[name]
+                        module.init_method = 'vanilla'
+                        module.dynamic_init(training_config.lora_rank, rank)
+        if args.ckpt is not None:
+            load_ckpt(model=model.model, partial_ckpt_path=args.ckpt)
             print(f"loaded weight at{args.ckpt}")
-            if args.pretrained_ckpt is not None:
-                print(f"loaded pretrained weight at{args.pretrained_ckpt}")
         model = model.to(device).eval()
     print("Model loading done")
     print('======================================')
@@ -120,7 +132,6 @@ def main(args):
         print('======================================')
 
     if args.dataset_path is not None:
-        
         if not args.result_path:
             args.result_path = floder_path
         format = args.dataset_path.split('.')[-1]
@@ -137,10 +148,12 @@ def main(args):
         with tqdm(range(iter_start, iter_end, args.batch_size), desc='runing dataset', disable=disable) as tbar:
             for i in tbar:
                 start, end = i, i+(args.batch_size-1)
-                inputs = df.loc[start:end, 'input'].apply(lambda x: args.meta_prompt + args.prefix + x + args.post_fix).to_list()
-                results = model.generate(inputs ,device, output_len=args.output_len, eos=False)[0]
+                inputs = df.loc[start:end, 'input'].apply(lambda x: args.meta_prompt + args.prefix + x + args.postfix).to_list()
+                # results = model.generate(inputs, device, output_len=args.output_len, eos=False, temperature=0)[0]
+                results = model.generate(inputs, device, output_len=args.output_len, eos=False)[0]
                 results = [result.strip("<|begin_of_text|>") for result in results]
                 for idx, result in enumerate(results):
+                    print(f"Index: {start+idx}, Result: {result}")  # Debugging each result
                     if result == df.loc[i+idx, 'output']:
                         acc_count += 1
                     else:
@@ -155,15 +168,10 @@ def main(args):
                     # Save the file every 1000 steps.
                     df.to_json(os.path.join(args.result_path, 'result.json'), orient='records', force_ascii=False, lines=True)
         df.to_json(os.path.join(args.result_path, 'result.json'), orient='records', force_ascii=False, lines=True)
-            
+                
     if args.run_loop:
         while True:
-            user_input = str(input('''===>Please enter your prompt
-Enter quit() to quit
-Enter output_len() to change output_len
-Enter prefix() to change prefix
-Enter meta_prompt() to change meta prompt
-Enter clear() to clear meta prompt and prefix:'''))
+            user_input = str(input(INPUT_PROMPT))
             if user_input == 'quit()':
                 break
             elif user_input == 'output_len()':
@@ -178,7 +186,7 @@ Enter clear() to clear meta prompt and prefix:'''))
             else:
                 # Make sure the meta prompt is correct.
                 prompt = args.meta_prompt + args.prefix + user_input +args.postfix
-                result = model.generate(prompt, device, output_len=args.output_len, eos=False)
+                result = model.generate(prompt, device, output_len=args.output_len, eos=False, temperature=0)
                 print('======================================')
                 print(f'RESULT: {result}')
                 print('======================================')
@@ -186,12 +194,9 @@ Enter clear() to clear meta prompt and prefix:'''))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # parser.add_argument("--ckpt", type=str, default='/home/bingxing2/ailab/scx6mh7/workspace/dnallama/output/gue_except_covid_dp/final.ckpt')
     parser.add_argument("--ckpt", type=str, default=None)
-    # parser.add_argument("--pretrained_ckpt", type=str, default='/home/bingxing2/ailab/scx6mh7/workspace/dnallama/output/dnallama_bpe_1em4/step_15000.ckpt')
     parser.add_argument("--pretrained_ckpt", type=str, default=None)
-    # parser.add_argument("--ckpt", type=str, default=None)
-    parser.add_argument("--tokenizer", type=str, default='/home/bingxing2/ailab/scx6mh7/workspace/llama/llama2_tokenizer.model')
+    parser.add_argument("--tokenizer", type=str, default=None, required=True)
     parser.add_argument("--meta_prompt", type=str, default='')
     parser.add_argument("--dataset_path", type=str, default=None)
     parser.add_argument("--read_num", type=int, default=None)
