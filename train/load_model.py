@@ -1,4 +1,5 @@
 import os
+import gc
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 from transformers.utils import is_liger_kernel_available
@@ -64,7 +65,7 @@ def load_local_model(args):
     model_config = registry.get_model_config_class(config_type)()
     print_rank_0(f'--->Using model config: {config_type}', args.global_rank)
     model_config.vocab_size = tokenizer.n_words
-    # Load model in default dtype to avoid OOM in limited GPU VRAM.
+    # Load model in default dtype to avoid OOM (cpu memory).
     with set_default_tensor_type(args.default_dtype):
         model = registry.get_model_class(args.model_name)(model_config)
 
@@ -107,7 +108,9 @@ def load_local_model(args):
         model = train_model_cls(model, args)
         
     # Convert dtype to avoid inconsistency between default dtype and checkpoint dtype.
-    model.to(args.device).to(STR_DTYPE_TO_TORCH_DTYPE[args.default_dtype])
+    torch.cuda.empty_cache()
+    gc.collect()
+    model.to(STR_DTYPE_TO_TORCH_DTYPE[args.default_dtype]).to(args.device)
     return model, tokenizer, model_config, return_dataset_kwargs
 
 def load_model(args):
