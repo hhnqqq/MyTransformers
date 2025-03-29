@@ -1,3 +1,10 @@
+## 环境配置：
+本仓库对环境的要求比较低：
+- transformers
+- liger_kernrl
+- 大于1.5.4的deepspeed
+- 大于2.2的torch
+
 ## 使用方法：
 
 - python setup.py install 配置环境
@@ -9,7 +16,18 @@
 
 - 设置好参数之后运行该脚本即可启动训练
 
+## 支持的功能：
+1. 使用liger_kernel减小训练显存使用，加速训练
+2. 使用deepspeed分布式训练，支持流水线并行，序列并行
+3. 支持使用transformers模型和tokenizer
+4. 支持20+ LoRA算法，架构清晰，易学习
+5. 支持灵活的optimizer设置
+6. 支持使用多种不同的attention implementation，支持对sdpa后端进行设置
+7. 支持多种不同的数据集
+8. 支持多节点训练
+9. 灵活的注册器机制
 
+   
 ## 详细的文档：
 [MyTransformer使用文档](https://github.com/hhnqqq/MyTransformers/blob/main/MyTransformers_document.pdf)
 ## 多机多卡训练
