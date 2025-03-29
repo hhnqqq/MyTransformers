@@ -45,7 +45,7 @@ class LLaMaTrainModel(BaseModel):
             attention_mask = self.attention_mask
         return hidden_states, attention_mask
     
-    def model_forward(self, logits, freqs_cis, attention_mask):
+    def model_forward(self, logits, labels, freqs_cis, attention_mask):
         # Using activation checkpoint to reduce memory consumption or not.
         for i in range(self.args.num_layers):
             if self.args.activation_checkpoint:
@@ -63,8 +63,13 @@ class LLaMaTrainModel(BaseModel):
                                         mask=attention_mask, 
                                         atten_type=self.args.atten_type)
         logits = self.norm(logits)
-        logits = self.output(logits)
-        return logits
+        if self.fuse_linear_loss:
+            loss = self.compute_loss(logits, labels, self.output.weight)
+            logits = None
+        else:
+            logits = self.output(logits)
+            loss = self.compute_loss(logits, labels)
+        return loss, logits
     
     
     @staticmethod
@@ -74,7 +79,6 @@ class LLaMaTrainModel(BaseModel):
             mask = torch.triu(mask, diagonal=1)
             mask = torch.hstack([torch.zeros((seqlen, start_pos), device=device),mask]).to(dtype)
             return mask
-        
 
 
 @registry.register_train_model(["llama1_with_hyena", "llama2_with_hyena", "llama3_with_hyena",
@@ -146,9 +150,8 @@ class MultimodalLlamaTrainModel(LLaMaTrainModel):
 
         hidden_states, labels, freqs_cis = self.cut_sequence(hidden_states, labels)
         attention_mask = self.attention_mask.to(hidden_states.device, dtype=hidden_states.dtype)
-        logits = self.model_forward(hidden_states, freqs_cis, attention_mask)
+        loss, _ = self.model_forward(hidden_states, labels, freqs_cis, attention_mask)
         
-        loss = self.compute_loss(logits, labels)
         return loss, {}
     
     def encoder_forward(self, dna_ids, origin_dtype):

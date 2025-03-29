@@ -18,10 +18,9 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from typing import Any, List, Optional, Sequence, Tuple, Union
-from transformers.utils.versions import require_version
-from deepspeed.sequence.layer import DistributedAttention
 
-import common.utils.parallel_states as parallel_states
+from liger_kernel.ops.geglu import LigerGELUMulFunction
+from liger_kernel.ops.rms_norm import LigerRMSNormFunction
 
 from model import BaseTokenizer
 from common.registry import registry
@@ -192,12 +191,18 @@ class RMSNorm(torch.nn.Module):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
     def forward(self, x):
-        x = self._norm(x.float()).type_as(x)
-        if self.add_unit_offset:
-            output = x * (1 + self.weight)
-        else:
-            output = x * self.weight
-        return output
+        # x = self._norm(x.float()).type_as(x)
+        # if self.add_unit_offset:
+        #     output = x * (1 + self.weight)
+        # else:
+        #     output = x * self.weight
+        # return output
+        return LigerRMSNormFunction.apply(x.float(),
+                                          self.weight,
+                                          self.eps,
+                                          1.0 if self.add_unit_offset else 0.0,
+                                          "gemma",
+                                          True).type_as(x)
 
 
 class GemmaMLP(nn.Module):
@@ -214,12 +219,13 @@ class GemmaMLP(nn.Module):
         self.down_proj = Linear(intermediate_size, dim, quant)
 
     def forward(self, x):
-        gate = self.gate_proj(x)
-        gate = F.gelu(gate)
-        up = self.up_proj(x)
-        fuse = gate * up
-        outputs = self.down_proj(fuse)
-        return outputs
+        # gate = self.gate_proj(x)
+        # gate = F.gelu(gate)
+        # up = self.up_proj(x)
+        # fuse = gate * up
+        # outputs = self.down_proj(fuse)
+        # return outputs
+        return self.down_proj(LigerGELUMulFunction.apply(self.gate_proj(x), self.up_proj(x)))
 
 class GemmaAttention(nn.Module):
 

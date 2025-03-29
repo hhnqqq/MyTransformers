@@ -37,7 +37,7 @@ class GemmaTrainModel(BaseModel):
         attention_mask = self.attention_mask.to(hidden_states.device).to(hidden_states.dtype)
         return hidden_states, attention_mask
     
-    def model_forward(self, logits, freqs_cis, attention_mask):
+    def model_forward(self, logits, labels, freqs_cis, attention_mask):
         # Using activation checkpoint to reduce memory consumption or not.
         if self.args.activation_checkpoint:
             for i in range(len(self.model.layers)):
@@ -54,8 +54,15 @@ class GemmaTrainModel(BaseModel):
                                     mask=attention_mask, 
                                     atten_type=self.args.atten_type)
         logits = self.model.norm(logits)
-        logits = torch.matmul(logits, self.emb_weight.t().to(logits.device).to(logits.dtype))
-        return logits
+
+        if self.fuse_linear_loss:
+            loss = self.compute_loss(logits, labels, self.emb_weight.t().to(logits.device).to(logits.dtype))
+            logits = None
+        else:
+            logits = self.output(logits)
+            loss = self.compute_loss(logits, labels)
+            
+        return loss, logits
 
     @staticmethod
     def get_masks(seq_len, device='cpu', dtype=torch.float):

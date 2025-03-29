@@ -3,26 +3,35 @@ import torch.nn as nn
 import common.utils.parallel_states as parallel_states
 
 from common.utils import cal_metric
+from liger_kernel.transformers import LigerCrossEntropyLoss, LigerFusedLinearCrossEntropyLoss
 
 class BaseModel(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.args = args
         self.pad_id = args.pad_id
+        self.fuse_linear_loss = self.args.fuse_linear_loss
         if args.loss_fct == 'mse':
             self.loss_fct = torch.nn.MSELoss()
         elif args.loss_fct == 'ce':
-            self.loss_fct = torch.nn.CrossEntropyLoss(ignore_index=self.pad_id)
+            if self.fuse_linear_loss:
+                self.loss_fct = LigerFusedLinearCrossEntropyLoss(reduction="mean",
+                                                                 ignore_index=self.pad_id)
+            else:
+                self.loss_fct = LigerCrossEntropyLoss(ignore_index=self.pad_id)
 
     def forward(self, **kwargs):
         input_ids, labels = kwargs["input_ids"], kwargs["labels"]
         input_ids, labels, freqs_cis = self.cut_sequence(input_ids, labels)
         hidden_states, attention_mask = self.embedding(input_ids)
-        logits = self.model_forward(hidden_states, freqs_cis, attention_mask)
-        loss = self.compute_loss(logits, labels)
-        return loss, self.compute_metric(logits, labels, kwargs["cal_metric_pos_tensor"])
+        loss, logits = self.model_forward(hidden_states, labels, freqs_cis, attention_mask)
+        if logits is not None:
+            metrics = self.compute_metric(logits, labels, kwargs["cal_metric_pos_tensor"])
+        else:
+            metrics = {}
+        return loss, metrics
     
-    def cut_sequence(self, input_ids, labels):
+    def cut_sequence(self, input_ids, labels=None):
         seq_parallel_world_size = parallel_states.get_sequence_parallel_world_size()
         seq_parallel_world_rank = parallel_states.get_sequence_parallel_rank()
         if self.args.atten_type is not None and 'ulysses' in self.args.atten_type:
@@ -33,7 +42,7 @@ class BaseModel(nn.Module):
             local_seq_start = seq_parallel_world_rank * seq_len_per_group
             local_seq_end = (seq_parallel_world_rank +1) * seq_len_per_group
             input_ids = input_ids[:, local_seq_start:local_seq_end]
-            labels = labels[:, local_seq_start:local_seq_end]
+            labels = labels[:, local_seq_start:local_seq_end] if labels else labels
             freqs_cis = self.freqs_cis[local_seq_start:local_seq_end,:].to(input_ids.device)
         else:
             freqs_cis = self.freqs_cis.to(input_ids.device)
@@ -43,13 +52,20 @@ class BaseModel(nn.Module):
     def embedding(self, input_ids):
         raise NotImplementedError()
     
-    def model_forward(self, hidden_states, freqs_cis, attention_mask):
+    def model_forward(self, hidden_states, labels, freqs_cis, attention_mask):
         raise NotImplementedError()
     
-    def compute_loss(self, logits, labels):
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-        loss = self.loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.reshape(-1))
+    def compute_loss(self, logits, labels, lm_head_weight=None):
+        if self.fuse_linear_loss and lm_head_weight is None:
+            raise ValueError('`lm_head_weight` can not be None when `fuse_linear_loss` is True.')
+        
+        shift_logits = logits[..., :-1, :].contiguous().reshape(-1, logits.size(-1))
+        shift_labels = labels[..., 1:].contiguous().reshape(-1)
+        if self.fuse_linear_loss:
+            loss = self.loss_fct(lm_head_weight, shift_logits, shift_labels)
+        else:
+            loss = self.loss_fct(shift_logits, shift_labels)
+            
         return loss
     
     def compute_metric(self, 
@@ -67,7 +83,6 @@ class BaseModel(nn.Module):
             target_logits = torch.argmax(target_logits, dim=-1) # [bsz, 1]
             target_labels = torch.gather(labels, 1, target_labels_pos_tensor) # [bsz, 1]
             return cal_metric(target_labels.cpu().numpy(), target_logits.cpu().numpy())
-
 
 def prepare_4d_attention_mask(attention_mask_with_indices: "torch.Tensor", dtype: "torch.dtype") -> "torch.Tensor":
     r"""

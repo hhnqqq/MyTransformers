@@ -8,7 +8,8 @@ from typing import Optional, Tuple, Union, Any
 from model.llama.config import *
 from model.attention import attention_func
 from model.tokenizer import BaseTokenizer, Llama3Tokenizer
-
+from liger_kernel.ops.swiglu import LigerSiLUMulFunction
+from liger_kernel.ops.rms_norm import LigerRMSNormFunction
 
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
@@ -20,8 +21,14 @@ class RMSNorm(torch.nn.Module):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
     def forward(self, x):
-        output = self._norm(x.float()).type_as(x)
-        return output * self.weight
+        return LigerRMSNormFunction.apply(x.float(),
+                                          self.weight,
+                                          self.eps,
+                                          0.0,
+                                          "llama",
+                                          True).type_as(x)
+        # output = self._norm(x.float()).type_as(x)
+        # return output * self.weight
 
 
 def precompute_freqs_cis(dim: int,
@@ -237,7 +244,8 @@ class FeedForward(nn.Module):
         )
 
     def forward(self, x):
-        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+        return self.w2(LigerSiLUMulFunction.apply(self.w1(x), self.w3(x)))
+        # return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
 class TransformerBlock(nn.Module):
@@ -419,9 +427,11 @@ class LlamaGenerate(nn.Module):
         top_p: float = 0.9,
         logprobs: bool = False,
         echo: bool = False,
-        eos: bool = False
+        eos: bool = False,
+        return_all_tokens: bool = False
     ) -> Tuple[List[List[int]], Optional[List[List[float]]]]:
         assert hasattr(self, "tokenizer"), "Can't inference with out a provieded tokenizer"
+        eot_id = getattr(self.tokenizer, 'eot_id', self.tokenizer.eos_id)
         if isinstance(prompt_tokens, str):
             prompt_tokens = [prompt_tokens]
         prompt_tokens = [self.tokenizer.encode(x, eos=eos) for x in prompt_tokens]
@@ -497,7 +507,7 @@ class LlamaGenerate(nn.Module):
                 next_token == self.tokenizer.eos_id
             )
             eot_reached |= (~input_text_mask[:, cur_pos]) & (
-                next_token == self.tokenizer.eot_id
+                next_token == eot_id
             )
             prev_pos = cur_pos
             if all(eos_reached) or all(eot_reached):
@@ -518,14 +528,14 @@ class LlamaGenerate(nn.Module):
                 eos_idx = toks.index(self.tokenizer.eos_id)
                 toks = toks[:eos_idx]
                 probs = probs[:eos_idx] if logprobs else None
-            if self.tokenizer.eot_id in toks:
-                eot_idx = toks.index(self.tokenizer.eot_id)
+            if eot_id in toks:
+                eot_idx = toks.index(eot_id)
                 toks = toks[:eot_idx]
                 probs = probs[:eot_idx] if logprobs else None
             out_tokens.append(toks)
             out_logprobs.append(probs)
             out_words.append(self.tokenizer.decode(toks))
-        return (out_words, out_tokens, out_logprobs if logprobs else None)
+        return (out_words, out_tokens, out_logprobs if logprobs else None, tokens if return_all_tokens else None)
 
 
     def sample_top_p(self, probs, p):
@@ -567,7 +577,6 @@ class Llama(LlamaGenerate):
             model_args.vocab_size = self.tokenizer.n_words
         except Exception as e:
             print(f'load tokenizer at generate model error: {e}')
-        self.tokenizer.eos_id = 1000000
         super().__init__(model_args=model_args)
 
 @registry.register_model("llama3")
