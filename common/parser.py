@@ -93,6 +93,7 @@ def train_parser(parser):
     group.add_argument('--atten-type', type=str, default="",
                        help='Type of attention. For example: flash-atten')
     group.add_argument('--loss-fct', type=str, default='ce')
+    group.add_argument('--fuse-linear-loss', action='store_true')
 
     return parser
 
@@ -366,7 +367,6 @@ def ds_parser(parser):
                       help='global rank')
     group.add_argument('--with-aml-log', default=True, 
                       help='Use Azure ML metric logging. This argument is not enabled currently')
-    group.add_argument('--offload-optimizer', action='store_true')
     group.add_argument('--offload-param', action='store_true')
     group.add_argument('--huggingface', action='store_true')
     group.add_argument('--csv-monitor', action='store_true')
