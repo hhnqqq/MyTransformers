@@ -44,8 +44,6 @@ class LinearWithGoRA(LinearWithLoRA):
     def _get_scaling(self, avg_rank, real_rank):
         if self.dynamic_scaling:
             self.scale_rank = real_rank
-            # scaling_ratio = self.scaling_alpha / real_rank
-            # self.scaling_alpha = scaling_ratio * rank
         else:
             self.scale_rank = avg_rank
 
@@ -75,8 +73,8 @@ class LinearWithGoRA(LinearWithLoRA):
                     self.grad_svd_init()
                 elif self.init_method == 'compress':
                     self.compress_init(stable_gemma=stable_gemma,
-                                    scaling_by_lr=scaling_by_lr,
-                                    lr=lr)
+                                       scaling_by_lr=scaling_by_lr,
+                                       lr=lr)
                 elif self.init_method == 'vanilla':
                     super().init_lora_weights()
             if hasattr(self.weight, "grad_stored"):
@@ -374,17 +372,20 @@ def gora_reinit(
     dataloader, 
     args,
     iters: int = 1,
-    task_name: str = ''
+    task_name: str = '',
+    forward_backward_func: Callable = None
 ):
     # TODO：for real large model (such as 32b), 1. off load the model to cpu, 2. create a model using zero3 inference mode
     # 3. forward and compute grad 4. all gather to collect grad and save to cpu, 5. delete the deepspeed model and load the origin model to gpu
     # 6. initializing lora parameters for the model
     print_rank_0("--->Estimating gradient for gora.", rank=args.global_rank)
+    # avoid OOM
+    torch.cuda.empty_cache()
     with Timer() as timer:
         model.to(args.device)
         model.train()
 
-        # Note that we only compute gradient for LoRA-GA layers.
+        # Note that we only compute gradient for GoRA layers.
         # Avoiding unnecessary computing.
         hooks = [
             module.weight.register_hook(get_record_gradient_hook(model))
@@ -395,11 +396,20 @@ def gora_reinit(
         for module in model.modules():
             if isinstance(module, LinearWithGoRA):
                 module.weight.requires_grad = True
+            elif isinstance(module, torch.nn.Linear):
+                module.weight.requires_grad = False
 
         for idx, batch in enumerate(dataloader):
             batch = to_device(batch, args.device)
-            output = model(**batch)
-            loss = output.loss if args.huggingface else output[0]
+            if forward_backward_func:
+                loss = forward_backward_func(model, batch)
+            elif args.huggingface:
+                loss = model(input_ids=batch['input_ids'],
+                            labels=batch['labels'],
+                            attention_mask=batch['attention_mask']).loss
+            else:
+                output = model(**batch)
+                loss = output[0]
             loss.backward()
             print_rank_0(f'--->GoRA gradient computing step: {idx+1}, loss: {loss.item()}, remaining steps: {iters - (idx+1)} ', args.global_rank)
 
