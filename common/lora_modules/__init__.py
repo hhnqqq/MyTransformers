@@ -74,3 +74,26 @@ def MergeLoRA(model):
         for module in model.modules():
             if isinstance(module, LinearWithLoRA):
                 module._unmerge_lora()
+
+def prepare_lora(model, train_dataloader, args):
+    """
+    Prepare lora if needed
+
+    For example, if LoRA-GA is utilized, then we need to pre-compute gradients befor training.
+    """
+    if args.use_lora_ga:
+        lora_ga_reinit(model=model,
+                    dataloader=train_dataloader,
+                    args=args,
+                    iters=args.lora_ga_n_steps)
+    if args.use_gora:
+        gora_reinit(model=model,
+                    dataloader=train_dataloader,
+                    args=args,
+                    iters=args.gora_n_steps)
+    if args.use_adalora:
+        rank_allocator = RankAllocator(model, args)
+        model.rankallocator = rank_allocator
+    if args.use_increlora:
+        rank_allocator = IncreRankAllocator(model, args)
+        model.rankallocator = rank_allocator
