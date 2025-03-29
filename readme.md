@@ -1,3 +1,10 @@
+## 环境配置：
+本仓库对环境的要求比较低：
+- transformers
+- liger_kernrl
+- 大于1.5.4的deepspeed
+- 大于2.2的torch
+
 ## 使用方法：
 
 - python setup.py install 配置环境
