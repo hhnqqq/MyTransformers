@@ -43,7 +43,7 @@ dp_rank parameter controls who share same data sample.
 dp_rank = parallel_states.get_data_parallel_rank()
 num_dp_rank = parallel_states.get_data_parallel_world_size()
 train_dataloader = load_dataloder(args, tokenizer, dp_rank, num_dp_rank, return_dataset_kwargs, True)
-eval_dataloader = load_dataloder(args, tokenizer, dp_rank, num_dp_rank, return_dataset_kwargs, False)
+eval_dataloader = None if args.skip_eval else load_dataloder(args, tokenizer, dp_rank, num_dp_rank, return_dataset_kwargs, False)
 
 ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)
@@ -83,22 +83,22 @@ if __name__ == '__main__':
     from train.trainer import Trainer
 
     def get_writer(args):
-        if args.wandb:
-            os.environ['WANDB_CACHE_DIR'] = args.wandb_cache_dir
-            os.environ['WANDB_DIR'] = args.wandb_dir
-            wandb.init(project='MyTransformers',
-                       name=args.experiment_name,
-                       config=args,
-                       entity=None,
-                       sync_tensorboard=True)
-        if args.tensorboard and not args.test_code:
-            try:
-                from torch.utils.tensorboard import SummaryWriter
-            except ImportError:
-                from tensorboard import SummaryWriter
-            log_dir = os.path.join(args.tb_log_dir, args.experiment_name + datetime.now().strftime('%y-%m-%d_%H-%M'))
-            return SummaryWriter(log_dir=log_dir)
-        return None
+        if not args.test_code and args.global_rank ==0:
+            if args.wandb:
+                os.environ['WANDB_CACHE_DIR'] = args.wandb_cache_dir
+                os.environ['WANDB_DIR'] = args.wandb_dir
+                wandb.init(project='MyTransformers',
+                        name=args.experiment_name,
+                        config=args,
+                        entity=None)
+            elif args.tensorboard:
+                try:
+                    from torch.utils.tensorboard import SummaryWriter
+                except ImportError:
+                    from tensorboard import SummaryWriter
+                log_dir = os.path.join(args.tb_log_dir, args.experiment_name + datetime.now().strftime('%y-%m-%d_%H-%M'))
+                return SummaryWriter(log_dir=log_dir)
+            return None
 
     writer = get_writer(args)
     if args.num_pp_stages:
@@ -138,7 +138,7 @@ if __name__ == '__main__':
         trainer.train(
             model=engine,
             train_data_loader=RepeatingLoader(train_dataloader),
-            eval_data_loader=RepeatingLoader(eval_dataloader),
+            eval_data_loader=None if eval_dataloader is None else RepeatingLoader(eval_dataloader),
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             forward_step=forward_step,

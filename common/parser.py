@@ -29,6 +29,8 @@ def base_parser():
     parser.add_argument('--eval-dataset-name',type=str, default=None)
     parser.add_argument('--tensorboard', action='store_true')
     parser.add_argument('--wandb', action='store_true')
+    parser.add_argument('--wandb-cache-dir', type=str, default=None)
+    parser.add_argument('--wandb-dir', type=str, default=None)
     parser.add_argument('--test-code', action='store_true', help='add this argument to avoid creating log file.')
     parser.add_argument('--partial-ckpt-path',type=str, default=None, 
                         help='This argument is useful when train model base on previous trainable params from previous experiment.')
@@ -148,6 +150,7 @@ def dataset_parser(parser):
     group = parser.add_argument_group('dataset', 'dataset configurations')
 
     # ---------------------------- dataset ------------------------------
+    group.add_argument('--skip-eval', action='store_true')
     group.add_argument('--dataset-input-field', type=str, default='input',
                        help='Input column of the dataset.')
     group.add_argument('--dataset-output-field', type=str, default='output',

@@ -4,6 +4,7 @@ import math
 import torch
 import logging
 
+import wandb
 import deepspeed
 from typing import Callable
 from argparse import Namespace
@@ -93,7 +94,7 @@ class Trainer:
                     profiler.step()
 
                 # Evaluation
-                if step % self.args.eval_interval == 0 and eval_step is not None:
+                if step % self.args.eval_interval == 0 and eval_step is not None and not self.args.skip_eval:
                     with torch.no_grad():
                         assert eval_data_loader is not None, 'evaluation dataset cannot be None'
                         self.eval_loss, eval_metric = eval_step(model, eval_data_loader, self.args, step)
@@ -158,8 +159,10 @@ class Trainer:
                                 f"lr={self.lr:.4e}, "
                                 f"avg_time={avg_time:.2f}s, remaining_time={remaining_time}, "
                                 f"remaining_steps={self.args.num_global_update_steps - self.global_step}")
-                    if self.writer is not None and self.args.global_rank == 0:
+                    if self.writer is not None:
                         self.writer.add_scalar('loss', avg_loss, self.global_step)
+                    if self.args.wandb:
+                        wandb.log({'loss': avg_loss}, self.global_step)
 
                     if self.get_task_print:
                         print_str += self.get_task_print(self.all_metric, self.args)
@@ -169,13 +172,16 @@ class Trainer:
                     self.all_metric = []
 
             # Log evaluation loss at specified intervals.
-            if step % self.args.eval_interval == 0 and self.eval_loss is not None:
+            if step % self.args.eval_interval == 0 and self.eval_loss is not None and not self.args.skip_eval:
                 print_str = f"--->micro_step={step}, eval_loss={self.eval_loss:.4f}"
                 if self.get_task_print:
                     print_str += self.get_task_print(self.eval_metric, self.args)
                 print_rank_0(print_str, self.args.global_rank, loss_level)
-                if self.writer is not None and self.args.global_rank == 0:
-                    self.writer.add_scalar('eval_loss', self.eval_loss, self.global_step)
+                if self.args.global_rank == 0:
+                    if self.writer is not None:
+                        self.writer.add_scalar('eval_loss', self.eval_loss, self.global_step)
+                    if self.args.wandb:
+                        wandb.log({'eval_loss': self.eval_loss}, self.global_step)
                 self.eval_loss = 0.0
                 self.eval_metric = []
 
