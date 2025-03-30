@@ -2,7 +2,7 @@ from torch.utils.data import DataLoader, IterableDataset
 
 
 from common.utils import print_rank_0
-from dataset_classes.base_dataset import BaseDataset
+from dataset_classes.base_dataset import BaseDataset, DatasetConfig
 from dataset_classes.concat_dataset import ConcatDataset, IterableConcatDataset
 from dataset_classes.iterable_dataset import BaseIterableDataset
 from dataset_classes.packing_dataset import PackingDataset, IterablePackingDataset

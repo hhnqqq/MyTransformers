@@ -148,6 +148,10 @@ def dataset_parser(parser):
     group = parser.add_argument_group('dataset', 'dataset configurations')
 
     # ---------------------------- dataset ------------------------------
+    group.add_argument('--dataset-input-field', type=str, default='input',
+                       help='Input column of the dataset.')
+    group.add_argument('--dataset-output-field', type=str, default='output',
+                       help='Ouput column of the dataset.')
     group.add_argument('--read-nums', type=int, default=None,
                        help='The number of data to read. If this value is None, the dataset will read all data')
     group.add_argument('--eval-read-nums', type=int, default=None,

@@ -5,7 +5,7 @@ from typing import Optional, Union
 
 from transformers import PreTrainedTokenizer
 
-from dataset_classes import BaseDataset
+from dataset_classes import BaseDataset, DatasetConfig
 from torch.utils.data import IterableDataset
 from model.tokenizer import BaseTokenizer
 from common.utils import print_rank_0
@@ -33,21 +33,12 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         self,
         data_path: str,
         tokenizer: Union[BaseTokenizer, PreTrainedTokenizer],
-        max_len: int,
-        max_src_len: int,
-        mode: str = 'pretrain',
+        dataset_config: DatasetConfig,
         read_nums: Optional[int] = None,
         global_rank: int = 0,
-        meta_prompt: str = '',
-        prefix: str = 'Q:',
-        postfix: str = 'A:',
         shuffle: bool = False,
         num_dp_ranks: Optional[int] = None,
         dp_rank: Optional[int] = None,
-        cal_metric_pos: Optional[int] = None,
-        encode_single_gene: bool = False,
-        padding: bool = True,
-        apply_chat_template: bool = False,
         seed: int = 42,
         start_step: int = 0,
         *args,
@@ -57,18 +48,9 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
         self,
         data_path,
         tokenizer,
-        max_len,
-        max_src_len,
-        mode,
+        dataset_config,
         read_nums,
-        global_rank,
-        meta_prompt,
-        prefix,
-        postfix,
-        cal_metric_pos,
-        encode_single_gene,
-        padding,
-        apply_chat_template
+        global_rank
     )
         self.init_parallel_and_shuffle(shuffle, num_dp_ranks, dp_rank, read_nums, seed, start_step)
 
@@ -183,24 +165,28 @@ if __name__ == "__main__":
 
     set_random_seed(114514)
     os.environ['NO_LOG_FILE'] = 'true'
-    file_path = '/ailab/user/hehaonan/data/nlp/math/MetaMathQA/train.jsonl'
-    tokenizer_path = '/ailab/user/hehaonan/pretrained_model/Qwen2.5-7B-Instruct'
+    file_path = os.environ['FILE_PATH']
+    tokenizer_path = os.environ['TOKENIZER_PATH']
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     tokenizer.pad_id, tokenizer.bos_id, tokenizer.eos_id = tokenizer.pad_token_id, tokenizer.bos_token_id, tokenizer.eos_token_id
     tokenizer.label_pad_id = -100
     data_collator = DataCollator(tokenizer)
 
+    dataset_config = DatasetConfig(max_len=512,
+                                   max_src_len=256,
+                                   mode='sft',
+                                   meta_prompt='<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n',
+                                   prefix='<|im_start|>user\n',
+                                   postfix='<|im_end|>\n<|im_start|>assistant\n',
+                                   apply_chat_template=False,
+                                   input_field='question',
+                                   output_field='answer')
+    
     iterable_dataset = BaseIterableDataset(file_path,
                                        tokenizer,
-                                       max_len=512,
-                                       max_src_len=256,
-                                       mode='sft',
-                                       meta_prompt='<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n',
-                                       prefix='<|im_start|>user\n',
-                                       postfix='<|im_end|>\n<|im_start|>assistant\n',
+                                       dataset_config,
                                        read_nums=None,
-                                       shuffle=True,
-                                       apply_chat_template=False)
+                                       shuffle=True)
         
     g = torch.Generator()
     dataloader = RepeatingLoader(DataLoader(iterable_dataset,

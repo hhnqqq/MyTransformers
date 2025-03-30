@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader, IterableDataset, DistributedSampler
 
 from common.lora_modules import *
 from common.registry import registry
-from dataset_classes import PackingDataset, IterablePackingDataset
+from dataset_classes import DatasetConfig, PackingDataset, IterablePackingDataset
 from common.utils import DataCollator, PipeLine_Datacollator, print_rank_0
 
 def get_train_eval_args(args, is_train):
@@ -24,23 +24,30 @@ def load_dataloder(args, tokenizer, dp_rank, num_dp_ranks, dataset_kwargs, is_tr
     data_collator = PipeLine_Datacollator(tokenizer) if args.num_pp_stages else DataCollator(tokenizer)
     print_rank_0(f'--->Using dataset class: {args.dataset_class_name}', args.global_rank)
     dataset_class = registry.get_dataset_class(args.dataset_class_name)
-    dataset_kwargs = dict(mode=args.mode, 
-                        tokenizer=tokenizer,
-                        global_rank=args.global_rank,
-                        meta_prompt=args.meta_prompt,
-                        prefix=args.prefix,
-                        postfix=args.postfix,
-                        padding=(args.batching_stretegy == 'padding'),
-                        dp_rank=dp_rank,
-                        num_dp_ranks=num_dp_ranks,
-                        encode_single_gene=args.encode_single_gene,
-                        shuffle=True,
-                        apply_chat_template=False,
-                        **dataset_kwargs)
+    dataset_config = DatasetConfig(max_len=max_len,
+                                   max_src_len=max_src_len,
+                                   mode=args.mode, 
+                                   meta_prompt=args.meta_prompt,
+                                   prefix=args.prefix,
+                                   postfix=args.postfix,
+                                   padding=(args.batching_stretegy == 'padding'),
+                                   encode_single_gene=args.encode_single_gene,
+                                   apply_chat_template=False,
+                                   input_field=args.dataset_input_field,
+                                   output_field=args.dataset_output_field)
+
+    dataset_kwargs = dict(dataset_config=dataset_config,
+                          tokenizer=tokenizer,
+                          global_rank=args.global_rank,
+                          dp_rank=dp_rank,
+                          num_dp_ranks=num_dp_ranks,
+                          shuffle=True,
+                          **dataset_kwargs)
     
     dataset = dataset_class(
-        dataset_path, max_len=max_len, max_src_len=max_src_len,
-        read_nums=read_nums, **dataset_kwargs
+        dataset_path,
+        read_nums=read_nums, 
+        **dataset_kwargs
     )
     is_iterable_dataset = isinstance(dataset, IterableDataset)
     dataset_sampler = None if is_iterable_dataset else DistributedSampler(dataset, num_dp_ranks, dp_rank)

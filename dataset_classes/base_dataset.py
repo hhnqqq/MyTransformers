@@ -4,6 +4,7 @@ import torch
 import logging
 from tqdm import tqdm
 from typing import Optional, Union
+from dataclasses import dataclass
 
 from transformers import PreTrainedTokenizerBase
 
@@ -12,6 +13,22 @@ from model.tokenizer import BaseTokenizer
 from common.utils import print_rank_0
 from common.registry import registry
 from dataset_classes.dataset_tools import get_line_count
+
+@dataclass
+class DatasetConfig:
+    # More feasible if any new parameter should be added.
+    max_len: int
+    max_src_len: int
+    meta_prompt: str =''
+    input_field: str = 'input'
+    output_field: str = 'output'
+    mode: str = 'pretrain',
+    prefix: str='Q:'
+    postfix: str='A:'
+    padding: bool = True
+    apply_chat_template: bool = False
+    cal_metric_pos: Optional[int] = None
+    encode_single_gene: bool = False
 
 @registry.register_dataset("normal")
 class BaseDataset(Dataset):
@@ -39,36 +56,18 @@ class BaseDataset(Dataset):
         self,
         data_path: str,
         tokenizer: Union[BaseTokenizer, PreTrainedTokenizerBase],
-        max_len: int,
-        max_src_len: int,
-        mode: str = 'pretrain',
+        dataset_config: DatasetConfig,
         read_nums: Optional[int] = None,
         global_rank: int=0,
-        meta_prompt: str ='',
-        prefix: str='Q:',
-        postfix: str='A:',
-        cal_metric_pos: Optional[int] = None,
-        encode_single_gene: bool = False,
-        padding: bool = True,
-        apply_chat_template: bool = False,
         *args,
         **kwargs
     ):
         self.build_data(
         data_path,
         tokenizer,
-        max_len,
-        max_src_len,
-        mode,
+        dataset_config,
         read_nums,
         global_rank,
-        meta_prompt,
-        prefix,
-        postfix,
-        cal_metric_pos,
-        encode_single_gene,
-        padding,
-        apply_chat_template
     )
         self.process_data_file()
         
@@ -76,18 +75,9 @@ class BaseDataset(Dataset):
         self,
         data_path: str,
         tokenizer: BaseTokenizer,
-        max_len: int,
-        max_src_len: int,
-        mode: str = 'pretrain',
+        dataset_config: DatasetConfig,
         read_nums: Optional[int] = None,
-        global_rank: int=0,
-        meta_prompt: str ='',
-        prefix: str='Q:',
-        postfix: str='A:',
-        cal_metric_pos: Optional[int] = None,
-        encode_single_gene: bool = False,
-        padding: bool = True,
-        apply_chat_template: bool = False
+        global_rank: int=0
     ):
     
         self.mininterval=0.1
@@ -102,35 +92,41 @@ class BaseDataset(Dataset):
         self.line_count = line_count
         self.read_nums = read_nums
         self.all_data = []
-        self.mode = mode
+        self.mode = dataset_config.mode
         self.tokenizer = tokenizer
-        self.max_len = max_len
-        self.max_src_len = max_src_len
         self.train_token_count = 0 
         self.global_rank = global_rank
         self.data_path = data_path
-        self.cal_metric_pos = cal_metric_pos
-        self.encode_single_gene = encode_single_gene
-        self.padding = padding 
-        self.apply_chat_template = apply_chat_template and isinstance(tokenizer, PreTrainedTokenizerBase)
+        
+        self.input_field = dataset_config.input_field
+        self.output_field = dataset_config.output_field
+        self.cal_metric_pos = dataset_config.cal_metric_pos
+        self.encode_single_gene = dataset_config.encode_single_gene
+        self.padding = dataset_config.padding 
+        self.apply_chat_template = dataset_config.apply_chat_template and isinstance(tokenizer, PreTrainedTokenizerBase)
         if self.apply_chat_template:
-            self.meta_prompt = meta_prompt
+            self.meta_prompt = dataset_config.meta_prompt
             print_rank_0('--->Prefix and postfix will be ignored when `apply_chat_template` is true', global_rank)
         else:
-            self.init_data_format(meta_prompt, prefix, postfix)
-        if max_src_len > max_len:
+            self.init_data_format(dataset_config.meta_prompt, 
+                                  dataset_config.prefix, 
+                                  dataset_config.postfix)
+        if dataset_config.max_src_len > dataset_config.max_len:
             # To ensure the assertion error would not be triggered.
-            self.max_len = max_src_len
-            self.max_src_len = max_len
+            self.max_len = dataset_config.max_src_len
+            self.max_src_len = dataset_config.max_len
             print_rank_0(f'--->max_src_len is greater than max_len, swraped', global_rank)
         else:
-            self.max_len = max_len
-            self.max_src_len = max_src_len
+            self.max_len = dataset_config.max_len
+            self.max_src_len = dataset_config.max_src_len
 
         print_rank_0(f'--->using dataset: {data_path}', global_rank)
-        print_rank_0(f'--->training mode: {mode}', global_rank)
+        print_rank_0(f'--->training mode: {self.mode}', global_rank)
         print_rank_0(f'--->tokenizer name: {type(tokenizer).__name__}', global_rank)
-        print_rank_0(f'--->using meta prompt: {meta_prompt}, prefix: {prefix}, postfix: {postfix}', global_rank)
+        print_rank_0(f'--->using meta prompt: {dataset_config.meta_prompt},' 
+                     'prefix: {dataset_config.prefix},'
+                     'postfix: {dataset_config.postfix}', 
+                     global_rank)
 
 
     def init_data_format(self, meta_prompt, prefix, postfix):
@@ -294,13 +290,14 @@ class BaseDataset(Dataset):
         if self.mode == 'sft':
             if not isinstance(sample, dict):
                 print_rank_0(r'--->Error! Traning mode is sft while sample is not a dict.', self.global_rank, logging.ERROR)
-            return sample["input"], sample["output"]
+            return sample[self.input_field], sample[self.output_field]
         else:
             # This is competible with pretraining mode and reinforce learning mode.
             if isinstance(sample, dict):
-                assert "input" in sample.keys(), "Can not find input information in the dataset"
-                input_text = sample["input"]
-                output_text = sample["output"] if "output" in sample.keys() else None
+                if not self.input_field in sample.keys():
+                    raise NameError(f"Can not find {self.input_field} information in the dataset")
+                input_text = sample[self.input_field]
+                output_text = sample[self.output_field] if self.output_field in sample.keys() else None
             elif isinstance(sample, str):
                 input_text = sample
                 output_text = None

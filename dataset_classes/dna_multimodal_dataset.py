@@ -2,7 +2,7 @@ import re
 import torch
 from typing import Union, Optional
 
-from dataset_classes import BaseDataset
+from dataset_classes import BaseDataset, DatasetConfig
 from model.tokenizer import BaseTokenizer
 from common.utils import print_rank_0
 from common.registry import registry
@@ -13,18 +13,9 @@ class MultimodalDNADataSet(BaseDataset):
         self,
         data_path: str,
         tokenizer: BaseTokenizer,
-        max_len: int,
-        max_src_len: int,
-        mode: str = 'pretrain',
+        dataset_config: DatasetConfig,
         read_nums: Union[int, None] = None,
         global_rank: int=0,
-        meta_prompt: str ='',
-        prefix: str = 'Q:',
-        postfix: str = 'A:',
-        cal_metric_pos: Optional[int] = None,
-        encode_single_gene: bool = False,
-        padding: bool = True,
-        apply_chat_template: bool = False,
         multimodal_tokenizer = None,
         *args,
         **kwargs):
@@ -33,18 +24,9 @@ class MultimodalDNADataSet(BaseDataset):
         self,
         data_path,
         tokenizer,
-        max_len,
-        max_src_len,
-        mode,
+        dataset_config,
         read_nums,
-        global_rank,
-        meta_prompt,
-        prefix,
-        postfix,
-        cal_metric_pos,
-        encode_single_gene,
-        padding,
-        apply_chat_template
+        global_rank
         )
         self.dna_tokenizer = multimodal_tokenizer
         self.project_token_num = kwargs.get('multimodal_k_tokens', 32)

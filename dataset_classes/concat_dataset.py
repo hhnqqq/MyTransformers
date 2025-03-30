@@ -10,7 +10,7 @@ from model.tokenizer import BaseTokenizer
 from common.utils import print_rank_0
 from common.registry import registry
 from common.utils import print_rank_0
-from dataset_classes.base_dataset import BaseDataset
+from dataset_classes.base_dataset import BaseDataset, DatasetConfig
 from dataset_classes.iterable_dataset import BaseIterableDataset
 from dataset_classes.dataset_tools import get_line_count, MmapDataset
 
@@ -47,18 +47,9 @@ class ConcatDataset(BaseDataset):
         self,
         data_paths: List[str],
         tokenizer: BaseTokenizer,
-        max_len: int,
-        max_src_len: int,
-        mode: str = 'pretrain',
+        dataset_config: DatasetConfig,
         read_nums: Optional[int] = None,
         global_rank: int=0,
-        meta_prompt: Union[str, List[str]] ='',
-        prefix: Union[str, List[str]]='Q:',
-        postfix: Union[str, List[str]]='A:',
-        cal_metric_pos: Optional[int] = None,
-        encode_single_gene: bool = False,
-        padding: bool = True,
-        apply_chat_template: bool = False,
         weights: Optional[List[int]] = None,
         *args,
         **kwargs
@@ -66,18 +57,9 @@ class ConcatDataset(BaseDataset):
         self.build_data(
         data_paths, # Avoid error in the base dataset class.
         tokenizer,
-        max_len,
-        max_src_len,
-        mode,
+        dataset_config,
         read_nums,
         global_rank,
-        meta_prompt,
-        prefix,
-        postfix,
-        cal_metric_pos,
-        encode_single_gene,
-        padding,
-        apply_chat_template,
         weights
     )
         self.process_data_file()
@@ -93,18 +75,9 @@ class ConcatDataset(BaseDataset):
     def build_data(self, 
         data_paths: List[str], 
         tokenizer: BaseTokenizer, 
-        max_len: int, 
-        max_src_len: int, 
-        mode: str = 'pretrain', 
+        dataset_config: DatasetConfig,
         read_nums: int | None = None, 
-        global_rank: int = 0, 
-        meta_prompt: Union[str, List[str]] ='',
-        prefix: Union[str, List[str]]='Q:',
-        postfix: Union[str, List[str]]='A:',
-        cal_metric_pos: int | None = None, 
-        encode_single_gene: bool = False,
-        padding: bool = True,
-        apply_chat_template: bool = False,
+        global_rank: int = 0,
         weights: Optional[List[int]] = None):
         if isinstance(data_paths, str):
             data_paths = [data_paths]
@@ -112,18 +85,9 @@ class ConcatDataset(BaseDataset):
         self.datasets = [MmapDataset(data_path) for data_path in data_paths]
         super().build_data(data_paths, # Avoid error in the base dataset class.
                            tokenizer, 
-                           max_len, 
-                           max_src_len, 
-                           mode, 
+                           dataset_config,
                            read_nums, 
-                           global_rank, 
-                           meta_prompt, 
-                           prefix, 
-                           postfix, 
-                           cal_metric_pos, 
-                           encode_single_gene,
-                           padding,
-                           apply_chat_template)
+                           global_rank)
         if weights is None:
             self.weights = [1] * len(self.datasets)
         else:
@@ -200,21 +164,12 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
         self,
         data_paths: List[str],
         tokenizer: BaseTokenizer,
-        max_len: int,
-        max_src_len: int,
-        mode: str = 'pretrain',
+        dataset_config: DatasetConfig,
         read_nums: Optional[int] = None,
         global_rank: int = 0,
-        meta_prompt: Union[str, List[str]] ='',
-        prefix: Union[str, List[str]]='Q:',
-        postfix: Union[str, List[str]]='A:',
         shuffle: bool = False,
         num_dp_ranks: Optional[int] = None,
         dp_rank: Optional[int] = None,
-        cal_metric_pos: Optional[int] = None,
-        encode_single_gene: bool = False,
-        padding: bool = True,
-        apply_chat_template: bool = False,
         weights: Optional[List[int]] = None,
         read_sequential: bool = False,
         seed: int = 42, 
@@ -225,18 +180,9 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
         self,
         data_paths,
         tokenizer,
-        max_len,
-        max_src_len,
-        mode,
+        dataset_config,
         read_nums,
         global_rank,
-        meta_prompt,
-        prefix,
-        postfix,
-        cal_metric_pos,
-        encode_single_gene,
-        padding,
-        apply_chat_template,
         weights
     )
         # ConcatDataset originally read sequential, so this feature only needed in IterableConcatDataset.
@@ -316,13 +262,11 @@ if __name__ == "__main__":
     set_random_seed(114514)
     os.environ['NO_LOG_FILE'] = 'true'
     file_path = [
-            "/home/bingxing2/ailab/group/ai4bio/public/qatext/data/all_data/train.jsonl",
-            "/home/bingxing2/ailab/group/ai4bio/public/qatext/data/all_data/stage3_train_merge.jsonl"
         ]
     # meta_prompt = ["<|start_header_id|>system<|end_header_id|>\n\nYou are a knowledgeable and helpful biology assistant. Please answer my biology sequence-related questions in a clear and concise manner. For regression task, please return a number. <|eot_id|>",
     # "<|start_header_id|>system<|end_header_id|>\n\nYou are a highly knowledgeable AI assistant specializing in biology, particularly in sequence-related topics. Your primary task is to provide clear, accurate, and comprehensive answers to biology questions. When analyzing and interpreting sequences, ensure to provide step-by-step explanations to make your responses natural and easy to understand. Engage with the user by asking clarifying questions if needed and offer detailed insights into the biological sequences. <|eot_id|>"]
     meta_prompt = "<|start_header_id|>system<|end_header_id|>\n\nYou are a knowledgeable and helpful biology assistant. Please answer my biology sequence-related questions in a clear and concise manner. For regression task, please return a number. <|eot_id|>"
-    tokenizer_path = '/home/bingxing2/ailab/scx6mh7/workspace/llama/llama3_tokenizer.model'
+    tokenizer_path = ''
     tokenizer = Llama3Tokenizer(tokenizer_path)
     data_collator = DataCollator(tokenizer)
 
