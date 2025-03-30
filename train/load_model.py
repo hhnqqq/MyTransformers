@@ -35,7 +35,8 @@ def load_huggingface_model(args):
                                                  trust_remote_code=True,
                                                  torch_dtype=STR_DTYPE_TO_TORCH_DTYPE[args.default_dtype],
                                                  attn_implementation="sdpa",
-                                                 device_map=f"cuda:{args.local_rank}")
+                                                 device_map=f"cuda:{args.local_rank}",
+                                                 use_cache=False if args.activation_checkpoint else True)
     if args.activation_checkpoint:
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         model.enable_input_require_grads()
