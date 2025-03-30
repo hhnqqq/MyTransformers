@@ -363,6 +363,8 @@ def get_allocated_rank(model, args):
             rank = smooth_trainable // named_smooth_features[name]
             if args.gora_max_rank and args.gora_min_rank:
                 named_ranks[name] = min(max(allocate_func(rank), args.gora_min_rank), args.gora_max_rank)
+            else:
+                named_ranks[name] = rank
             actual_trainable += named_ranks[name] * named_features[name]
 
     return total_budget, actual_trainable, named_ranks, named_importances

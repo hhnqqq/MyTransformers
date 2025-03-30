@@ -153,6 +153,7 @@ def lora_ga_reinit(
     Note: This implementation follows the LoRA-GA paper's algorithm closely.
     """
     print_rank_0("--->Estimating gradient for lora ga.", rank=args.global_rank)
+    torch.cuda.empty_cache()
     with Timer() as timer:
         model.to(args.device)
         model.train()
@@ -167,9 +168,13 @@ def lora_ga_reinit(
 
         for idx, batch in enumerate(dataloader):
             batch = to_device(batch, args.device)
-            output = model(**batch)
-            loss = output.loss if args.huggingface else output[0]
-            loss.backward()
+            if args.huggingface:
+                loss = model(input_ids=batch['input_ids'],
+                        labels=batch['labels'],
+                        attention_mask=batch['attention_mask']).loss
+            else:
+                output = model(**batch)
+                loss = output[0]
             print_rank_0(f'--->LoRA-GA gradient computing step: {idx+1}, loss: {loss.item()}, remaining steps: {iters - (idx+1)} ', args.global_rank)
 
             for p in model.parameters():

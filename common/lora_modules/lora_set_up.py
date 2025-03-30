@@ -142,13 +142,24 @@ def switch_to_lora(model: nn.Module,
             module.merge_and_del()
 
 def setup_lora(model, args, model_config=None):
+    """
+    Set up LoRA layers according to `args.replace_modules` or `model_config.lora_layers`
+
+    Args:
+        model: Any PyTorch model.
+        args: Any data structure that containing LoRA information.
+        model_config: Config of the model.
+    """
     if args.use_lora:
         if args.replace_modules is not None:
             if isinstance(args.replace_modules, str):
                 args.replace_modules = args.replace_modules.split('_')
         else:
-            args.replace_modules = model_config.lora_layers
-        print_rank_0(f'--->LoRA targeting modules: {args.replace_modules}', args.global_rank)
+            args.replace_modules = getattr(model_config, "lora_layers", None)
+        if args.replace_modules:
+            print_rank_0(f'--->LoRA targeting modules: {args.replace_modules}', args.global_rank)
+        else:
+            print_rank_0('--->The replace modules is not provided, LoRA is targating all linear modules.', args.global_rank)
         switch_to_lora(model, args)
         if args.lora_fa:
             lora_weight = ['weight_b', 'weight_ab_mixer']

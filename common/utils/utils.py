@@ -438,7 +438,7 @@ def load_ckpt_for_train(model: Module,
                         rank: int = 0,
                         optimizer: torch.optim.Optimizer = None, 
                         lr_scheduler: torch.optim.lr_scheduler._LRScheduler = None,
-                        return_model_sd: bool = True,
+                        return_model_sd: bool = False,
                         return_optimizer_sd: bool = True,
                         return_lr_scheduler_sd: bool = True):
 
