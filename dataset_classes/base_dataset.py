@@ -69,7 +69,7 @@ class BaseDataset(Dataset):
         read_nums,
         global_rank,
     )
-        self.process_data_file()
+        self._process_data_file()
         
     def build_data(
         self,
@@ -104,14 +104,10 @@ class BaseDataset(Dataset):
         self.encode_single_gene = dataset_config.encode_single_gene
         self.padding = dataset_config.padding 
         self.apply_chat_template = dataset_config.apply_chat_template and isinstance(tokenizer, PreTrainedTokenizerBase)
-        if self.apply_chat_template:
-            self.meta_prompt = dataset_config.meta_prompt
-            self.prefix, self.postfix = dataset_config.prefix, dataset_config.postfix
-            print_rank_0('--->Prefix and postfix will be ignored when `apply_chat_template` is true', global_rank)
-        else:
-            self.init_data_format(dataset_config.meta_prompt, 
-                                  dataset_config.prefix, 
-                                  dataset_config.postfix)
+        self._init_data_format(dataset_config.meta_prompt, 
+                              dataset_config.prefix, 
+                              dataset_config.postfix)
+        
         if dataset_config.max_src_len > dataset_config.max_len:
             # To ensure the assertion error would not be triggered.
             self.max_len = dataset_config.max_src_len
@@ -129,34 +125,6 @@ class BaseDataset(Dataset):
                      f'postfix: {dataset_config.postfix}', 
                      global_rank)
 
-
-    def init_data_format(self, meta_prompt, prefix, postfix):
-        self.meta_prompt = self._process_data_format_encode(meta_prompt)
-        self.prefix = self._process_data_format_encode(prefix)
-        self.postfix = self._process_data_format_encode(postfix)
-
-    def _process_data_format_encode(self, input_data):
-        return self._encode_text(input_data) if input_data else []
-
-    def process_data_file(self):
-        # Enable a tqdm progress bar.
-        with open(self.data_path, "r", encoding="utf-8") as fh:
-            with tqdm(fh, total=self.read_nums, desc='loading the dataset', disable=(self.global_rank != 0), mininterval=self.mininterval) as tbar:
-                    for i, line in enumerate(tbar):
-                        if i < self.read_nums:
-                            try:
-                                sample = json.loads(line.strip())
-                            except:
-                                sample = line.strip()
-                                if i==0:
-                                    print_rank_0('--->Failed to load jsonl file, check if you use the correct format.', self.global_rank)
-                            self.all_data.append(self.process_sample(sample))
-                            postfix={"train_tokens":self._get_post_fix(self.train_token_count)}   
-                            tbar.set_postfix(postfix)
-                        else:
-                            break
-        print_rank_0(f'--->train_tokens:{self._get_post_fix(self.train_token_count)}', self.global_rank)
-
     def process_sample(self, sample):
         """
         Preprocesses a single data sample.
@@ -165,9 +133,11 @@ class BaseDataset(Dataset):
             sample (dict): A dictionary containing the input and output sequences.
 
         Returns:
-            input_ids (list): The preprocessed input sequence.
-            output_ids (list): The preprocessed output sequence.
+            input_ids (list): The processed input sequence.
+            output_ids (list): The processed output sequence.
+            attention_masks (list): The processed attention masks (useful for HF models). 
         """
+        # TODO: Make attention masks useful for packing strategy.
         if self.apply_chat_template:
             # In case of HuggingFace tokenizer, we can use apply_chat_template for easy formatting.
             # This require the mode is sft and max_src_len will be ignored.
@@ -189,7 +159,7 @@ class BaseDataset(Dataset):
             input_ids, output_ids = input_ids[:-output_len], input_ids[-output_len:]
             self.train_token_count += output_len if output_len else input_len
         else:
-            input_text, output_text, input_ids, output_ids = self.preprocess_sample(sample)
+            input_text, output_text, input_ids, output_ids = self._preprocess_sample(sample)
             if output_text:
                 if self.mode == 'sft':
                     # In the case of sft, the input sample must be a instance of dict.
@@ -218,15 +188,9 @@ class BaseDataset(Dataset):
             input_len = len(input_ids)
             output_len = len(output_ids)
             
-        input_ids = input_ids + output_ids
+        input_ids += output_ids
 
-        if self.cal_metric_pos is not None:
-            # 1 stand for eos token 
-            cal_metric_pos = input_len + 1 + self.cal_metric_pos
-        elif output_len == 3:
-            cal_metric_pos = input_len + 1 
-        else:
-            cal_metric_pos = None
+        cal_metric_pos = self._calculate_metric_position(input_len, output_len)
         if self.mode == 'sft':
             labels = [getattr(self.tokenizer, 'label_pad_id', self.tokenizer.pad_id)] * input_len + output_ids
         elif self.mode == 'pretrain':
@@ -246,9 +210,42 @@ class BaseDataset(Dataset):
                 "attention_masks": torch.LongTensor(attention_masks),
                 "cal_metric_pos": cal_metric_pos}
 
-    def preprocess_sample(self, sample):
+    def _init_data_format(self, meta_prompt, prefix, postfix):
+        if self.apply_chat_template:
+            self.meta_prompt, self.prefix, self.postfix = meta_prompt, prefix or '', postfix or ''
+        else:
+            self.meta_prompt = self._encode_text(meta_prompt) if meta_prompt else []
+            self.prefix = self._encode_text(prefix) if prefix else []
+            self.postfix = self._encode_text(postfix) if postfix else []
+
+    def _process_data_file(self):
+        # Enable a tqdm progress bar.
+        with open(self.data_path, "r", encoding="utf-8") as fh:
+            with tqdm(fh, total=self.read_nums, desc='loading the dataset', disable=(self.global_rank != 0), mininterval=self.mininterval) as tbar:
+                    for i, line in enumerate(tbar):
+                        if i < self.read_nums:
+                            try:
+                                sample = json.loads(line.strip())
+                            except:
+                                sample = line.strip()
+                                if i==0:
+                                    print_rank_0('--->Failed to load jsonl file, check if you use the correct format.', self.global_rank)
+                            self.all_data.append(self.process_sample(sample))
+                            postfix={"train_tokens":self._get_post_fix(self.train_token_count)}   
+                            tbar.set_postfix(postfix)
+                        else:
+                            break
+        print_rank_0(f'--->train_tokens:{self._get_post_fix(self.train_token_count)}', self.global_rank)
+
+    def _preprocess_sample(self, sample):
         if isinstance(sample, dict) and "input_ids" in sample.keys():
-            return self.preprocess_sample_from_ids(sample)
+            # In case input ids has been provided in the data file.
+            if isinstance(sample["input_ids"], str):
+                input_ids = eval(sample["input_ids"])
+            else:
+                input_ids = sample["input_ids"]
+            self.train_token_count += len(input_ids)
+            return '', '', input_ids, []
         else:
             """
             Be careful for the use of special tokens and input format. 
@@ -268,15 +265,6 @@ class BaseDataset(Dataset):
             input_text, output_text = self._extract_texts(sample)
             input_ids = self._process_text(input_text)
             return input_text, output_text, input_ids, []
-        
-    def preprocess_sample_from_ids(self, sample):
-        # In case input ids has been provided in the data file.
-        if isinstance(sample["input_ids"], str):
-            input_ids = eval(sample["input_ids"])
-        else:
-            input_ids = sample["input_ids"]
-        self.train_token_count += len(input_ids)
-        return '', '', input_ids, []
     
     def _extract_texts(self, sample):
         """
@@ -333,6 +321,11 @@ class BaseDataset(Dataset):
                 eos=False, 
                 encode_single_gene=self.encode_single_gene
             )
+
+    def _calculate_metric_position(self, input_len, output_len):
+        if self.cal_metric_pos is not None:
+            return input_len + 1 + self.cal_metric_pos
+        return input_len + 1 if output_len == 3 else None
 
     def _get_post_fix(self, count):
         if count >= 1e9:
