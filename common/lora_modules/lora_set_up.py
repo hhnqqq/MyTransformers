@@ -141,6 +141,12 @@ def switch_to_lora(model: nn.Module,
             # Merge weight to avoid unnecessary computing.
             module.merge_and_del()
 
+def check_applyed_lora(model):
+    for module in model.modules():
+        if isinstance(module, LinearWithLoRA):
+            return True
+    return False
+
 def setup_lora(model, args, model_config=None):
     """
     Set up LoRA layers according to `args.replace_modules` or `model_config.lora_layers`
@@ -161,6 +167,12 @@ def setup_lora(model, args, model_config=None):
         else:
             print_rank_0('--->The replace modules is not provided, LoRA is targating all linear modules.', args.global_rank)
         switch_to_lora(model, args)
+
+        if not check_applyed_lora(model):
+            print_rank_0(f'--->Can not find replace modules: {args.replace_modules} in model, LoRA is targeting all-linear now.')
+            args.replace_modules = ['all-linear']
+            switch_to_lora(model, args)
+
         if args.lora_fa:
             lora_weight = ['weight_b', 'weight_ab_mixer']
         elif args.use_vera:
