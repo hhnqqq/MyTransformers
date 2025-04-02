@@ -4,6 +4,7 @@ import inspect
 import argparse
 import deepspeed
 from typing import Union, List
+from transformers import logging as transformers_logging
 
 from common.utils import print_rank_0, init_dist
 
@@ -406,6 +407,12 @@ def get_args():
     args = parser.parse_args()
     args = init_dist(args)
     
+    # Log transformers related information only on rank 0.
+    if args.global_rank != 0:
+        transformers_logging.set_verbosity_error()
+    else:
+        transformers_logging.set_verbosity_info()
+        
     if args.fp16 and args.bf16:
         raise ValueError("cannot specify both fp16 and bf16.")
     if args.train_iters is not None and args.epochs is not None:
