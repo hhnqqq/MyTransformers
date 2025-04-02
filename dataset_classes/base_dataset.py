@@ -106,6 +106,7 @@ class BaseDataset(Dataset):
         self.apply_chat_template = dataset_config.apply_chat_template and isinstance(tokenizer, PreTrainedTokenizerBase)
         if self.apply_chat_template:
             self.meta_prompt = dataset_config.meta_prompt
+            self.prefix, self.postfix = dataset_config.prefix, dataset_config.postfix
             print_rank_0('--->Prefix and postfix will be ignored when `apply_chat_template` is true', global_rank)
         else:
             self.init_data_format(dataset_config.meta_prompt, 
@@ -124,8 +125,8 @@ class BaseDataset(Dataset):
         print_rank_0(f'--->training mode: {self.mode}', global_rank)
         print_rank_0(f'--->tokenizer name: {type(tokenizer).__name__}', global_rank)
         print_rank_0(f'--->using meta prompt: {dataset_config.meta_prompt},' 
-                     'prefix: {dataset_config.prefix},'
-                     'postfix: {dataset_config.postfix}', 
+                     f'prefix: {dataset_config.prefix},'
+                     f'postfix: {dataset_config.postfix}', 
                      global_rank)
 
 
@@ -174,7 +175,7 @@ class BaseDataset(Dataset):
             if not (self.mode == 'sft' and output_text):
                 raise ValueError("apply_chat_template requires SFT mode and non-empty output text.")
             messages = [{'role':'system', 'content': self.meta_prompt}] if self.meta_prompt else []
-            messages.extend([{'role':'user', 'content': input_text}, {'role':'assistant', 'content': output_text}])
+            messages.extend([{'role':'user', 'content': self.prefix + input_text + self.postfix}, {'role':'assistant', 'content': output_text}])
             tokenized = self.tokenizer.apply_chat_template(
                         messages,
                         max_length=self.max_len,
