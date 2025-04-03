@@ -407,6 +407,7 @@ def get_args():
     args = parser.parse_args()
     args = init_dist(args)
     
+    os.environ['EXPERIMENT_NAME'] = args.experiment_name
     # Log transformers related information only on rank 0.
     if args.global_rank != 0:
         transformers_logging.set_verbosity_error()

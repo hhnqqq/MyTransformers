@@ -326,7 +326,7 @@ def configure_logging(log_path, rank: Optional[int] = 0):
     fh_level = os.environ.get("LOGLEVEL", logging.INFO)
     fh_disable = os.environ.get("NO_LOG_FILE", "false") == 'true' # Convert string variable to boolean
 
-    logger = logging.getLogger("DNALLaMa")
+    logger = logging.getLogger("MyTransformers")
     logger.setLevel(logging.DEBUG)
     formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s') # Define the log format
     
@@ -343,7 +343,9 @@ def configure_logging(log_path, rank: Optional[int] = 0):
 
     ensure_directory_exists(log_path, rank)
     if not fh_disable:
-        fh = logging.FileHandler(os.path.join(log_path, hour_string))
+        experiment_name = os.environ.get('EXPERIMENT_NAME', 'no_exp_name') + '_'
+        log_file_name = experiment_name + hour_string
+        fh = logging.FileHandler(os.path.join(log_path, log_file_name))
         fh.setFormatter(formatter)
         fh.setLevel(fh_level)
         logger.addHandler(fh)
@@ -362,7 +364,8 @@ def print_rank_0(msg, rank=0, level=logging.INFO, flush=True, force_print=False)
     if "logger" not in globals() and rank<=0:
         global logger
         # Create logger when pring_rank_0 being used.
-        logger = configure_logging(os.environ.get("LOG_FLODER", "log"), rank)
+        log_folder = os.path.expanduser(os.environ.get("LOG_FLODER", "~/MyTransformers_log"))
+        logger = configure_logging(log_folder, rank)
     if isinstance(level, str):
         level = getattr(logging, level.upper(), logging.INFO)
     if rank <= 0:
