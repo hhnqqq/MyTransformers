@@ -353,7 +353,7 @@ def configure_logging(log_path, rank: Optional[int] = 0):
     return logger
 
 
-def print_rank_0(msg, rank=0, level=logging.INFO, flush=True, force_print=False):
+def print_rank_0(msg, rank=1, level=logging.INFO, flush=True, force_print=False):
     """
     Print by single rank for multi-GPUs training
     Args:
