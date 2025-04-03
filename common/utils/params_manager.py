@@ -50,7 +50,9 @@ def set_up_trainable_param(model, args):
     Set up trainable parameters of the model according to `args.enable_list` and `args_diable_list`
     and print trainable paramters.
 
-    `args.enable_list will be considered at first`
+    `args.enable_list` will be considered at first.
+    if `args.enable_list` is None, then `args.diable_list` will be considered.
+    if both enable_list and disable_list are None, then all parameters will be set to be trainable.
 
     For example:
         if `args.enable_list == ['wq']` then wq will be trainable and other weights are not.
@@ -59,10 +61,15 @@ def set_up_trainable_param(model, args):
         will be disabled and other weights are trainable
     """
     if args.enable_list is not None:
+        if args.diable_list is not None:
+            print_rank_0('--->`args.disable_list` will be ignored as `args.enable_list` is not None.',
+                         args.global_rank)
         enable_trainable_params(model, args.enable_list)
     elif args.disable_list is not None:
         disable_untrainable_params(model, args.disable_list)
     else:
+        print_rank_0('--->All parameters will be set to trainable as both `args.enable_list` and `args.diable_list` are None',
+                     args.global_rank)
         disable_untrainable_params(model, [])
     for module in model.modules():
         if isinstance(module, LinearWithLoRA) and module.weight.requires_grad:
