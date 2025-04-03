@@ -10,6 +10,7 @@ from common.utils import print_rank_0, init_dist
 
 def base_parser():
     parser = argparse.ArgumentParser()
+    # ------------------- Path -------------------------
     parser.add_argument('--train-dataset-path',type=str, default=None,
                         help='The path of training dataset.')
     parser.add_argument('--eval-dataset-path',type=str, default=None,
@@ -18,7 +19,7 @@ def base_parser():
                         help='The path of model checkpoint (local model).')
     parser.add_argument('--tokenizer-path',type=str, default=None,
                         help='The path of tokenizer checkpoint (local model)')
-    parser.add_argument('--output-path',type=str, required=True,
+    parser.add_argument('--output-path',type=str,
                         help='The path of output floder.')
     parser.add_argument('--tokenizer-name',type=str, default=None,
                         help='The name of tokenizer, can used to acquire tokenizer_path')
@@ -28,18 +29,21 @@ def base_parser():
                         help='`model_name_or_path` is used to init huggingface model and tokenizer')
     parser.add_argument('--train-dataset-name',type=str, default=None)
     parser.add_argument('--eval-dataset-name',type=str, default=None)
+    parser.add_argument('--partial-ckpt-path',type=str, default=None, 
+                        help='This argument is useful when train model base on previous trainable params from previous experiment.')
+    parser.add_argument('--dataset-class-name', type=str, default='iterable')
+
+    # --------------------- Logging -----------------------
     parser.add_argument('--tensorboard', action='store_true')
+    parser.add_argument('--tb-log-dir', type=str, default=None,
+                        help='Path of tensorboard log dir')
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--wandb-cache-dir', type=str, default=None)
     parser.add_argument('--wandb-dir', type=str, default=None)
     parser.add_argument('--test-code', action='store_true', help='add this argument to avoid creating log file.')
-    parser.add_argument('--partial-ckpt-path',type=str, default=None, 
-                        help='This argument is useful when train model base on previous trainable params from previous experiment.')
-    parser.add_argument('--tb-log-dir', type=str, default=None,
-                        help='Path of tensorboard log dir')
     parser.add_argument('--profile-log-dir', type=str, default=None,   
                         help='Path of profiler log dir')
-    parser.add_argument('--dataset-class-name', type=str, default='iterable')
+
     return parser
 
 def train_parser(parser):
@@ -414,10 +418,12 @@ def get_args():
     else:
         transformers_logging.set_verbosity_info()
         
+    if (args.save_interval or args.save_epoch) and args.output_path is None:
+        raise ValueError("Output path can not be None when model saving is required.")
     if args.fp16 and args.bf16:
-        raise ValueError("cannot specify both fp16 and bf16.")
+        raise ValueError("Cannot specify both fp16 and bf16.")
     if args.train_iters is not None and args.epochs is not None:
-        raise ValueError('only one of train_iters and epochs should be set.')
+        raise ValueError('Only one of train_iters and epochs should be set.')
     if args.multimodal:
         if args.multimodal_projector_type == 'mlp':
             if not args.multimodal_projector_layers > 1:
