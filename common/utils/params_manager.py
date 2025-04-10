@@ -61,7 +61,7 @@ def set_up_trainable_param(model, args):
         will be disabled and other weights are trainable
     """
     if args.enable_list is not None:
-        if args.diable_list is not None:
+        if args.disable_list is not None:
             print_rank_0('--->`args.disable_list` will be ignored as `args.enable_list` is not None.',
                          args.global_rank)
         enable_trainable_params(model, args.enable_list)
