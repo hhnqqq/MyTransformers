@@ -6,7 +6,7 @@ import deepspeed
 from typing import Union, List
 from transformers import logging as transformers_logging
 
-from common.utils import print_rank_0, init_dist
+from common.utils import print_rank_0, init_dist, set_random_seed
 
 def base_parser():
     parser = argparse.ArgumentParser()
@@ -409,9 +409,11 @@ def get_args():
     parser = ds_parser(parser)
 
     args = parser.parse_args()
-    args = init_dist(args)
-    
     os.environ['EXPERIMENT_NAME'] = args.experiment_name
+    args = init_dist(args)
+
+    set_random_seed(args.seed)
+    print_rank_0(f'--->Using random seed: {args.seed}', args.global_rank)
     # Log transformers related information only on rank 0.
     if args.global_rank != 0:
         transformers_logging.set_verbosity_error()
