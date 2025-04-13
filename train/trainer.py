@@ -67,6 +67,10 @@ class Trainer:
             updates_per_epoch = math.ceil(len(train_data_loader) / parallel_states.get_data_parallel_group())
             self.args.save_interval = (updates_per_epoch / self.args.gradient_accumulation_steps) * self.args.save_epoch
 
+        if self.args.save_interval is None:
+            self.args.save_interval = int(1e30)
+            print_rank_0(f'--->Checkpoint will only be saved on the last step of training as `args.save_interval` is None', self.args.global_rank)
+
         with Timer(iterations=total_print_steps) as timer:
             model.train()
             for step in range(1, self.args.num_micro_update_steps+1):
@@ -203,6 +207,7 @@ class Trainer:
             step (int): The current training step.
         """
         config_path = os.path.join(self.save_folder, 'config.json')
+        
 
         # Save the training configuration if required
         if self.save_config and isinstance(self.args, Namespace) and self.args.global_rank == 0:

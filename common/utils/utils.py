@@ -367,7 +367,7 @@ def print_rank_0(msg, rank=1, level=logging.INFO, flush=True, force_print=False)
     if "logger" not in globals() and rank<=0:
         global logger
         # Create logger when pring_rank_0 being used.
-        log_folder = os.path.expanduser(os.environ.get("LOG_FLODER", "~/MyTransformers_log"))
+        log_folder = os.path.expanduser(os.environ.get("LOG_FOLDER", "~/MyTransformers_log"))
         logger = configure_logging(log_folder, rank)
     if isinstance(level, str):
         level = getattr(logging, level.upper(), logging.INFO)

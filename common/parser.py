@@ -420,6 +420,10 @@ def get_args():
     else:
         transformers_logging.set_verbosity_info()
         
+    if args.tensorboard and args.tb_log_dir is None:
+        raise ValueError("`tb-log-dir` need to be set if tensorboard logging is needed")
+    if args.wandb and (args.wandb_dir is None or args.wandb_cache_dir is None):
+        raise ValueError("`wandb-dir` and `wandb-cache_dir` need to be set if wandb logging is needed")
     if (args.save_interval or args.save_epoch) and args.output_path is None:
         raise ValueError("Output path can not be None when model saving is required.")
     if args.fp16 and args.bf16:
