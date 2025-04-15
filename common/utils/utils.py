@@ -342,8 +342,11 @@ def configure_logging(log_path, rank: Optional[int] = 0):
     log_path = os.path.join(log_path, date_string)
 
     ensure_directory_exists(log_path, rank)
-    if not fh_disable:
-        experiment_name = os.environ.get('EXPERIMENT_NAME', 'no_exp_name') + '_'
+
+    # Experiment name is required for file logger.
+    experiment_name = os.environ.get('EXPERIMENT_NAME', None)
+    if not fh_disable and experiment_name:
+        experiment_name = experiment_name + '_'
         log_file_name = experiment_name + hour_string
         fh = logging.FileHandler(os.path.join(log_path, log_file_name))
         fh.setFormatter(formatter)
@@ -353,7 +356,7 @@ def configure_logging(log_path, rank: Optional[int] = 0):
     return logger
 
 
-def print_rank_0(msg, rank=0, level=logging.INFO, flush=True, force_print=False):
+def print_rank_0(msg, rank=1, level=logging.INFO, flush=True, force_print=False):
     """
     Print by single rank for multi-GPUs training
     Args:
