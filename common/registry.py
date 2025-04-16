@@ -232,14 +232,15 @@ supported dataset are listed below:{cls.list_datasets()}")
 
         # Acquire model and tokenizer checkpoint paths first.
         # If use huggingface, then we only need model_name_or_path to acquire model and tokenizer.
-        model_name = '_'.join([args.model_name, args.variant])
         if args.huggingface:
-            args.model_name_or_path = paths_mapping.get(f"huggingface_{model_name}", None)
+            args.model_name_or_path = args.model_name_or_path or paths_mapping.get(f"huggingface_{model_name}", None)
             if args.model_name_or_path is None:
+                model_name = '_'.join([args.model_name, args.variant])
                 hf_mappings = {k:v for k, v in paths_mapping.items() if 'huggingface' in k}
                 raise ValueError('model_name_or_path can not be None when using huggingface models.'
                                  f'huggingface_{model_name} not found in {hf_mappings}.')
         else:
+            model_name = '_'.join([args.model_name, args.variant])
             tokenizer_name = "tokenizer_" + args.model_name
             model_name = "model_"  + model_name
             args.tokenizer_path = args.tokenizer_path if args.tokenizer_path else paths_mapping.get(tokenizer_name, None)
