@@ -12,13 +12,13 @@ def base_parser():
     parser = argparse.ArgumentParser()
     # ------------------- Path -------------------------
     parser.add_argument('--train-dataset-path',type=str, default=None,
-                        help='The path of training dataset.')
+                        help='The path of training dataset file (such as /datasets/gsm8k.jsonl).')
     parser.add_argument('--eval-dataset-path',type=str, default=None,
-                        help='The path of evaluating dataset.')
+                        help='The path of evaluating dataset file.')
     parser.add_argument('--ckpt-path',type=str, default=None,
-                        help='The path of model checkpoint (local model).')
+                        help='The path of model checkpoint (such as /models/llama3.pth).')
     parser.add_argument('--tokenizer-path',type=str, default=None,
-                        help='The path of tokenizer checkpoint (local model)')
+                        help='The path of tokenizer checkpoint (such as /tokenizers/llama3.model)')
     parser.add_argument('--output-path',type=str,
                         help='The path of output floder.')
     parser.add_argument('--tokenizer-name',type=str, default=None,
@@ -26,20 +26,26 @@ def base_parser():
     parser.add_argument('--model-name',type=str, default=None,
                         help='The name of model, can used to acquire model_path (local model) or model_name_or_path (huggingface)')
     parser.add_argument('--model-name-or-path', type=str, default=None,
-                        help='`model_name_or_path` is used to init huggingface model and tokenizer')
-    parser.add_argument('--train-dataset-name',type=str, default=None)
+                        help='`model_name_or_path` is used to init huggingface model and tokenizer. Please refer to train.load_model.load_huggingface_model.')
+    parser.add_argument('--train-dataset-name',type=str, default=None,
+                        help='Name of dataset file, use this if you have registered dataset in paths.json')
     parser.add_argument('--eval-dataset-name',type=str, default=None)
     parser.add_argument('--partial-ckpt-path',type=str, default=None, 
                         help='This argument is useful when train model base on previous trainable params from previous experiment.')
-    parser.add_argument('--dataset-class-name', type=str, default='iterable')
+    parser.add_argument('--dataset-class-name', type=str, default='iterable',
+                        help='Name of dataset class, please refer to dataset_classes for specific classes.')
 
     # --------------------- Logging -----------------------
-    parser.add_argument('--tensorboard', action='store_true')
+    parser.add_argument('--tensorboard', action='store_true',
+                        help='Set this to enable tensorboard logging.')
     parser.add_argument('--tb-log-dir', type=str, default=None,
                         help='Path of tensorboard log dir')
-    parser.add_argument('--wandb', action='store_true')
-    parser.add_argument('--wandb-cache-dir', type=str, default=None)
-    parser.add_argument('--wandb-dir', type=str, default=None)
+    parser.add_argument('--wandb', action='store_true',
+                        help='Set this to enable wandb logging.')
+    parser.add_argument('--wandb-cache-dir', type=str, default=None,
+                        help='Cache dir of wandb')
+    parser.add_argument('--wandb-dir', type=str, default=None,
+                        help='Dir of wandb')
     parser.add_argument('--test-code', action='store_true', help='add this argument to avoid creating log file.')
     parser.add_argument('--profile-log-dir', type=str, default=None,   
                         help='Path of profiler log dir')
@@ -142,10 +148,6 @@ def optimizer_parser(parser):
                        help='Number of iterations to decay LR over. If None, defaults to --train-iters * --epochs')
     group.add_argument('--optim-type', type=str, default=None, 
                        help='Type of the optimizer, this arg will be useful when diy-optimizer is true')
-    group.add_argument('--not-clip-grad-norm', action='store_false',
-                       help='Weather to disable gradient cliping base on norm')
-    group.add_argument('--clip-grad-norm-type', type=int, default=2,
-                    help='Norm type for gradient cliping')
     group.add_argument('--clip-grad-max-norm', type=float, default=1.0,
                        help='Threshold norm value for gradient')
     
@@ -211,6 +213,7 @@ def peft_parser(parser):
     group.add_argument('--use-me-lora', action='store_true',
                        help='Whether to use me lora')
     group.add_argument('--me-lora-n-split', type=int, default=2)
+    group.add_argument('--me-lora-forward-method', type=str, default='for', choices=['for','einsum'])
     group.add_argument('--lora-fa', action='store_true',
                        help='Whether to use LoRA FA')
     group.add_argument('--use-rslora', action='store_true',
@@ -325,27 +328,6 @@ def peft_parser(parser):
     # --------------------------- increlora ----------------------------------
     group.add_argument('--use-increlora', action='store_true',
                        help='Whether to use increlora')
-    # target_rank
-    # group.add_argument('--target-r', type=int, default=8,
-    #                    help=' The average target rank of final incremental matrices, i.e. the average number of singular values per matrix.')
-    # lora_r
-    # group.add_argument('--init-r', type=int, default=12,
-    #                    help='The initial rank of each incremental matrix.')
-    # init_warmup
-    # group.add_argument('--tinit', type=int, default=0,
-    #                    help='The steps of initial warmup for budget scheduler.')
-    # no corresponding
-    # group.add_argument('--tfinal', type=int, default=0,
-    #                    help='The steps of final warmup.')
-    # incre_interval
-    # group.add_argument('--deltaT', type=int, default=1,
-    #                    help='The time internval between two budget allocations.')
-    # group.add_argument('--beta1', type=float, default=0.85,
-    #                    help='Hyperparameter of EMA.')
-    # group.add_argument('--beta2', type=float, default=0.85,
-    #                    help='Hyperparameter of EMA.')
-    # group.add_argument('--orth-reg-weight', type=float, default=0.5,
-    #                    help='The orthogonal regularization coefficient.')
     group.add_argument('--top-h', type=int, default=2,
                        help='The number of selected modules per allocation.')
 

@@ -18,6 +18,7 @@ from common.lora_modules.plora import LinearWithPLoRA
 from common.lora_modules.mora import LinearWithMoRA
 from common.lora_modules.gora import LinearWithGoRA
 from common.lora_modules.increlora import LinearWithIncreLoRA
+from common.lora_modules.salora import LinearWithSALoRA
 
 def get_lora_layer_class(args):
     variant_config = dict()
@@ -30,7 +31,8 @@ def get_lora_layer_class(args):
         variant_config = dict(weight_ab_mixer_init_method=args.weight_ab_mixer_init_method)
     elif getattr(args, "use_me_lora", False):
         lora_layer_class = LinearWithMELoRA
-        variant_config = dict(me_lora_n_split=args.me_lora_n_split)
+        variant_config = dict(me_lora_n_split=args.me_lora_n_split,
+                              forward_method=args.me_lora_forward_method)
     elif getattr(args, "use_lora_ga", False):
         lora_layer_class = LinearWithLoRAGA
         variant_print = f". The initialization of LoRA-GA requires some time which depends on args.lora_ga_n_steps: {args.lora_ga_n_steps}"
@@ -79,6 +81,9 @@ def get_lora_layer_class(args):
     elif getattr(args, 'use_increlora', False):
         lora_layer_class = LinearWithIncreLoRA
         variant_config = dict(init_r=args.init_r)
+    elif getattr(args, 'use_salora', False):
+        lora_layer_class = LinearWithSALoRA
+        variant_config = dict(init_r=args.init_r, target_r=args.target_r)
     print_rank_0(f'--->Using lora variant: {lora_layer_class.__name__}{variant_print}', rank=args.global_rank)
     return lora_layer_class, variant_config
 
