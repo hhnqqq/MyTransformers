@@ -47,7 +47,7 @@ train_options="--experiment-name chat-llama3.1-gora-seed${SEED:-42}
     --show-avg-loss-step 1 \
     --variant 8b \
     --save-interval 10000 \
-    --gradient-accumulation-steps 1 \
+    --gradient-accumulation-steps 2 \
     --device cuda \
     --max-len 1024 \
     --max-src-len 1024 \
@@ -55,11 +55,11 @@ train_options="--experiment-name chat-llama3.1-gora-seed${SEED:-42}
     --eval-max-src-len 1024 \
     --seed ${SEED:-42} \
     --zero-stage 2 \
-    --lr 2e-5 \
+    --lr 5e-5 \
     --warmup 0.03 \
     --auto-warmup-steps 10 \
     --auto-warmup-rate 0.05 \
-    --weight-decay 0 \
+    --weight-decay 5e-4 \
     --lr-decay-style cosine \
     --lr-decay-ratio 0.1 \
     --atten-type flash \
