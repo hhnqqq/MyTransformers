@@ -129,19 +129,21 @@ class ConcatDataset(BaseDataset):
                 break
             print_rank_0(f'--->train_tokens:{self._get_post_fix(self.train_token_count)}', self.global_rank)
 
-    def preprocess_sample(self, sample):
-        if isinstance(sample, dict) and "input_ids" in sample.keys():
-            self.preprocess_sample_from_ids(sample)
-        else:
-            dataset_index, input_text, output_text = self._extract_texts(sample)
-            input_ids = self._process_text(input_text, dataset_index)
-            return input_text, output_text, input_ids, []
-
-    def _extract_texts(self, sample):
+    def _preprocess_sample(self, sample):
         dataset_index = sample['dataset_index']
         sample = sample['sample']
-        input_text, output_text = super()._extract_texts(sample)
-        return dataset_index, input_text, output_text
+        if isinstance(sample, dict) and "input_ids" in sample.keys():
+            # In case input ids has been provided in the data file.
+            if isinstance(sample["input_ids"], str):
+                input_ids = eval(sample["input_ids"])
+            else:
+                input_ids = sample["input_ids"]
+            self.train_token_count += len(input_ids)
+            return '', '', input_ids, []
+        else:
+            input_text, output_text = self._extract_texts(sample)
+            input_ids = self._process_text(input_text, dataset_index)
+            return input_text, output_text, input_ids, []
     
     def _process_text(self, input_text, dataset_index):
         encoded_ids = self._encode_text(input_text)
