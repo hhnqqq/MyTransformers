@@ -41,7 +41,7 @@ class LinearWithDoRA(LinearWithLoRA):
         origin_magnitude: torch.Tensor = torch.linalg.norm(weight.detach(), dim=1).to(lora_weight.dtype)
         
         weight = weight.to(lora_weight.dtype)
-        weight = weight + lora_weight * self.lora_scaler
+        weight = weight + lora_weight
         new_magnitude: torch.Tensor = torch.linalg.norm(weight.detach(), dim=1).to(lora_weight.dtype)
         # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
         # "[...] we suggest treating ||V +∆V ||_c in
