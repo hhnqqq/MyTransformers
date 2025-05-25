@@ -53,8 +53,8 @@ class LinearWithPiSSA(LinearWithLoRA):
         self.weight_b = nn.Parameter(weight_b_data.to(dtype), requires_grad=requires_grad)
 
         if self.keep_init_weights:
-            self.init_weight_a = nn.Parameter(weight_a_data.copy().to(dtype), requires_grad=requires_grad)
-            self.init_weight_b = nn.Parameter(weight_b_data.copy().to(dtype), requires_grad=requires_grad)
+            self.init_weight_a = nn.Parameter(weight_a_data.clone().to(dtype), requires_grad=requires_grad)
+            self.init_weight_b = nn.Parameter(weight_b_data.clone().to(dtype), requires_grad=requires_grad)
 
         if self.quant:
             self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
