@@ -212,6 +212,8 @@ def peft_parser(parser):
                        help='Whether to use LoRA+')
     group.add_argument('--use-mos-lora', action='store_true',
                        help='Whether to use mos lora')
+    group.add_argument('--use-nlora', action='store_true',
+                        help='Whether to use nlora')
     group.add_argument('--use-me-lora', action='store_true',
                        help='Whether to use me lora')
     group.add_argument('--me-lora-n-split', type=int, default=2)
