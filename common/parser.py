@@ -42,6 +42,8 @@ def base_parser():
                         help='Path of tensorboard log dir')
     parser.add_argument('--wandb', action='store_true',
                         help='Set this to enable wandb logging.')
+    parser.add_argument('--wandb-team', type=str, default=None,
+                        help='Team of wandb.')
     parser.add_argument('--wandb-cache-dir', type=str, default=None,
                         help='Cache dir of wandb')
     parser.add_argument('--wandb-dir', type=str, default=None,
@@ -213,6 +215,7 @@ def peft_parser(parser):
     group.add_argument('--use-me-lora', action='store_true',
                        help='Whether to use me lora')
     group.add_argument('--me-lora-n-split', type=int, default=2)
+    group.add_argument('--me-lora-usage',type=str, default='compress', choices=['compress','higher_rank'])
     group.add_argument('--me-lora-forward-method', type=str, default='for', choices=['for','einsum'])
     group.add_argument('--lora-fa', action='store_true',
                        help='Whether to use LoRA FA')
@@ -260,7 +263,7 @@ def peft_parser(parser):
     group.add_argument('--lora-ga-n-steps', type=int, default=8,
                        help='N steps for lora-ga to estimate full-rank gradient.')
     group.add_argument('--gora-n-steps', type=int, default=8,
-                       help='N steps for lora-ga to estimate full-rank gradient.')
+                       help='N steps for gora to estimate full-rank gradient.')
     group.add_argument('--gora-max-rank', type=int, default=9999)
     group.add_argument('--gora-min-rank', type=int, default=1)
     group.add_argument('--gora-softmax-importance', action='store_true')
