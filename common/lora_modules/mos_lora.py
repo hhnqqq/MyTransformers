@@ -35,7 +35,7 @@ class LinearWithMosLoRA(LinearWithLoRA):
         lora_result = F.linear(F.linear(F.linear(self.lora_dropout(x), weight_a), weight_ab_mixer), weight_b).to(result.dtype)
         return result + self.lora_scaler * lora_result
     
-    def _compute_lora(self): 
+    def _compute_lora_weight(self): 
         if self.has_lora_weights:
             # Compute lora weight.
             weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
@@ -48,7 +48,6 @@ class LinearWithMosLoRA(LinearWithLoRA):
             return lora_weight
         
     def init_lora_weights(self):
-        # called by __init__ in LinearWithLoRA
         super().init_lora_weights()
         dtype = self._get_lora_dtype()
         requires_grad = not self.quant
@@ -76,5 +75,5 @@ class LinearWithMosLoRA(LinearWithLoRA):
     @property
     def has_lora_weights(self):
         has_ab_mixer = hasattr(self, 'weight_ab_mixer') and self.weight_ab_mixer is not None
-        return has_ab_mixer and super().has_lora_weights()
+        return has_ab_mixer and super().has_lora_weights
     
