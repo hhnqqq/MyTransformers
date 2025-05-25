@@ -90,8 +90,7 @@ if __name__ == '__main__':
                 wandb.init(project='MyTransformers',
                         entity=args.wandb_team,
                         name=args.experiment_name,
-                        config=args,
-                        entity=None)
+                        config=args)
             elif args.tensorboard:
                 try:
                     from torch.utils.tensorboard import SummaryWriter
