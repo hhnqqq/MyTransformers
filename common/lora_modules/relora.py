@@ -31,7 +31,6 @@ def magnitude_pruning_(tensor, prune_ratio):
 def optimizer_reset(
     optimizer,
     *,
-    reset_params: list[torch.nn.Parameter],
     reset_optimizer_on_relora: bool,
     optimizer_random_pruning: float,
     optimizer_magnitude_pruning: float,
@@ -59,11 +58,11 @@ def optimizer_reset(
         # see full error below
         pruning_fn = partial(random_pruning_, prune_ratio=0.999)
     elif optimizer_random_pruning:
-        print_rank_0(f"--->Performing random pruning of optimizer states. Pruning {optimizer_random_pruning} percent",
+        print_rank_0(f"--->Performing random pruning of optimizer states. Pruning ratio: {optimizer_random_pruning}",
                      args.global_rank)
         pruning_fn = partial(random_pruning_, prune_ratio=optimizer_random_pruning)
     elif optimizer_magnitude_pruning:
-        print_rank_0(f"--->Performing magnitude pruning of optimizer states. Pruning {optimizer_magnitude_pruning} percent",
+        print_rank_0(f"--->Performing magnitude pruning of optimizer states. Pruning ratio: {optimizer_magnitude_pruning}",
                      args.global_rank)
         pruning_fn = partial(magnitude_pruning_, prune_ratio=optimizer_magnitude_pruning)
     else:
@@ -72,11 +71,8 @@ def optimizer_reset(
     n_total = 0
 
     optimizer_state = optimizer.state
-    if isinstance(optimizer, DeepSpeedZeroOptimizer):
-        optimizer_state = optimizer.optimizer.state
-
-    for p in reset_params:
-        param_state = optimizer_state[p]
+    # As ZeroOptimizer flatten all states into one dict, hence we must prune all optimizer states.
+    for param_state in optimizer_state.values():
         if len(param_state) == 0: # no state for this param, happens for ZeRo optimizer
             continue
         for key in optimizer_state_keys:
@@ -86,4 +82,3 @@ def optimizer_reset(
 
     _zeroed = n_zeros / (1e-7 + n_total) * 100
     print_rank_0(f"--->Percent of optimizer states zeroed: {_zeroed:.2f}", args.global_rank)
-    # start a new warmup
