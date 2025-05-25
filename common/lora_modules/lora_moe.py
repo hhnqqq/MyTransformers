@@ -36,7 +36,7 @@ class LinearWithLoRAMoE(LinearWithLoRA):
 
         self.weight_a, self.weight_b =nn.ParameterList(), nn.ParameterList()
         if self.requires_gate:
-            self.gate = nn.Parameter(torch.rand((self.in_features, self.lora_moe_n_experts), dtype=dtype), requires_grad=requires_grad)
+            self.gate = nn.Parameter(torch.rand((self.moe_top_k, self.in_features), dtype=dtype), requires_grad=requires_grad)
         for _ in range(self.lora_moe_n_experts):
             expert_weight_a = nn.Parameter(torch.empty((self.lora_rank, self.in_features), dtype=dtype), requires_grad=requires_grad)
             expert_weight_b = nn.Parameter(torch.zeros((self.out_features, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
@@ -53,10 +53,12 @@ class LinearWithLoRAMoE(LinearWithLoRA):
             self.get_weight_init_method(**init_kwargs)(weight)
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
-        lora_results = torch.zeros(*x.shape[:2], self.out_features, device=x.device, dtype=result.dtype)
+        lora_results = torch.zeros(x.shape[0]*x.shape[1], self.out_features, device=x.device, dtype=result.dtype)
+        origin_shape = x.shape
+        x = x.view(-1, x.shape[-1])
         if self.requires_gate:
-            # Shape: [bsz, dim] --> [bsz, top_k]
-            gate_logits = self.gate(x)
+            # Shape: [bsz*seq_len, out] --> [bsz*seq_len, top_k]
+            gate_logits = F.linear(x, self.gate.to(self._get_lora_dtype()))
             weights, selected_experts = torch.topk(
                 gate_logits, self.moe_top_k
             )
@@ -74,7 +76,7 @@ class LinearWithLoRAMoE(LinearWithLoRA):
                 expert_weight_b = expert_weight_b.to(self._get_lora_dtype())
                 lora_results += F.linear(F.linear(self.lora_dropout(x), expert_weight_a), expert_weight_b).to(result.dtype)
             lora_results /= self.lora_moe_n_experts
-        return result + self.lora_scaler * lora_results
+        return result + self.lora_scaler * lora_results.reshape(*origin_shape[:2], self.out_features)
     
     def _compute_lora_weight(self):
         lora_weight = torch.zeros((self.in_features, self.out_features))
