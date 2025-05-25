@@ -1,4 +1,4 @@
-""" Implements MoLA"""
+""" Implements MoLA:Higher Layers Need More LoRA Experts (https://arxiv.org/pdf/2402.08562)"""
 
 from common.lora_modules.lora_moe import *
 
@@ -52,9 +52,13 @@ def init_mola_experts_by_shape(model, args):
 
                         elif args.mola_type == 'hourglass':
                             if stage == 'first_quarter':
-                                layer_module.lora_moe_n_experts = int(n_experts * 2)
+                                layer_module.lora_moe_n_experts = int(n_experts * 4)
+                            elif stage == 'second_quarter':
+                                layer_module.lora_moe_n_experts = int(n_experts * 0.25)
+                            elif stage == 'third_quarter':
+                                layer_module.lora_moe_n_experts = int(n_experts * 0.25)
                             elif stage == 'last_quarter':
-                                layer_module.lora_moe_n_experts = int(n_experts * 2)
+                                layer_module.lora_moe_n_experts = int(n_experts * 4)
 
 
                         elif args.mola_type == 'rectangle':
@@ -63,4 +67,9 @@ def init_mola_experts_by_shape(model, args):
                         else:
                             raise ValueError(f'MoLA type must in ["triangle", "invert_triangle", "hourglass", "rectangle"], got {args.mola_type}')
                         
+                        if layer_module.lora_moe_n_experts == 1:
+                            layer_module.moe_top_k = 1
+                        elif layer_module.moe_top_k > layer_module.lora_moe_n_experts:
+                            layer_module.moe_top_k = 2
+                            
                         layer_module.init_mola_weights()

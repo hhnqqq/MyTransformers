@@ -37,6 +37,7 @@ from common.lora_modules.plora import *
 from common.lora_modules.adalora import *
 from common.lora_modules.gora import *
 from common.lora_modules.increlora import *
+from common.lora_modules.mola import *
 
 @contextlib.contextmanager
 def DisableLoRA(model):
@@ -97,3 +98,5 @@ def prepare_lora(model, train_dataloader, args):
     if args.use_increlora:
         rank_allocator = IncreRankAllocator(model, args)
         model.rankallocator = rank_allocator
+    if args.use_mola:
+        init_mola_experts_by_shape(model=model, args=args)

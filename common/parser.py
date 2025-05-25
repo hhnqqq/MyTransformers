@@ -234,6 +234,9 @@ def peft_parser(parser):
                        help='Whether to use delta-lora')
     group.add_argument('--use-mora', action='store_true',
                        help='Whether to use mora.')
+    group.add_argument('--use-mola', action='store_true',
+                       help='Whether to use mola.')
+    group.add_argument('--mola-type', type=str, default='triangle')
     group.add_argument('--mora-type', type=str, default='rope')
     group.add_argument('--delta-lora-start-steps', type=int, default=500,
                        help='Start to compute delta lora weights')

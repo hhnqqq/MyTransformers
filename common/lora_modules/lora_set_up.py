@@ -19,71 +19,67 @@ from common.lora_modules.mora import LinearWithMoRA
 from common.lora_modules.gora import LinearWithGoRA
 from common.lora_modules.increlora import LinearWithIncreLoRA
 from common.lora_modules.salora import LinearWithSALoRA
+from common.lora_modules.mola import LinearWithMoLA
+
+lora_variants = {
+    "use_dora": (LinearWithDoRA, lambda a: {}, ""),
+    "use_mos_lora": (LinearWithMosLoRA, 
+                    lambda a: {"weight_ab_mixer_init_method": a.weight_ab_mixer_init_method}, ""),
+    "use_me_lora": (LinearWithMELoRA, 
+                    lambda a: {"me_lora_n_split": a.me_lora_n_split, 
+                                "forward_method": a.me_lora_forward_method}, ""),
+    "use_lora_ga": (LinearWithLoRAGA, 
+                    lambda a: {}, 
+                    lambda a: f". The initialization of LoRA-GA requires some time which depends on args.lora_ga_n_steps: {a.lora_ga_n_steps}"),
+    "use_rslora": (LinearWithRSLoRA, lambda a: {}, ""),
+    "use_pissa": (LinearWithPiSSA, 
+                    lambda a: {"fast_svd_n_iters": a.pissa_n_iters, 
+                            "keep_init_weights": a.pissa_keep_init_weights}, 
+                    ". The initialization of Pissa requires some time especially for full svd decomposition, waiting..."),
+    "use_olora": (LinearWithOLoRA, 
+                    lambda a: {}, 
+                    ". The initialization of Olora requires some time, waiting..."),
+    "use_vera": (LinearWithVeRA, lambda a: {}, ""),
+    "use_adalora": (LinearWithAdaLoRA, lambda a: {"init_r": a.init_r}, ""),
+    "use_delta_lora": (LinearWithDeltaLoRA, 
+                        lambda a: {"update_ratio": a.delta_lora_update_ratio}, ""),
+    "use_lora_moe": (LinearWithLoRAMoE, 
+                    lambda a: {"lora_moe_n_experts": a.lora_moe_n_experts, 
+                                "lora_moe_top_k": a.lora_moe_top_k}, ""),
+    "use_milora": (LinearWithMILoRA, 
+                    lambda a: {"fast_svd_n_iters": a.milora_n_iters}, 
+                    ". The initialization of milora requires some time especially for full svd decomposition, waiting..."),
+    "use_plora": (LinearWithPLoRA, 
+                    lambda a: {"plora_momentum": a.plora_momentum}, 
+                    lambda a: f". PLoRA will reset lora weights with momentum: {a.plora_momentum} at every step."),
+    "use_mora": (LinearWithMoRA, lambda a: {"mora_type": a.mora_type}, ""),
+    "use_gora": (LinearWithGoRA, 
+                lambda a: {"gora_init_method": a.gora_init_method,
+                            "gora_rank_stablize": a.gora_rank_stablize,
+                            "gora_dynamic_scaling": a.gora_dynamic_scaling}, ""),
+    "use_increlora": (LinearWithIncreLoRA, lambda a: {"init_r": a.init_r}, ""),
+    "use_salora": (LinearWithSALoRA, 
+                    lambda a: {"init_r": a.init_r, "target_r": a.target_r}, ""),
+    "use_mola": (LinearWithMoLA,
+                lambda a: {"lora_moe_n_experts": a.lora_moe_n_experts, 
+                            "lora_moe_top_k": a.lora_moe_top_k}, ""),
+}
 
 def get_lora_layer_class(args):
-    variant_config = dict()
-    variant_print = ""
     lora_layer_class = LinearWithLoRA
-    if getattr(args, "use_dora", False):
-        lora_layer_class = LinearWithDoRA
-    elif getattr(args, "use_mos_lora", False):
-        lora_layer_class = LinearWithMosLoRA
-        variant_config = dict(weight_ab_mixer_init_method=args.weight_ab_mixer_init_method)
-    elif getattr(args, "use_me_lora", False):
-        lora_layer_class = LinearWithMELoRA
-        variant_config = dict(me_lora_n_split=args.me_lora_n_split,
-                              forward_method=args.me_lora_forward_method)
-    elif getattr(args, "use_lora_ga", False):
-        lora_layer_class = LinearWithLoRAGA
-        variant_print = f". The initialization of LoRA-GA requires some time which depends on args.lora_ga_n_steps: {args.lora_ga_n_steps}"
-    elif getattr(args, "use_rslora", False):
-        lora_layer_class = LinearWithRSLoRA
-    elif getattr(args, "use_pissa", False):
-        lora_layer_class = LinearWithPiSSA
-        variant_config = dict(fast_svd_n_iters=args.pissa_n_iters,
-                              keep_init_weights=args.pissa_keep_init_weights)
-        variant_print = ". The initialization of Pissa requires some time especially for full svd decomposition, waiting..."
-    elif getattr(args, "use_olora", False):
-        lora_layer_class = LinearWithOLoRA
-        variant_print = ". The initialization of Olora requires some time, waiting..."
-    elif getattr(args, 'use_vera', False):
-        lora_layer_class = LinearWithVeRA
-    elif getattr(args, 'use_adalora', False):
-        lora_layer_class = LinearWithAdaLoRA
-        variant_config = dict(init_r=args.init_r)
-    elif getattr(args, 'use_delta_lora', False):
-        lora_layer_class = LinearWithDeltaLoRA
-        variant_config = dict(update_ratio=args.delta_lora_update_ratio)
-    elif getattr(args, 'use_lora_moe', False):
-        lora_layer_class = LinearWithLoRAMoE
-        variant_config = dict(lora_moe_n_experts=args.lora_moe_n_experts,
-                              lora_moe_top_k=args.lora_moe_top_k)
-    elif getattr(args, 'use_milora', False):
-        lora_layer_class = LinearWithMILoRA
-        variant_config = dict(fast_svd_n_iters=args.milora_n_iters)
-        variant_print = ". The initialization of milora requires some time especially for full svd decomposition, waiting..."
-    elif getattr(args, 'use_plora', False):
-        lora_layer_class = LinearWithPLoRA
-        variant_config = dict(plora_momentum=args.plora_momentum)
-        variant_print = f". PLoRA will reset lora weights with momentum: {args.plora_momentum} at every step."
-    elif getattr(args, 'use_mora', False):
-        lora_layer_class = LinearWithMoRA
-        variant_config = dict(mora_type=args.mora_type)
-    elif getattr(args, 'use_gora', False):
-        lora_layer_class = LinearWithGoRA
-        variant_config = dict(gora_init_method=args.gora_init_method,
-                              gora_rank_stablize=args.gora_rank_stablize,
-                              gora_dynamic_scaling=args.gora_dynamic_scaling)
-    elif getattr(args, "relora_steps", False) or getattr(args, "relora_counts", False):
-        # if args.relora_counts:
-        #     args.relora_steps = args.num_global_update_steps // (args.relora_counts + 1)
+    variant_config = {}
+    variant_print = ""
+    
+    if getattr(args, "relora_steps", False) or getattr(args, "relora_counts", False):
         variant_print = f". Will reset lora weights every {args.relora_steps} global update steps."
-    elif getattr(args, 'use_increlora', False):
-        lora_layer_class = LinearWithIncreLoRA
-        variant_config = dict(init_r=args.init_r)
-    elif getattr(args, 'use_salora', False):
-        lora_layer_class = LinearWithSALoRA
-        variant_config = dict(init_r=args.init_r, target_r=args.target_r)
+    else:
+        for attr_name, (cls, config_fn, print_msg) in lora_variants.items():
+            if getattr(args, attr_name, False):
+                lora_layer_class = cls
+                variant_config = config_fn(args)
+                variant_print = print_msg(args) if callable(print_msg) else print_msg
+                break
+    
     print_rank_0(f'--->Using lora variant: {lora_layer_class.__name__}{variant_print}', rank=args.global_rank)
     return lora_layer_class, variant_config
 
