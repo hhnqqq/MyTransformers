@@ -93,6 +93,7 @@ def refresh_config(ds_config, args):
     ds_config['train_micro_batch_size_per_gpu'] = args.batch_size_per_gpu
     ds_config['optimizer']['params']['lr'] = args.lr
     ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = args.num_warmup_steps
+    ds_config["optimizer"]["gradient_clipping"] = args.clip_grad_max_norm
     if 'train_batch_size' in ds_config:
         ds_config['train_batch_size'] = args.batch_size_per_gpu * args.gpu_count
     if args.csv_monitor:
