@@ -80,7 +80,6 @@ def initialize_model_parallel(
                 # pp=1 sp=4 gpus=8 ---> [0, 4] [1, 5] [2, 6] [3, 7] ---> world size 2
                 ranks = range(start_rank+j, end_rank, tp_or_sp_size)
                 group = dist.new_group(ranks)
-                print(list(ranks))
                 all_data_parallel_groups.append(list(ranks))
 
                 if rank in ranks:
