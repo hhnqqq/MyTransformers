@@ -47,7 +47,7 @@ def get_optimizer(ds_config, args, model, optimizer_sd = None, lr_scheduler_sd =
     optim_type = get_optimizer_type(args, ds_config)
     offload_config = ds_config["zero_optimization"].get("offload_optimizer", {})
     offload_device = offload_config.get("device", None)
-    if offload_device == 'cpu' or args.optimizer_offload:
+    if offload_device == 'cpu' or args.offload_optimizer:
         optim_type = 'cpu' + optim_type
     isSuccess, optimizer = get_optimizer_instance(optim_type, args, model)
 
@@ -210,7 +210,8 @@ def get_learning_rate_scheduler(optimizer, iteration, args):
                                 auto_warmup_steps=args.auto_warmup_steps,
                                 auto_warmup_rate=args.auto_warmup_rate,
                                 restart_every=args.relora_steps,
-                                restart_warmup_steps=args.relora_warmup_steps
+                                restart_warmup_steps=args.relora_warmup_steps,
+                                global_rank=args.global_rank
                                 )
     else:
         lr_scheduler = None

@@ -38,6 +38,7 @@ class AnnealingLR(_LRScheduler):
                  auto_warmup_rate=0.05,
                  restart_warmup_steps=None,
                  restart_every=None,
+                 global_rank=0
                  ):
         """
         Initializes the AnnealingLR scheduler.
@@ -68,6 +69,7 @@ class AnnealingLR(_LRScheduler):
         self.decay_ratio = 1 / decay_ratio
         self.auto_warmup_steps = auto_warmup_steps
         self.auto_warmup_rate = auto_warmup_rate
+        self.global_rank = global_rank
 
         if warmup_iter < 0 or num_iters <= warmup_iter:
             raise ValueError(f"warmup_iter ({warmup_iter}) must be in range [0, num_iters ({num_iters})]")
@@ -80,8 +82,7 @@ class AnnealingLR(_LRScheduler):
         self.restart_every = restart_every
 
         self.step(self.num_iters)
-        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-            print_rank_0(f'--->learning rate decaying style {self.decay_style}, ratio {self.decay_ratio}')
+        print_rank_0(f'--->learning rate decaying style {self.decay_style}, ratio {self.decay_ratio}%', global_rank)
 
     def get_lr(self):
         # auto_warmup_steps并不取决于warmup的设置，而是固定的进行warmup
@@ -89,12 +90,10 @@ class AnnealingLR(_LRScheduler):
             auto_lr = float(self.start_lr) * self.auto_warmup_rate
             scheduled_lr = float(self.start_lr) * self.num_iters / self.warmup_iter
             return min(auto_lr, scheduled_lr)
-        
-        # 根据warmup设置进行warmup
+
         if self.warmup_iter > 0 and self.num_iters <= self.warmup_iter:
             return float(self.start_lr) * self.num_iters / self.warmup_iter
         else:
-            # 进行learning rate decay
             if self.decay_style == self.DECAY_STYLES[0]:
                 return self.start_lr*((self.end_iter-(self.num_iters-self.warmup_iter))/self.end_iter)
             elif self.decay_style == self.DECAY_STYLES[1]:
@@ -104,14 +103,7 @@ class AnnealingLR(_LRScheduler):
             elif self.decay_style == self.DECAY_STYLES[2]:
                 return self.start_lr
             elif self.decay_style == self.DECAY_STYLES[3]:
-                return self._get_cosine_schedule_with_multiple_warmups(
-                    current_step=self.num_iters,
-                    num_training_steps=self.end_iter,
-                    first_warmup_steps=self.warmup_iter,
-                    restart_warmup_steps=self.restart_warmup_steps,
-                    restart_every=self.restart_every,
-                    start_lr=self.start_lr,
-                )
+                return self._get_cosine_schedule_with_multiple_warmups()
             else:
                 return self.start_lr
 
@@ -134,43 +126,27 @@ class AnnealingLR(_LRScheduler):
         }
         return sd
 
-    def _get_cosine_schedule_with_multiple_warmups(
-            self,
-            current_step,
-            num_training_steps,
-            first_warmup_steps,
-            restart_warmup_steps,
-            restart_every,
-            start_lr,
-    ):
-
-        # 这个是我自己加的判断条件，不确定是否合理。
-        assert first_warmup_steps < restart_every, "restart_every should be grater than first_warmup_steps"
-        if num_training_steps % restart_every != 0:
+    def _get_cosine_schedule_with_multiple_warmups(self):
+        if self.end_iter % self.restart_every != 0:
             raise ValueError(
-                f"num_training_steps ({num_training_steps}) must be divisible by restart_every ({restart_every})")
+                f"end_iter ({self.end_iter}) must be divisible by restart_every ({self.restart_every})")
 
-        # 第一次warmup（非restart warmup）。循环从0开始。
-        if current_step < first_warmup_steps:
-            return start_lr * float(current_step) / float(max(1, first_warmup_steps))
 
-        # 计算restart次数以及当前restart的step。
-        restart_step = current_step % restart_every
-        restart_number = current_step // restart_every
+        restart_step = self.num_iters % self.restart_every
+        restart_number = self.num_iters // self.restart_every
 
-        # 处在restart warmup过程，线性增加学习率到 start_lr。
-        if restart_step < restart_warmup_steps and current_step >= restart_every:
+        if restart_step < self.restart_warmup_steps and self.num_iters >= self.restart_every:
             # get expected lr multipler at the end of the warmup
-            warmup_lr_multiplier = start_lr * 0.5 * (1 + math.cos(math.pi * (
-                    float(restart_number * restart_every + restart_warmup_steps - first_warmup_steps) /
-                    float(max(1, num_training_steps - first_warmup_steps))
+            warmup_lr_multiplier = self.start_lr * 0.5 * (1 + math.cos(math.pi * (
+                    float(restart_number * self.restart_every + self.restart_warmup_steps - self.warmup_iter) /
+                    float(max(1, self.end_iter - self.warmup_iter))
             )))
 
-            return float(restart_step) / float(max(1, restart_warmup_steps)) * warmup_lr_multiplier
+            return float(restart_step) / float(max(1, self.restart_warmup_steps)) * warmup_lr_multiplier
 
-        progress = float(current_step - first_warmup_steps) / float(max(1, num_training_steps - first_warmup_steps))
+        progress = float(self.num_iters - self.warmup_iter) / float(max(1, self.end_iter - self.warmup_iter))
 
-        return start_lr * 0.5 * (1 + math.cos(math.pi * progress))
+        return self.start_lr * 0.5 * (1 + math.cos(math.pi * progress))
     
 
 if __name__ == '__main__':

@@ -8,11 +8,20 @@ from contextlib import contextmanager
 from dataset_classes import RepeatingLoader
 from common.utils import to_device, reduce_tensor
 from common.lora_modules.relora import optimizer_reset
+from common.lora_modules.salora import LinearWithSALoRA
 from common.lora_modules.adalora import update_and_allocate
 from common.lora_modules.delta_lora import LinearWithDeltaLoRA
 from common.lora_modules import LinearWithLoRA, LinearWithPLoRA, find_lora_names
 
-def  forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
+@contextmanager
+def gather_params_ctx(param, modifier_rank: int = 0, fwd_module: torch.nn.Module = None):
+    """Call DeepSpeed GatheredParameters context manager if DeepSpeed is enabled, otherwise do nothing."""
+
+    with deepspeed.zero.GatheredParameters(param, modifier_rank=modifier_rank, fwd_module=fwd_module):
+        yield
+    return
+
+def forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
     with torch.profiler.record_function("get_data"):
         batch = next(data_loader)
         batch = to_device(batch, args.device)
@@ -56,7 +65,6 @@ def backward_step_deepspeed_relora(model: DeepSpeedEngine, optimizer, loss, lr_s
         if args.relora_reset_optimizer:
             optimizer_reset(
                 optimizer,
-                reset_params=[p for n, p in model.named_parameters() if p.requires_grad and find_lora_names(n)],
                 reset_optimizer_on_relora=args.relora_fully_reset_optimizer,
                 optimizer_random_pruning=args.relora_optimizer_random_pruning,
                 optimizer_magnitude_pruning=args.relora_optimizer_magnitude_pruning,
@@ -86,12 +94,7 @@ def backward_step_deepspeed_deltalora(model: DeepSpeedEngine, optimizer, loss, l
                 module.update_pretrained_weight()
         return model
 
-def adalora_step(args, loss, model):
-    # reference: https://github.com/huggingface/peft/blob/main/src/peft/tuners/adalora/model.py#L238
-    orth_reg_weight = args.orth_reg_weight
-    if orth_reg_weight <= 0:
-        raise ValueError("orth_reg_weight should be greater than 0. ")
-
+def calc_orthogonal_loss(model):
     regu_loss = 0
     num_param = 0
     for n, p in model.named_parameters():
@@ -109,42 +112,42 @@ def adalora_step(args, loss, model):
         regu_loss = regu_loss / num_param
     else:
         regu_loss = 0
-    adalora_loss = loss + orth_reg_weight * regu_loss
+    return regu_loss
+
+def calc_l0_loss(model):
+    regu_loss = 0
+    num_module = 0
+    for module in model.modules():
+        if isinstance(module, LinearWithSALoRA):
+            regu_loss += module.lamda * (module.hc_gate.get_expected_L0_norm() - (module.target_rank / module.lora_rank))**2
+    if num_module > 0:
+        regu_loss = regu_loss / num_module
+    else:
+        regu_loss = 0
+    return regu_loss
+
+def calc_adalora_loss(args, loss, model):
+    # reference: https://github.com/huggingface/peft/blob/main/src/peft/tuners/adalora/model.py#L238
+    orth_reg_weight = args.orth_reg_weight
+    if orth_reg_weight <= 0:
+        raise ValueError("orth_reg_weight should be greater than 0. ")
+
+    adalora_loss = loss + orth_reg_weight * calc_orthogonal_loss(model)
 
     return adalora_loss
 
-@contextmanager
-def gather_params_ctx(param, modifier_rank: int = 0, fwd_module: torch.nn.Module = None):
-    """Call DeepSpeed GatheredParameters context manager if DeepSpeed is enabled, otherwise do nothing."""
+def calc_salora_loss(args, loss, model):
+    orth_reg_weight = args.orth_reg_weight
+    if orth_reg_weight <= 0:
+        raise ValueError("orth_reg_weight should be greater than 0. ")
 
-    with deepspeed.zero.GatheredParameters(param, modifier_rank=modifier_rank, fwd_module=fwd_module):
-        yield
-    return
+    salora_loss = loss + orth_reg_weight * calc_orthogonal_loss(model) + calc_l0_loss(model)
 
-def forward_step_deepspeed_adalora(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
-    with torch.profiler.record_function("get_data"):
-        batch = next(data_loader)
-        batch = to_device(batch, args.device)
-
-    with torch.profiler.record_function("forward_path"):
-        if args.huggingface:
-            loss = model(**batch).loss
-            metric = {}
-        else:
-            loss, metric = model(**batch)
-
-        if args.all_reduce_loss:
-            # Reduce loss for average loss print, not for backpropagation.
-            # DeepSpeed uses on-chip loss for backpropagation and all-reduces gradients afterwards.
-            loss_reduced = reduce_tensor(loss, args.world_size)
-            metric['loss_reduced'] = loss_reduced
-            del loss_reduced
-            
-        return loss, metric
+    return salora_loss
     
 def backward_step_deepspeed_adalora(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
     with record_function("backward_path"):
-        adalora_loss = adalora_step(args, loss, model)
+        adalora_loss = calc_adalora_loss(args, loss, model)
         model.backward(adalora_loss)
 
         update_flag = False
@@ -166,6 +169,14 @@ def backward_step_deepspeed_adalora(model: DeepSpeedEngine, optimizer, loss, lr_
 
         return model
 
+def backward_step_deepspeed_salora(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
+    with record_function("backward_path"):
+        salora_loss = calc_salora_loss(args, loss, model)
+        model.backward(salora_loss)
+        model.step()
+
+        return model
+    
 def eval_step_deepspeed_adalora(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
     with record_function("eval_path"):
         batch = next(data_loader)
