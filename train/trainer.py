@@ -33,7 +33,7 @@ class Trainer:
 
     def train(
         self,
-        model: torch.nn.Module,
+        model: deepspeed.DeepSpeedEngine,
         train_data_loader: DataLoader,
         forward_step: Callable,
         optimizer: Callable = None,
@@ -80,6 +80,7 @@ class Trainer:
                 # Forward step
                 loss, metric = forward_step(model, train_data_loader, self.args, step)
                 self.lr = lr_scheduler.get_lr()
+                self.grad_norm = model.get_global_grad_norm()
                 if loss.isnan() or loss.isinf():
                     print(f'Skipping backward and optimizer step for nan or inf in forwarding loss at rank {self.args.global_rank}!')
                     # Backward process is still needed for other ranks may have normal loss.
@@ -165,8 +166,15 @@ class Trainer:
                                 f"remaining_steps={self.args.num_global_update_steps - self.global_step}")
                     if self.writer is not None:
                         self.writer.add_scalar('loss', avg_loss, self.global_step)
-                    if self.args.wandb:
-                        wandb.log({'loss': avg_loss}, self.global_step)
+                        self.writer.add_scaler('lr', self.lr, self.global_step)
+                        self.writer.add_scaler('grad_norm', self.grad_norm, self.global_step)
+                        self.writer.add_scaler('avg_time', avg_time, self.global_step)
+                    if self.args.wandb and not self.args.test_code:
+                        wandb.log({'loss': avg_loss,
+                                   'grad_norm': self.grad_norm,
+                                   'lr': self.lr,
+                                   'avg_time': avg_time}, 
+                                   self.global_step)
 
                     if self.get_task_print:
                         print_str += self.get_task_print(self.all_metric, self.args)
@@ -184,7 +192,7 @@ class Trainer:
                 if self.args.global_rank == 0:
                     if self.writer is not None:
                         self.writer.add_scalar('eval_loss', self.eval_loss, self.global_step)
-                    if self.args.wandb:
+                    if self.args.wandb  and not self.args.test_code:
                         wandb.log({'eval_loss': self.eval_loss}, self.global_step)
                 self.eval_loss = 0.0
                 self.eval_metric = []

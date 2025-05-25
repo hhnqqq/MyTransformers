@@ -88,6 +88,7 @@ if __name__ == '__main__':
                 os.environ['WANDB_CACHE_DIR'] = args.wandb_cache_dir
                 os.environ['WANDB_DIR'] = args.wandb_dir
                 wandb.init(project='MyTransformers',
+                        entity=args.wandb_team,
                         name=args.experiment_name,
                         config=args,
                         entity=None)
@@ -108,7 +109,7 @@ if __name__ == '__main__':
         task_print = task_print_pipeline
     else:
         if args.use_adalora:
-            forward_step = forward_step_deepspeed_adalora
+            # forward_step = forward_step_deepspeed_adalora
             # eval_step = eval_step_deepspeed_adalora
             eval_step = eval_step_deepspeed
         else:
@@ -169,7 +170,7 @@ if __name__ == '__main__':
                 train_with_profiler(profiler)
         else:
             train_with_profiler(None)
-    except Exception as e:
+    except Exception:
         # When any error occurs during the training process, log the error.
         # Note that only the error occured in the rank 0 will be logged into file.
         traceback_info = traceback.format_exc()
