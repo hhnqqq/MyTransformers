@@ -238,6 +238,8 @@ def peft_parser(parser):
                        help='Whether to use mora.')
     group.add_argument('--use-mola', action='store_true',
                        help='Whether to use mola.')
+    group.add_argument('--use-nora', action='store_true',
+                       help='Whether to use nora.')
     group.add_argument('--mola-type', type=str, default='triangle')
     group.add_argument('--mora-type', type=str, default='rope')
     group.add_argument('--delta-lora-start-steps', type=int, default=500,
@@ -248,6 +250,9 @@ def peft_parser(parser):
                         between the error and computation time')
     group.add_argument('--pissa-keep-init-weights', action='store_true')
     group.add_argument('--milora-n-iters', type=int, default=1, 
+                       help='The number of iterations determines the trade-off \
+                        between the error and computation time')
+    group.add_argument('--nora-n-iters', type=int, default=1, 
                        help='The number of iterations determines the trade-off \
                         between the error and computation time')
     group.add_argument('--lora-rank', type=int, default=8,

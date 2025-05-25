@@ -21,6 +21,7 @@ from common.lora_modules.increlora import LinearWithIncreLoRA
 from common.lora_modules.salora import LinearWithSALoRA
 from common.lora_modules.mola import LinearWithMoLA
 from common.lora_modules.nlora import LinearWithNLoRA
+from common.lora_modules.nora import LinearWithNoRA
 
 lora_variants = {
     "use_dora": (LinearWithDoRA, lambda a: {}, ""),
@@ -66,6 +67,8 @@ lora_variants = {
                             "lora_moe_top_k": a.lora_moe_top_k}, ""),
     "use_nlora": (LinearWithNLoRA,
                 lambda a: {"weight_ab_mixer_init_method": None}, ""),
+    "use_nora":  (LinearWithNoRA,
+                lambda a: {"fast_svd_n_iters": a.nora_n_iters}, ""),
 }
 
 def get_lora_layer_class(args):
