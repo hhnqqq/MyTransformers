@@ -150,7 +150,7 @@ def main(args):
                 start, end = i, i+(args.batch_size-1)
                 inputs = df.loc[start:end, 'input'].apply(lambda x: args.meta_prompt + args.prefix + x + args.postfix).to_list()
                 # results = model.generate(inputs, device, output_len=args.output_len, eos=False, temperature=0)[0]
-                results = model.generate(inputs, device, output_len=args.output_len, eos=False)[0]
+                results = model.generate(inputs, device, output_len=args.output_len, eos=False, temperature=0.8, top_p=0.95)[0]
                 results = [result.strip("<|begin_of_text|>") for result in results]
                 for idx, result in enumerate(results):
                     print(f"Index: {start+idx}, Result: {result}")  # Debugging each result
@@ -166,6 +166,7 @@ def main(args):
                     print(postfix)
                 if i % 1000 == 0:
                     # Save the file every 1000 steps.
+                    os.makedirs(args.result_path, exist_ok=True)
                     df.to_json(os.path.join(args.result_path, 'result.json'), orient='records', force_ascii=False, lines=True)
         df.to_json(os.path.join(args.result_path, 'result.json'), orient='records', force_ascii=False, lines=True)
                 
