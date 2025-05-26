@@ -33,7 +33,7 @@ class BertConfig:
     l_output: Optional[int] = None
     use_lengths: bool = False
     lengths: Optional[int] = None
-    tokenizer: Optional[str] = '/home/bingxing2/ailab/scx6mh7/workspace/dnabert2/tokenizer.json'
+    tokenizer: Optional[str] = ''
     add_pooling_layer: bool = False
     def get_dtype(self) -> Optional[torch.dtype]:
         """Gets the torch dtype from the config dtype string."""

@@ -87,7 +87,7 @@ def load_local_model(args):
             return_dataset_kwargs['multimodal_k_tokens'] = args.multimodal_k_tokens
             load_ckpt(model=model.multimodal_model, ckpt_path=args.multimodal_model_ckpt_path, rank=args.global_rank)
             print_rank_0(f'--->Using pretrained multimodal model checkpoint at {args.multimodal_model_ckpt_path}', args.global_rank)
-            multimodal_tokenizer = registry.get_tokenizer_class(args.multimodal_tokenizer_name)(model_config.multimodal_model_config.tokenizer)
+            multimodal_tokenizer = registry.get_tokenizer_class(args.multimodal_tokenizer_name)(args.multimodel_tokenizer_path)
             return_dataset_kwargs['multimodal_tokenizer'] = multimodal_tokenizer
     else:
         print_rank_0('--->Not using pretrained checkpoint to start traning.', args.global_rank)

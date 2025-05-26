@@ -198,9 +198,11 @@ def peft_parser(parser):
                        help='Whether to use LoRA')
     group.add_argument('--use-vera', action='store_true', default=None,
                        help='Whether to use vera')
-    group.add_argument('--lambda-b-init-method', type=str, default=None,
+    group.add_argument('--use-randlora', action='store_true', default=None,
+                       help='Whether to use randlora')
+    group.add_argument('--lambda-b-init-method', type=str, default='zero',
                        help='Init method for lora lambda b')
-    group.add_argument('--lambda-d-init-method', type=str, default=None,
+    group.add_argument('--lambda-d-init-method', type=str, default='small_constant',
                        help='Init method for lora lambda b')
     group.add_argument('--use-lora-pro', action='store_true',
                        help='Whether to use LoRA-Pro optimizer')
@@ -356,6 +358,8 @@ def multimodal_parser(parser):
                        help='Path of the checkpoint of multimodal model(Vision encoder or DNA encoder....)')
     group.add_argument('--multimodal-tokenizer-name', type=str, default=None,
                        help='Name of multimodal tokenizer')
+    group.add_argument('--multimodal-tokenizer-path', type=str, default=None,
+                       help='Path of multimodal tokenizer')
     group.add_argument('--multimodal-projector-type', type=str, default='linear', choices=['mlp', 'linear', 'qformer', 'resampler'])
     group.add_argument('--multimodal-projector-layers', type=int, default=1)
     group.add_argument('--multimodal-k-tokens', type=int, default=32)
