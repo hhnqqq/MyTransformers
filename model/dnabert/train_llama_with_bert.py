@@ -15,7 +15,7 @@ def initialize_transformer(model):
             nn.init.xavier_uniform_(p)
     return model
 
-@registry.register_model(["llama1_with_bert", "llama2_with_bert", "llama3_with_bert"])
+@registry.register_model(["llama1_with_bert", "llama2_with_bert"])
 class LlamaWithBert(nn.Module):
     def __init__(self, config, tokenizer:Optional[str]=None):
         super().__init__()

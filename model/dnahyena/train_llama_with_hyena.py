@@ -11,7 +11,7 @@ from model.dnahyena.hyena_model import HyenaDNAModel, _init_weights
 from model import HyenaDNATokenizer, BaseTokenizer, Llama3Tokenizer
 
 
-@registry.register_model(["llama1_with_hyena", "llama2_with_hyena", "llama3_with_hyena"])
+@registry.register_model(["llama1_with_hyena", "llama2_with_hyena"])
 class LlamaWithHyena(nn.Module):
     def __init__(self, config, tokenizer:Optional[str]=None):
         super().__init__()
