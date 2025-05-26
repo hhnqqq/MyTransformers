@@ -43,10 +43,15 @@ class LinearWithVeRA(LinearWithLoRA):
             lambda_d_init_method (str, optional): Initialization method for lambda d. ['zero', 'ones', 'small_constant', 'random']. Default is 'small_constant'.
         """
         super().__init__(lora_config)
-        self._init_lambdas(lambda_b_init_method, lambda_d_init_method)
+        self.lambda_b_init_method = lambda_b_init_method
+        self.lambda_d_init_method = lambda_d_init_method
         if lora_config.weight_b_init_method is None:
             raise ValueError('The init method for weight b in vera can not be zero.')
     
+    def init_lora_weights(self):
+        super().init_lora_weights()
+        self._init_lambdas()
+
     def _init_lambdas(self, b_init_method: str, d_init_method: str):
         """
         Initialize lambdas with different methods.
@@ -99,7 +104,7 @@ class LinearWithVeRA(LinearWithLoRA):
 
         return result + self.lora_scaler * lora_result.to(result.dtype)
     
-    def _compute_lora(self):
+    def _compute_lora_weight(self):
         # Called by merge lora method in LinearWithLoRA
         if self.has_lora_weights:
             # Compute adapted lora weights.
@@ -115,3 +120,15 @@ class LinearWithVeRA(LinearWithLoRA):
             lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
 
             return lora_weight.to(self.weight.dtype)
+        
+    @property
+    def has_lora_weights(self):
+        has_lambda_b = hasattr(self, 'lambda_b') and self.lmabda_b is not None
+        has_lambda_d = hasattr(self, 'lambda_d') and self.lambda_d is not None
+        has_lambdas = has_lambda_b and has_lambda_d
+        return has_lambdas and super().has_lora_weights
+    
+    def _del_lora(self):
+        super()._del_lora()
+        delattr(self, "lambda_b")
+        delattr(self, "lambda_d")

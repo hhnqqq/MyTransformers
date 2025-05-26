@@ -22,6 +22,7 @@ from common.lora_modules.salora import LinearWithSALoRA
 from common.lora_modules.mola import LinearWithMoLA
 from common.lora_modules.nlora import LinearWithNLoRA
 from common.lora_modules.nora import LinearWithNoRA
+from common.lora_modules.randlora import LinearWithRandLoRA
 
 lora_variants = {
     "use_dora": (LinearWithDoRA, lambda a: {}, ""),
@@ -41,7 +42,7 @@ lora_variants = {
     "use_olora": (LinearWithOLoRA, 
                     lambda a: {}, 
                     ". The initialization of Olora requires some time, waiting..."),
-    "use_vera": (LinearWithVeRA, lambda a: {}, ""),
+    "use_vera": (LinearWithVeRA, lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method,}, ""),
     "use_adalora": (LinearWithAdaLoRA, lambda a: {"init_r": a.init_r}, ""),
     "use_delta_lora": (LinearWithDeltaLoRA, 
                         lambda a: {"update_ratio": a.delta_lora_update_ratio}, ""),
@@ -69,6 +70,8 @@ lora_variants = {
                 lambda a: {"weight_ab_mixer_init_method": None}, ""),
     "use_nora":  (LinearWithNoRA,
                 lambda a: {"fast_svd_n_iters": a.nora_n_iters}, ""),
+    "use_randlora": (LinearWithRandLoRA, 
+                     lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method,}, ""),
 }
 
 def get_lora_layer_class(args):
@@ -182,7 +185,7 @@ def setup_lora(model, args, model_config=None):
 
         if args.lora_fa:
             lora_weight = ['weight_b']
-        elif args.use_vera:
+        elif args.use_vera or args.use_randlora:
             lora_weight = ['lambda']
         else:
             lora_weight = ['weight_a','weight_b']
