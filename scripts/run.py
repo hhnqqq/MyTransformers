@@ -10,7 +10,7 @@ from functools import partial
 
 from model import *
 from common.registry import registry
-from common.lora_modules import switch_to_lora, LinearWithGoRA
+from common.lora_modules import switch_to_lora, LinearWithGoRA, LinearWithLoRAGAPro
 from common.utils import set_random_seed, load_ckpt
 from common.utils.utils import set_default_tensor_type
 from common.utils import parallel_states as parallel_states
@@ -107,6 +107,14 @@ def main(args):
                         rank = rank_config[name]
                         module.init_method = 'vanilla'
                         module.dynamic_init(training_config.lora_rank, rank)
+            if (hasattr(training_config, 'use_lora_ga_pro') and training_config.use_lora_ga_pro):
+                rank_config_file = os.path.join(os.path.dirname(args.ckpt), 'rank.json')
+                rank_config = json.load(open(rank_config_file, 'r'))
+                for name, module in model.model.named_modules():
+                    if isinstance(module, LinearWithLoRAGAPro):
+                        rank = rank_config[name]
+                        module.prepare_init(allocated_rank=rank)
+                        module.init_lora_weights()
         if args.ckpt is not None:
             load_ckpt(model=model.model, partial_ckpt_path=args.ckpt)
             print(f"loaded weight at{args.ckpt}")

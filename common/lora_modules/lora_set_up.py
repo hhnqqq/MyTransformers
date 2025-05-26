@@ -23,6 +23,8 @@ from common.lora_modules.mola import LinearWithMoLA
 from common.lora_modules.nlora import LinearWithNLoRA
 from common.lora_modules.nora import LinearWithNoRA
 from common.lora_modules.randlora import LinearWithRandLoRA
+from common.lora_modules.dude import LinearWithDude
+from common.lora_modules.lora_ga_pro import LinearWithLoRAGAPro
 
 lora_variants = {
     "use_dora": (LinearWithDoRA, lambda a: {}, ""),
@@ -72,6 +74,11 @@ lora_variants = {
                 lambda a: {"fast_svd_n_iters": a.nora_n_iters}, ""),
     "use_randlora": (LinearWithRandLoRA, 
                      lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method,}, ""),
+    "use_dude": (LinearWithDude,
+                 lambda a: {"fast_svd_n_iters":a.pissa_n_iters}, ""),
+    "use_loraga_pro": (LinearWithLoRAGAPro,
+                       lambda a: {"rank_stablize":a.lora_ga_pro_rank_stablize,
+                                  "dynamic_scaling":a.lora_ga_pro_dynamic_scaling}, "")
 }
 
 def get_lora_layer_class(args):

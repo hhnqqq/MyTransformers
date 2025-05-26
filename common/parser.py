@@ -274,6 +274,10 @@ def peft_parser(parser):
                        help='Wheather to use lora ga')
     group.add_argument('--lora-ga-n-steps', type=int, default=8,
                        help='N steps for lora-ga to estimate full-rank gradient.')
+    group.add_argument('--use-lora-ga-pro', action='store_true')
+    group.add_argument('--lora-ga-pro-rank-stablize', action='store_true')
+    group.add_argument('--lora-ga-pro-dynamic-scaling', action='store_true')
+    group.add_argument('--use-dude', action='store_true')
     group.add_argument('--gora-n-steps', type=int, default=8,
                        help='N steps for gora to estimate full-rank gradient.')
     group.add_argument('--gora-max-rank', type=int, default=9999)
