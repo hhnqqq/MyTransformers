@@ -73,7 +73,7 @@ lora_variants = {
     "use_nora":  (LinearWithNoRA,
                 lambda a: {"fast_svd_n_iters": a.nora_n_iters}, ""),
     "use_randlora": (LinearWithRandLoRA, 
-                     lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method,}, ""),
+                     lambda a: {}, ""),
     "use_dude": (LinearWithDude,
                  lambda a: {"fast_svd_n_iters":a.pissa_n_iters}, ""),
     "use_loraga_pro": (LinearWithLoRAGAPro,
@@ -192,8 +192,10 @@ def setup_lora(model, args, model_config=None):
 
         if args.lora_fa:
             lora_weight = ['weight_b']
-        elif args.use_vera or args.use_randlora:
+        elif args.use_vera:
             lora_weight = ['lambda']
+        elif args.use_randlora:
+            lora_weight = ['lambda', 'gemma']
         else:
             lora_weight = ['weight_a','weight_b']
         args.enable_list = lora_weight if args.enable_list is None else list(set(args.enable_list + lora_weight))
