@@ -246,12 +246,12 @@ def init_dist(args):
         args.local_rank = local_rank
         os.environ['LOCAL_RANK'] = str(local_rank)
     if args.device == 'cuda':
+        deepspeed.init_distributed(dist_backend="nccl")
         if args.local_rank == -1:
             device = torch.device("cuda")
             args.global_rank = 0
             args.world_size = 1
         else:
-            deepspeed.init_distributed(dist_backend="nccl")
             args.world_size = dist.get_world_size()
             args.global_rank = dist.get_rank()
             torch.cuda.set_device(args.local_rank)
