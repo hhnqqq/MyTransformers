@@ -1,10 +1,9 @@
 import re
 import torch
-from typing import Union, Optional
+from typing import Union
 
 from dataset_classes import BaseDataset, DatasetConfig
 from model.tokenizer import BaseTokenizer
-from common.utils import print_rank_0
 from common.registry import registry
 
 @registry.register_dataset('multimodal_dna_dataset')
@@ -30,13 +29,12 @@ class MultimodalDNADataSet(BaseDataset):
         )
         self.dna_tokenizer = multimodal_tokenizer
         self.project_token_num = kwargs.get('multimodal_k_tokens', 32)
-        self.process_data_file()
+        self._process_data_file()
         
     def process_sample(self, sample):
         input_ids = []
         dna_ids = []
         dna_ids_indicater = []
-        output_dis = []
         pos = 0
         pattern = r'[ACTG]{6,}'
         first_text_piece_tag = True
@@ -44,23 +42,28 @@ class MultimodalDNADataSet(BaseDataset):
         input_text, output_text = self._extract_texts(sample)
         self._process_text(input_text, input_ids, dna_ids, dna_ids_indicater, pos, pattern, first_text_piece_tag)
         if self.mode == 'sft':
-            output_ids = self.tokenizer.encode(output_text, bos=True, eos=True, encode_single_gene=self.encode_single_gene)
-            input_ids += self.postfix
+            output_ids = self._encode_text(output_text)
         else:
             if output_text:
-                input_ids.append(self.tokenizer.encode(output_text, eos=True, encode_single_gene=self.encode_single_gene))
-            self.train_token_count += self.input_ids_count
+                input_ids.append(self._encode_text(output_text))
+            self.train_token_count += len(input_ids)
+
+        if self.mode == 'pretrain':
+            input_ids.append(self.tokenizer.eos_id)
+        else:
+            output_ids.append(self.tokenizer.eos_id)
 
         if len(input_ids) > self.max_src_len:
-            print_rank_0(f'--->Length of source data excceed: required length: {len(input_ids)} while max source length: {self.max_src_len}, cuttfing off', self.global_rank)
+            print(f'--->Length of source data excceed at rank {self.global_rank}: required length: {len(input_ids)} while max source length: {self.max_src_len}, cuttfing off')
             input_ids = input_ids[:self.max_src_len]
         if len(output_ids) > (self.max_len - len(input_ids)):
-            print_rank_0(f'--->Length of data excceed, cuttfing off', self.global_rank)
+            print(f'--->Length of entire data instance excceed at rank {self.global_rank}, required length: {len(output_ids) + len(input_ids)} while max source length: {self.max_len}, cuttfing off')
             output_ids = output_ids[:(self.max_len - len(input_ids))]
 
         input_len = len(input_ids)
         output_len = len(output_ids)
         input_ids += output_ids
+
         if self.cal_metric_pos is not None:
             # 1 stand for eos token 
             cal_metric_pos = input_len + 1 + self.cal_metric_pos
@@ -70,18 +73,22 @@ class MultimodalDNADataSet(BaseDataset):
             cal_metric_pos = None
 
         if self.mode == 'sft':
-            labels = [self.tokenizer.pad_id] * input_len + output_ids
+            labels = [self.pad_id] * input_len + output_ids
         elif self.mode == 'pretrain':
             labels = input_ids
-        pad_len = self.max_len - len(input_ids)
-        input_ids += [self.tokenizer.pad_id] * pad_len
-        labels += [self.tokenizer.pad_id] * pad_len
+        attention_masks = [1] * len(input_ids)
+        if self.padding:
+            pad_len = self.max_len - len(input_ids)
+            input_ids += [self.pad_id] * pad_len
+            labels += [self.pad_id] * pad_len
+            attention_masks += [0] * pad_len
 
-        assert len(input_ids) == len(labels)
+        assert len(input_ids) == len(labels) == len(attention_masks)
         assert len(input_ids) <= self.max_len
         return {"input_ids": torch.LongTensor(input_ids), 
                 "dna_ids": torch.LongTensor(dna_ids),
                 "labels": torch.LongTensor(labels),
+                "attention_masks": torch.LongTensor(attention_masks),
                 "before_dna": dna_ids_indicater,
                 "cal_metric_pos": cal_metric_pos}
 
@@ -91,13 +98,11 @@ class MultimodalDNADataSet(BaseDataset):
             start, end = match.span()
             if pos < start:
                 if first_text_piece_tag:
-                    word_ids = (self.tokenizer.encode(input_text[pos:start], bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
-                                if self.has_meta_prompt else 
-                                self.tokenizer.encode(input_text[pos:start], bos=True, eos=False, encode_single_gene=self.encode_single_gene))
-                    word_ids = self.meta_prompt + self.prefix + word_ids
+                    word_ids = [self.tokenizer.bos_id] if self.tokenizer.bos_id else []
+                    word_ids += self.meta_prompt + self.prefix + self._encode_text(input_text[pos:start])
                     first_text_piece_tag = False
                 else:
-                    word_ids = self.tokenizer.encode(input_text[pos:start], bos=False, eos=False, encode_single_gene=self.encode_single_gene) 
+                    word_ids = self._encode_text(input_text[pos:start]) 
                 input_ids += word_ids
 
             dna_ids += self.dna_tokenizer.encode(input_text[start:end])
@@ -111,3 +116,4 @@ class MultimodalDNADataSet(BaseDataset):
             if pos < len(input_text):
                 word_ids = self.tokenizer.encode(input_text[pos:len(input_text)], bos=False, eos=True)
                 input_ids += word_ids
+        input_ids += self.postfix

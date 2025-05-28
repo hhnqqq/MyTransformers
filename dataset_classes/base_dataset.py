@@ -103,6 +103,7 @@ class BaseDataset(Dataset):
         self.cal_metric_pos = dataset_config.cal_metric_pos
         self.encode_single_gene = dataset_config.encode_single_gene
         self.padding = dataset_config.padding 
+        self.pad_id = getattr(self.tokenizer, 'label_pad_id', self.tokenizer.pad_id)
         self.apply_chat_template = dataset_config.apply_chat_template and isinstance(tokenizer, PreTrainedTokenizerBase)
         self._init_data_format(dataset_config.meta_prompt, 
                               dataset_config.prefix, 
@@ -159,7 +160,7 @@ class BaseDataset(Dataset):
             input_ids, output_ids = input_ids[:-output_len], input_ids[-output_len:]
             self.train_token_count += output_len if output_len else input_len
         else:
-            input_text, output_text, input_ids, output_ids = self._preprocess_sample(sample)
+            input_text, output_text, input_ids = self._preprocess_sample(sample)
             if output_text:
                 if self.mode == 'sft':
                     # In the case of sft, the input sample must be a instance of dict.
@@ -168,6 +169,7 @@ class BaseDataset(Dataset):
                 else:
                     # In the case of pretrain, the input sample can be a single string.:
                     # Make sure that the output text can be tokenized.
+                    output_ids = []
                     input_ids += [] if output_text is None else self._encode_text(output_text) 
                     self.train_token_count += len(input_ids)
 
@@ -189,18 +191,19 @@ class BaseDataset(Dataset):
             output_len = len(output_ids)
             
         input_ids += output_ids
+        totoal_len = len(input_ids)
 
         cal_metric_pos = self._calculate_metric_position(input_len, output_len)
         if self.mode == 'sft':
-            labels = [getattr(self.tokenizer, 'label_pad_id', self.tokenizer.pad_id)] * input_len + output_ids
+            labels = [self.pad_id] * input_len + output_ids
         elif self.mode == 'pretrain':
             labels = input_ids
-        attention_masks = [1] * len(input_ids)
+        attention_masks = [1] * totoal_len
         if self.padding:
             # Do not need to pad when stretegy is packing.
-            pad_len = self.max_len - len(input_ids)
-            input_ids = input_ids + [self.tokenizer.pad_id] * pad_len
-            labels = labels + [getattr(self.tokenizer, 'label_pad_id', self.tokenizer.pad_id)] * pad_len
+            pad_len = self.max_len - totoal_len
+            input_ids = input_ids + [self.pad_id] * pad_len
+            labels = labels + [self.pad_id] * pad_len
             attention_masks += [0] * pad_len
 
         assert len(input_ids) == len(labels) == len(attention_masks)
