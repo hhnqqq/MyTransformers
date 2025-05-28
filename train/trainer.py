@@ -165,7 +165,7 @@ class Trainer:
                                 f"avg_time={avg_time:.2f}s, remaining_time={remaining_time}, "
                                 f"remaining_steps={self.args.num_global_update_steps - self.global_step}")
                     if self.writer is not None:
-                        self.writer.add_scalar('loss', avg_loss, self.global_step)
+                        self.writer.add_scaler('loss', avg_loss, self.global_step)
                         self.writer.add_scaler('lr', self.lr, self.global_step)
                         self.writer.add_scaler('grad_norm', self.grad_norm, self.global_step)
                         self.writer.add_scaler('avg_time', avg_time, self.global_step)
