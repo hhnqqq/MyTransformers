@@ -145,7 +145,7 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
             step += 1
             if line:
                 sample = self._load_sample(read_idx, line)
-                yield BaseDataset.process_sample(self, sample)
+                yield self.process_sample(sample)
                 
     def _get_start_step(self):
         return self.start_step % len(self.read_indices) + 1

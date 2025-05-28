@@ -1,8 +1,8 @@
 import re
 import torch
-from typing import Union
+from typing import Union, Optional
 
-from dataset_classes import BaseDataset, DatasetConfig
+from dataset_classes import BaseDataset, DatasetConfig, BaseIterableDataset
 from model.tokenizer import BaseTokenizer
 from common.registry import registry
 
@@ -117,3 +117,51 @@ class MultimodalDNADataSet(BaseDataset):
                 word_ids = self.tokenizer.encode(input_text[pos:len(input_text)], bos=False, eos=True)
                 input_ids += word_ids
         input_ids += self.postfix
+
+@registry.register_dataset('iterable_multimodal_dna_dataset')
+class IterableMultimodalDNADataSet(MultimodalDNADataSet, BaseIterableDataset):
+    def __init__(        
+        self,
+        data_path: str,
+        tokenizer: BaseTokenizer,
+        dataset_config: DatasetConfig,
+        read_nums: Union[int, None] = None,
+        global_rank: int=0,
+        shuffle: bool = False,
+        num_dp_ranks: Optional[int] = None,
+        dp_rank: Optional[int] = None,
+        seed: int = 42,
+        start_step: int = 0,
+        multimodal_tokenizer = None,
+        *args,
+        **kwargs):
+        
+        BaseDataset.build_data(
+        self,
+        data_path,
+        tokenizer,
+        dataset_config,
+        read_nums,
+        global_rank
+        )
+        self.dna_tokenizer = multimodal_tokenizer
+        self.project_token_num = kwargs.get('multimodal_k_tokens', 32)
+        BaseIterableDataset.init_parallel_and_shuffle(self, shuffle, num_dp_ranks, dp_rank, read_nums, seed, start_step)
+
+    def __iter__(self):
+        with open(self.data_path, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+
+        # E.g. latest checkpoint is step_10000.ckpt.
+        # And micro batch size used before is 4
+        # Start step should be 4*10000 = 40000.
+        # This time the 40001th data should be read.
+        step = self._get_start_step()
+        # Equals to for read_idx in self.read_indices:
+        while step < len(self.read_indices):
+            read_idx = self.read_indices[step]
+            line = lines[read_idx]
+            step += 1
+            if line:
+                sample = self._load_sample(read_idx, line)
+                yield MultimodalDNADataSet.process_sample(self, sample)
