@@ -65,11 +65,13 @@ def main(args):
         floder_path = os.path.dirname(args.ckpt)
     else:
         floder_path = os.path.dirname(args.pretrained_ckpt)
+
+    training_config = None
     if os.path.exists(floder_path) and os.path.isdir(floder_path):
         config_path = os.path.join(floder_path, 'config.json')
-        training_config = Namespace(**json.load(open(config_path, 'r')))
-    else:
-        training_config = None
+        if os.path.exists(config_path):
+            training_config = Namespace(**json.load(open(config_path, 'r')))
+            
     model_config = registry.get_model_config_class('_'.join([args.model_name, args.variant]))()
     model: nn.Module = registry.get_model_class(args.model_name)
     if training_config:
@@ -95,7 +97,7 @@ def main(args):
         if args.pretrained_ckpt is not None:
             load_ckpt(model=model.model, ckpt_path=args.pretrained_ckpt)
             print(f"loaded pretrained weight at{args.pretrained_ckpt}")
-        if training_config.use_lora:
+        if training_config and training_config.use_lora:
             print("Replacing model with lora layers")
             switch_to_lora(model, 
             args=training_config)
