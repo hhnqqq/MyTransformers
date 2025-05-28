@@ -93,7 +93,7 @@ def refresh_config(ds_config, args):
     ds_config['train_micro_batch_size_per_gpu'] = args.batch_size_per_gpu
     ds_config['optimizer']['params']['lr'] = args.lr
     ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = args.num_warmup_steps
-    ds_config["optimizer"]["gradient_clipping"] = args.clip_grad_max_norm
+    ds_config["gradient_clipping"] = args.clip_grad_max_norm
     if 'train_batch_size' in ds_config:
         ds_config['train_batch_size'] = args.batch_size_per_gpu * args.gpu_count
     if args.csv_monitor:
@@ -125,5 +125,6 @@ def set_up_multimodal_config(model_config, args):
                             "multimodal-k-tokens",
                             "multimodal-sample_mode",
                             "multimodal-encode-fp32",
-                            "multimodal-projector-layers"]
+                            "multimodal-projector-layers",
+                            "multimodal-sample-mode"]
     set_up_model_config_from_args(model_config, args, multimodal_arg_names)
