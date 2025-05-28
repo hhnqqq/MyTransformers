@@ -83,20 +83,23 @@ if __name__ == '__main__':
     from train.trainer import Trainer
 
     def get_writer(args):
-        if not args.test_code and args.global_rank ==0:
+        current_time = datetime.now().strftime('%y-%m-%d_%H-%M')
+        if not args.test_code and args.global_rank == 0:
             if args.wandb:
                 os.environ['WANDB_CACHE_DIR'] = args.wandb_cache_dir
                 os.environ['WANDB_DIR'] = args.wandb_dir
-                wandb.init(project='MyTransformers',
+                if args.wandb_api_key:
+                    os.environ['WANDB_API_KEY'] = args.wandb_api_key
+                wandb.init(project=args.wandb_project,
                         entity=args.wandb_team,
-                        name=args.experiment_name,
+                        name=args.experiment_name + current_time,
                         config=args)
             elif args.tensorboard:
                 try:
                     from torch.utils.tensorboard import SummaryWriter
                 except ImportError:
                     from tensorboard import SummaryWriter
-                log_dir = os.path.join(args.tb_log_dir, args.experiment_name + datetime.now().strftime('%y-%m-%d_%H-%M'))
+                log_dir = os.path.join(args.tb_log_dir, args.experiment_name + current_time)
                 return SummaryWriter(log_dir=log_dir)
             return None
 

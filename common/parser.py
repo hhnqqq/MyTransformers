@@ -42,8 +42,12 @@ def base_parser():
                         help='Path of tensorboard log dir')
     parser.add_argument('--wandb', action='store_true',
                         help='Set this to enable wandb logging.')
+    parser.add_argument('--wandb-api-key', type=str, default=None,
+                        help='API key of wandb.')
     parser.add_argument('--wandb-team', type=str, default=None,
                         help='Team of wandb.')
+    parser.add_argument('--wandb-project', type=str, default=None,
+                        help='Project of wandb.')
     parser.add_argument('--wandb-cache-dir', type=str, default=None,
                         help='Cache dir of wandb')
     parser.add_argument('--wandb-dir', type=str, default=None,
@@ -196,6 +200,8 @@ def peft_parser(parser):
     # --------------------------- lora ----------------------------------
     group.add_argument('--use-lora', action='store_true',
                        help='Whether to use LoRA')
+    group.add_argument('--std-normalize-lora', action='store_true',
+                       help='Whether to apply std normalization to LoRA weights.')
     group.add_argument('--use-vera', action='store_true', default=None,
                        help='Whether to use vera')
     group.add_argument('--use-randlora', action='store_true', default=None,
