@@ -17,13 +17,12 @@ def initialize_transformer(model):
 
 @registry.register_model(["llama1_with_bert", "llama2_with_bert"])
 class LlamaWithBert(nn.Module):
-    def __init__(self, config, tokenizer:Optional[str]=None):
+    def __init__(self, config, tokenizer:Optional[str]=None, multimodal_tokenizer:Optional[str]=None):
         super().__init__()
         self.config = config
         bert_config = config.multimodal_model_config
         self.model = Transformer(config)
         self.multimodal_model = BertModel(bert_config)
-        self.multimodal_tokenizer = DnaBert2Tokenizer(registry.get_path("tokenizer_dnabert2"))
         self.multimodal_projector = get_multimodal_projector(config)
         initialize_transformer(self.multimodal_projector)
         try:
@@ -31,6 +30,10 @@ class LlamaWithBert(nn.Module):
                 self.tokenizer = BaseTokenizer(config.tokenizer)
             else:
                 self.tokenizer = BaseTokenizer(tokenizer)
+            if multimodal_tokenizer is None:
+                self.multimodal_tokenizer = DnaBert2Tokenizer(registry.get_path("tokenizer_dnabert2"))
+            else:
+                self.multimodal_tokenizer = DnaBert2Tokenizer(multimodal_tokenizer)
         except:
             pass
         self.freqs_cis = precompute_freqs_cis(
