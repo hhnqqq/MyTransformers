@@ -64,6 +64,7 @@ def load_local_model(args):
     tokenizer = registry.get_tokenizer_class(args.tokenizer_name)(args.tokenizer_path)
     config_type = '_'.join([args.model_name, args.variant])
     model_config = registry.get_model_config_class(config_type)()
+    set_up_multimodal_config(model_config, args)
     print_rank_0(f'--->Using model config: {config_type}', args.global_rank)
     model_config.vocab_size = tokenizer.n_words
     # Load model in default dtype to avoid OOM (cpu memory).
@@ -83,7 +84,6 @@ def load_local_model(args):
         model_config.lr_scheduler_sd = lr_scheduler_sd
 
         if args.multimodal and hasattr(model, 'multimodal_model') and args.multimodal_model_ckpt_path:
-            set_up_multimodal_config(model_config, args)
             return_dataset_kwargs['multimodal_k_tokens'] = args.multimodal_k_tokens
             load_ckpt(model=model.multimodal_model, ckpt_path=args.multimodal_model_ckpt_path, rank=args.global_rank)
             print_rank_0(f'--->Using pretrained multimodal model checkpoint at {args.multimodal_model_ckpt_path}', args.global_rank)
