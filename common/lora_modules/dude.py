@@ -1,4 +1,5 @@
-from common.lora_modules import *
+from common.lora_modules.dora import *
+from common.lora_modules.pissa import LinearWithPiSSA
 
 class LinearWithDude(LinearWithPiSSA, LinearWithDoRA):
     def __init__(self,
