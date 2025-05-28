@@ -45,7 +45,7 @@ class LlamaWithBert(nn.Module):
 @registry.register_model("llama3_with_bert")
 class Llama3WithBert(LlamaWithBert):
     def __init__(self, config, tokenizer:Optional[str]=None):
-        super().__init__()
+        super().__init__(config)
         if tokenizer is None:
             self.tokenizer = Llama3Tokenizer(config.tokenizer)
         else:
