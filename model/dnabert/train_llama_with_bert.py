@@ -49,7 +49,10 @@ class LlamaWithBert(nn.Module):
 class Llama3WithBert(LlamaWithBert):
     def __init__(self, config, tokenizer:Optional[str]=None):
         super().__init__(config)
-        if tokenizer is None:
-            self.tokenizer = Llama3Tokenizer(config.tokenizer)
-        else:
-            self.tokenizer = Llama3Tokenizer(tokenizer)
+        try:
+            if tokenizer is None:
+                self.tokenizer = Llama3Tokenizer(config.tokenizer)
+            else:
+                self.tokenizer = Llama3Tokenizer(tokenizer)
+        except:
+            pass
