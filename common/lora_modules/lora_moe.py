@@ -31,12 +31,12 @@ class LinearWithLoRAMoE(LinearWithLoRA):
         return not(self.lora_moe_n_experts<=self.moe_top_k)
     
     def init_lora_weights(self):
-        dtype = torch.int8 if self.quant else None
-        requires_grad = not self.quant
+        dtype = None
+        requires_grad = True
 
         self.weight_a, self.weight_b =nn.ParameterList(), nn.ParameterList()
         if self.requires_gate:
-            self.gate = nn.Parameter(torch.rand((self.moe_top_k, self.in_features), dtype=dtype), requires_grad=requires_grad)
+            self.gate = nn.Parameter(torch.rand((self.lora_moe_n_experts, self.in_features), dtype=dtype), requires_grad=requires_grad)
         for _ in range(self.lora_moe_n_experts):
             expert_weight_a = nn.Parameter(torch.empty((self.lora_rank, self.in_features), dtype=dtype), requires_grad=requires_grad)
             expert_weight_b = nn.Parameter(torch.zeros((self.out_features, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
@@ -57,8 +57,9 @@ class LinearWithLoRAMoE(LinearWithLoRA):
         origin_shape = x.shape
         x = x.view(-1, x.shape[-1])
         if self.requires_gate:
-            # Shape: [bsz*seq_len, out] --> [bsz*seq_len, top_k]
+            # Shape: [bsz*seq_len, out] --> [bsz*seq_len, num_experts]
             gate_logits = F.linear(x, self.gate.to(self._get_lora_dtype()))
+            # Shape: [bsz*seq_len, top_k]
             weights, selected_experts = torch.topk(
                 gate_logits, self.moe_top_k
             )
@@ -89,3 +90,7 @@ class LinearWithLoRAMoE(LinearWithLoRA):
         else:
             raise ValueError('LoRAMoE is not competible with _compute_lora_weight when requires_gate==True')
         
+    def print_details(self) -> None:
+        print(f"{self.__class__.__name__} Layer: in_features={self.in_features}, out_features={self.out_features}")
+        print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, MoE number of experts: {self.lora_moe_n_experts}, MoE top k: {self.moe_top_k}, Quantized: {self.quant}")
+            
