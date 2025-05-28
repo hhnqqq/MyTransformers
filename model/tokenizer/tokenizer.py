@@ -421,7 +421,6 @@ class HyenaDNATokenizer(PreTrainedTokenizer):
 @registry.register_tokenizer("dnabert2")
 class DnaBert2Tokenizer:
     def __init__(self, model_path: Optional[str]):
-        assert os.path.isfile(model_path), model_path
         with warnings.catch_warnings(), ignore_module_print():
             warnings.simplefilter("ignore")
             self.tokenizer = PreTrainedTokenizerFast.from_pretrained(model_path)
