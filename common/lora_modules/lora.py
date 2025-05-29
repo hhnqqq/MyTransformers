@@ -63,7 +63,7 @@ class LinearWithLoRA(nn.Linear):
         # The origin weight of Linear layer.
         weight = self._quantize_weight(self.weight, self.weight_quantizer)
         result = F.linear(x, weight, self.bias)
-        if self.disable_lora:
+        if self.disable_lora or not self.has_lora_weights:
             return result
         else:
             # Make sure the input of lora have same dtype with lora weights.
@@ -103,6 +103,12 @@ class LinearWithLoRA(nn.Linear):
 
         self._init_weight('weight_a')
         self._init_weight('weight_b')
+
+    def std_normalization(self):
+        if not torch.all(torch.eq(self.weight_a, 0)):
+            self.weight_a.data = self.weight_a.data / self.weight_a.data.std()
+        if not torch.all(torch.eq(self.weight_b, 0)):
+            self.weight_b.data = self.weight_b.data / self.weight_b.data.std()
             
     def _compute_lora_weight(self): 
         if self.has_lora_weights:
