@@ -545,9 +545,12 @@ class BertModel(nn.Module):
 
         if masked_tokens_mask is None:
             sequence_output = encoder_outputs[-1]
-            pooled_output = self.pooler(
-                sequence_output) if self.pooler is not None else None
-            sequence_output[:,0] = pooled_output
+            if self.pooler is not None:
+                pooled_output = self.pooler(
+                    sequence_output)
+                sequence_output[:,0] = pooled_output
+            else:
+                pass
         else:
             # TD [2022-03-01]: the indexing here is very tricky.
             attention_mask_bool = attention_mask.bool()

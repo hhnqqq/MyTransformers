@@ -149,7 +149,10 @@ class MultimodalLlamaTrainModel(LLaMaTrainModel):
         hidden_states = hidden_states.masked_scatter(mask, dna_hidden_states)
 
         hidden_states, labels, freqs_cis = self.cut_sequence(hidden_states, labels)
-        attention_mask = self.attention_mask.to(hidden_states.device, dtype=hidden_states.dtype)
+        if self.attention_mask is not None:
+            attention_mask = self.attention_mask.to(hidden_states.device, dtype=hidden_states.dtype)
+        else:
+            attention_mask = None
         loss, _ = self.model_forward(hidden_states, labels, freqs_cis, attention_mask)
         
         return loss, {}
