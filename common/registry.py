@@ -255,10 +255,10 @@ supported dataset are listed below:{cls.list_datasets()}")
         
         if args.train_dataset_path is None:
             raise ValueError(f"Can not find name:{train_dataset_name} in paths mapping,"
-                              "supported paths are listed below:{cls.list_paths()}")
+                              f"supported paths are listed below:{cls.list_paths()}")
         if args.eval_dataset_path is None and not args.skip_eval:
             raise ValueError(f"Can not find name:{eval_dataset_name} in paths mapping,"
-                              "supported paths are listed below:{cls.list_paths()}."
+                              f"supported paths are listed below:{cls.list_paths()}."
                               "For skipping evaluation, please set `args.skip_eval=True`")
         return args
     
