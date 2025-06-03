@@ -43,7 +43,7 @@ dp_rank parameter controls who share same data sample.
 dp_rank = parallel_states.get_data_parallel_rank()
 num_dp_rank = parallel_states.get_data_parallel_world_size()
 train_dataloader = load_dataloder(args, tokenizer, dp_rank, num_dp_rank, return_dataset_kwargs, True)
-eval_dataloader = None if args.skip_eval else load_dataloder(args, tokenizer, dp_rank, num_dp_rank, return_dataset_kwargs, False)
+eval_dataloader = load_dataloder(args, tokenizer, dp_rank, num_dp_rank, return_dataset_kwargs, False)
 
 ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)
