@@ -46,7 +46,7 @@ def base_parser():
                         help='API key of wandb.')
     parser.add_argument('--wandb-team', type=str, default=None,
                         help='Team of wandb.')
-    parser.add_argument('--wandb-project', type=str, default=None,
+    parser.add_argument('--wandb-project', type=str, default='MyTransformers',
                         help='Project of wandb.')
     parser.add_argument('--wandb-cache-dir', type=str, default=None,
                         help='Cache dir of wandb')
@@ -204,6 +204,8 @@ def peft_parser(parser):
                        help='Whether to apply std normalization to LoRA weights.')
     group.add_argument('--use-vera', action='store_true', default=None,
                        help='Whether to use vera')
+    group.add_argument('--use-tied-lora', action='store_true', default=None,
+                       help='Whether to use tied lora')
     group.add_argument('--use-randlora', action='store_true', default=None,
                        help='Whether to use randlora')
     group.add_argument('--lambda-b-init-method', type=str, default='zero',
@@ -214,6 +216,8 @@ def peft_parser(parser):
                        help='Whether to use LoRA-Pro optimizer')
     group.add_argument('--use-dora', action='store_true',
                        help='Whether to use DoRA')
+    group.add_argument('--use-hira', action='store_true',
+                       help='Whether to use HiRA')
     group.add_argument('--lora-scaler', type=int, default=32,
                        help='Scaler factor for lora')
     group.add_argument('--use-lora-plus', action='store_true',

@@ -6,6 +6,7 @@ from argparse import Namespace
 from common.utils import print_rank_0
 from common.lora_modules.lora import *
 from common.lora_modules.dora import LinearWithDoRA
+from common.lora_modules.hira import LinearWithHiRA
 from common.lora_modules.melora import LinearWithMELoRA
 from common.lora_modules.lora_ga import LinearWithLoRAGA
 from common.lora_modules.mos_lora import LinearWithMosLoRA
@@ -48,6 +49,10 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 LinearWithDoRA, 
                 lambda a: {}, 
                 ""),
+    "use_hira": LoRAVariant(
+                LinearWithHiRA, 
+                lambda a: {}, 
+                ""),
     "use_mos_lora": LoRAVariant(
                 LinearWithMosLoRA, 
                 lambda a: {"weight_ab_mixer_init_method": a.weight_ab_mixer_init_method}, 
@@ -60,7 +65,10 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 LinearWithLoRAGA, 
                 lambda a: {}, 
                 lambda a: f". The initialization of LoRA-GA requires some time which depends on args.lora_ga_n_steps: {a.lora_ga_n_steps}"),
-    "use_rslora": LoRAVariant(LinearWithRSLoRA, lambda a: {}, ""),
+    "use_rslora": LoRAVariant(
+                LinearWithRSLoRA, 
+                lambda a: {}, 
+                ""),
     "use_pissa": LoRAVariant(
                 LinearWithPiSSA, 
                 lambda a: {"fast_svd_n_iters": a.pissa_n_iters, "keep_init_weights": a.pissa_keep_init_weights}, 
@@ -68,8 +76,12 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
     "use_olora": LoRAVariant(
                 LinearWithOLoRA, 
                 lambda a: {}, 
-                ". The initialization of Olora requires some time, waiting..."),
+                ". The initialization of OLoRA requires some time, waiting..."),
     "use_vera": LoRAVariant(
+                LinearWithVeRA, 
+                lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method,}, 
+                ""),
+    "use_tied_lora": LoRAVariant(
                 LinearWithVeRA, 
                 lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method,}, 
                 ""),
@@ -129,7 +141,7 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
     "use_dude": LoRAVariant(
                 LinearWithDude,
                 lambda a: {"fast_svd_n_iters":a.pissa_n_iters}, 
-                ""),
+                ". The initialization of Dude requires some time especially for full svd decomposition, waiting..."),
     "use_loraga_pro": LoRAVariant(
                 LinearWithLoRAGAPro,
                 lambda a: {"rank_stablize":a.lora_ga_pro_rank_stablize, "dynamic_scaling":a.lora_ga_pro_dynamic_scaling}, 
@@ -325,7 +337,9 @@ def setup_lora(model: nn.Module, args: Namespace, model_config: Optional[Any] = 
     # Set enable_list
     lora_weight = ['lambda', 'gemma'] if args.use_randlora else (
         ['lambda'] if args.use_vera else (
-        ['weight_b'] if args.lora_fa else ['weight_a', 'weight_b']
+        ['weight_b'] if args.lora_fa else (
+        ['weight_a', 'weight_b', 'lambda'] if args.use_tied_lora 
+        else ['weight_a', 'weight_b'])
     ))
     args.enable_list = lora_weight if args.enable_list is None else list(set(args.enable_list + lora_weight))
     
