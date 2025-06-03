@@ -20,6 +20,8 @@ def get_train_eval_args(args, is_train):
 def load_dataloder(args, tokenizer, dp_rank, num_dp_ranks, dataset_kwargs, is_train):
     flag, dataset_path, max_len, max_src_len, read_nums, batch_size_per_gpu = get_train_eval_args(args, is_train)
     if dataset_path is None:
+        if is_train==False and args.skip_eval == False:
+            raise ValueError('`args.eval_dataset_path` can not be None if args.skip_eval!=True')
         return None
     data_collator = PipeLine_Datacollator(tokenizer) if args.num_pp_stages else DataCollator(tokenizer)
     print_rank_0(f'--->Using dataset class: {args.dataset_class_name}', args.global_rank)

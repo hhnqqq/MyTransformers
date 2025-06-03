@@ -101,7 +101,8 @@ class Trainer:
                 # Evaluation
                 if step % self.args.eval_interval == 0 and eval_step is not None and not self.args.skip_eval:
                     with torch.no_grad():
-                        assert eval_data_loader is not None, 'evaluation dataset cannot be None'
+                        if eval_data_loader is None:
+                            raise ValueError('evaluation dataset cannot be None')
                         self.eval_loss, eval_metric = eval_step(model, eval_data_loader, self.args, step)
                         self.eval_metric.append(eval_metric)
 
