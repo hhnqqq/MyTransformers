@@ -52,43 +52,52 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
     "use_hira": LoRAVariant(
                 LinearWithHiRA, 
                 lambda a: {}, 
-                ""),
+                "HiRA utilizes hadamard production of pre-trained weight and lora weight to increase the overall rank of update."
+                "A large learning rate for HiRA is recommended."),
     "use_mos_lora": LoRAVariant(
                 LinearWithMosLoRA, 
                 lambda a: {"weight_ab_mixer_init_method": a.weight_ab_mixer_init_method}, 
-                ""),
+                "MosLoRA introduces a mixer matrix to mix features of A and B leading to a stronger expressive ability."),
     "use_me_lora": LoRAVariant(
                 LinearWithMELoRA, 
                 lambda a: {"me_lora_n_split": a.me_lora_n_split, "forward_method": a.me_lora_forward_method}, 
-                ""),
+                "MeLoRA introduces a block diagonal structure to increase the overall rank."),
     "use_lora_ga": LoRAVariant(
                 LinearWithLoRAGA, 
                 lambda a: {}, 
-                lambda a: f". The initialization of LoRA-GA requires some time which depends on args.lora_ga_n_steps: {a.lora_ga_n_steps}"),
+                lambda a: "LoRA-GA utilizes SVD to extract singular features of gradient of pre-trained weight "
+                "to initialize low-rank weights, accelerate the convergence. The initialization of LoRA-GA requires some time, "
+                f"which depends on the number of gradient computing steps: {a.lora_ga_n_steps}"),
     "use_rslora": LoRAVariant(
                 LinearWithRSLoRA, 
                 lambda a: {}, 
-                ""),
+                "RSLoRA introduces a root square scaling for LoRA, stablizing the training process."),
     "use_pissa": LoRAVariant(
                 LinearWithPiSSA, 
-                lambda a: {"fast_svd_n_iters": a.pissa_n_iters, "keep_init_weights": a.pissa_keep_init_weights}, 
-                ". The initialization of Pissa requires some time especially for full svd decomposition, waiting..."),
+                lambda a: {"fast_svd_n_iters": a.pissa_n_iters, "keep_init_weights": a.pissa_keep_init_weights},
+                "PiSSA utilizes SVD to extract singular features of pre-trained weight "
+                "to initialize low-rank weights, accelerate the convergence. "
+                "The initialization of PiSSA requires some time especially for full svd decomposition, waiting..."),
     "use_olora": LoRAVariant(
                 LinearWithOLoRA, 
                 lambda a: {}, 
-                ". The initialization of OLoRA requires some time, waiting..."),
+                "OLoRA utilizes QR decomposition to extract singular features of pre-trained weight "
+                "to initialize low-rank weights, accelerate the convergence. "
+                "The initialization of OLoRA requires some time, waiting..."),
     "use_vera": LoRAVariant(
                 LinearWithVeRA, 
                 lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method,}, 
-                ""),
+                "VeRA shares A and B across layers, and keeps A and B frozen during training process. "
+                "Only vector weights are tuned during training. Enabling a larger rank compared to LoRA under same resource constraints."),
     "use_tied_lora": LoRAVariant(
                 LinearWithVeRA, 
                 lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method,}, 
-                ""),
+                "Tied-LoRA shares A and B across layers. "
+                "A, B and vector weights are tuned during training. Enabling a larger rank compared to LoRA under same resource constraints."),
     "use_adalora": LoRAVariant(
                 LinearWithAdaLoRA, 
                 lambda a: {"init_r": a.init_r}, 
-                ""),
+                "AdaLoRA enables adaptive rank allocation by masking relatively un-important ranks during training."),
     "use_delta_lora": LoRAVariant(
                 LinearWithDeltaLoRA, 
                 lambda a: {"update_ratio": a.delta_lora_update_ratio}, 
@@ -100,11 +109,13 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
     "use_milora": LoRAVariant(
                 LinearWithMILoRA, 
                 lambda a: {"fast_svd_n_iters": a.milora_n_iters}, 
-                ". The initialization of milora requires some time especially for full svd decomposition, waiting..."),
+                "MILoRA utilizes SVD to extract the least singular features of pre-trained weight "
+                "to initialize low-rank weights, accelerate the convergence. "
+                "The initialization of milora requires some time, waiting..."),
     "use_plora": LoRAVariant(
                 LinearWithPLoRA, 
                 lambda a: {"plora_momentum": a.plora_momentum}, 
-                lambda a: f". PLoRA will reset lora weights with momentum: {a.plora_momentum} at every step."),
+                lambda a: f"PLoRA will reset lora weights with momentum: {a.plora_momentum} at every step."),
     "use_mora": LoRAVariant(
                 LinearWithMoRA, 
                 lambda a: {"mora_type": a.mora_type}, 
@@ -114,11 +125,13 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: {"gora_init_method": a.gora_init_method,
                             "gora_rank_stablize": a.gora_rank_stablize,
                             "gora_dynamic_scaling": a.gora_dynamic_scaling}, 
-                ""),
+                lambda a: "GoRA utilize gradient of pre-trained weight to allocate rank and intialize weights for low-rank adapters. "
+                "accelerate the convergence. The initialization of GoRA requires some time, "
+                f"which depends on the number of gradient computing steps: {a.gora_n_steps}"),
     "use_increlora": LoRAVariant(
                 LinearWithIncreLoRA, 
                 lambda a: {"init_r": a.init_r}, 
-                ""),
+                "IncreLoRA adaptively increse rank of LoRA during training."),
     "use_salora": LoRAVariant(
                 LinearWithSALoRA, 
                 lambda a: {"init_r": a.init_r, "target_r": a.target_r}, 
@@ -137,11 +150,12 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
     "use_randlora": LoRAVariant(
                 LinearWithRandLoRA, 
                 lambda a: {}, 
-                ""),
+                "RandLoRA increases the overall rank by introducing multiple AB pairs to a layer, and only tune vector weights."),
     "use_dude": LoRAVariant(
                 LinearWithDude,
                 lambda a: {"fast_svd_n_iters":a.pissa_n_iters}, 
-                ". The initialization of Dude requires some time especially for full svd decomposition, waiting..."),
+                "Dude combine DoRA and PiSSA together "
+                "The initialization of PiSSA requires some time especially for full svd decomposition, waiting..."),
     "use_loraga_pro": LoRAVariant(
                 LinearWithLoRAGAPro,
                 lambda a: {"rank_stablize":a.lora_ga_pro_rank_stablize, "dynamic_scaling":a.lora_ga_pro_dynamic_scaling}, 
@@ -182,7 +196,7 @@ class LoRAManager:
                     variant_message = variant.init_message(args) if callable(variant.init_message) else variant.init_message
                     break
         
-        print_rank_0(f'--->Using lora variant: {lora_layer_class.__name__}{variant_message}', 
+        print_rank_0(f'--->Using lora variant: {lora_layer_class.__name__}. {variant_message}', 
                     rank=args.global_rank)
         return lora_layer_class, variant_config
 
@@ -338,9 +352,9 @@ def setup_lora(model: nn.Module, args: Namespace, model_config: Optional[Any] = 
     lora_weight = ['lambda', 'gemma'] if args.use_randlora else (
         ['lambda'] if args.use_vera else (
         ['weight_b'] if args.lora_fa else (
-        ['weight_a', 'weight_b', 'lambda'] if args.use_tied_lora 
-        else ['weight_a', 'weight_b'])
-    ))
+        ['weight_a', 'weight_b', 'lambda'] if args.use_tied_lora else (
+        ['weight_a', 'weight_b', 'origin_magnitude'] if (args.use_dora or args.use_dude) else 
+        ['weight_a', 'weight_b']))))
     args.enable_list = lora_weight if args.enable_list is None else list(set(args.enable_list + lora_weight))
     
     model.to(args.device)
