@@ -284,6 +284,10 @@ def peft_parser(parser):
                        help='Wheather to use lora ga')
     group.add_argument('--lora-ga-n-steps', type=int, default=8,
                        help='N steps for lora-ga to estimate full-rank gradient.')
+    group.add_argument('--use-lora-one', action='store_true',
+                       help='Wheather to use lora ga')
+    group.add_argument('--lora-one-n-steps', type=int, default=8,
+                       help='N steps for lora-one to estimate full-rank gradient.')
     group.add_argument('--use-lora-ga-pro', action='store_true')
     group.add_argument('--lora-ga-pro-rank-stablize', action='store_true')
     group.add_argument('--lora-ga-pro-dynamic-scaling', action='store_true')
@@ -306,6 +310,8 @@ def peft_parser(parser):
     group.add_argument('--lora-ga-scale-method', type=str, default='gd')
     group.add_argument('--lora-ga-reset-weight', action='store_true',
                        help='Whether to reset pretrained weight when using LoRA-GA, this will improve numerical stability.')
+    group.add_argument('--lora-one-reset-weight', action='store_true',
+                       help='Whether to reset pretrained weight when using LoRA-One, this will improve numerical stability.')
     group.add_argument('--relora-steps', type=int, default=None,
                        help='How much step to merge and reset the lora weight')
     group.add_argument('--relora-warmup-steps', type=int, default=None)

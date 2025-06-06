@@ -29,6 +29,7 @@ from common.lora_modules.nora import LinearWithNoRA
 from common.lora_modules.randlora import LinearWithRandLoRA
 from common.lora_modules.dude import LinearWithDude
 from common.lora_modules.lora_ga_pro import LinearWithLoRAGAPro
+from common.lora_modules.lora_one import LinearWithLoRAOne
 
 @dataclass
 class LoRAVariant:
@@ -68,6 +69,12 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: "LoRA-GA utilizes SVD to extract singular features of gradient of pre-trained weight "
                 "to initialize low-rank weights, accelerate the convergence. The initialization of LoRA-GA requires some time, "
                 f"which depends on the number of gradient computing steps: {a.lora_ga_n_steps}"),
+    "use_lora_one": LoRAVariant(
+                LinearWithLoRAOne, 
+                lambda a: {}, 
+                lambda a: "LoRA-One utilizes SVD to extract singular features of gradient of pre-trained weight "
+                "to initialize low-rank weights, accelerate the convergence. The initialization of LoRA-One requires some time, "
+                f"which depends on the number of gradient computing steps: {a.lora_one_n_steps}"),
     "use_rslora": LoRAVariant(
                 LinearWithRSLoRA, 
                 lambda a: {}, 
