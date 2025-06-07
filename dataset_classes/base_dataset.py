@@ -265,8 +265,11 @@ class BaseDataset(Dataset):
 
                 The final input ids list will equals to [bos id] + meta_prompt + prefix + input + postfix + output + [eot id]
             """
-            input_text, output_text = self._extract_texts(sample)
-            input_ids = self._process_text(input_text)
+            res = self._extract_texts(sample)
+            id = res[0]
+            input_text = res[1]
+            output_text = res[2]
+            input_ids = self._process_text(input_text, dataset_index=id)
             return input_text, output_text, input_ids, []
     
     def _extract_texts(self, sample):
