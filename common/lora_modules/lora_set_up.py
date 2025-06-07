@@ -30,6 +30,7 @@ from common.lora_modules.randlora import LinearWithRandLoRA
 from common.lora_modules.dude import LinearWithDude
 from common.lora_modules.lora_ga_pro import LinearWithLoRAGAPro
 from common.lora_modules.lora_one import LinearWithLoRAOne
+from common.lora_modules.goat import LinearWithGOAT
 
 @dataclass
 class LoRAVariant:
