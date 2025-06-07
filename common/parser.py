@@ -191,6 +191,7 @@ def dataset_parser(parser):
                        help='The stretegy for batching dataset')
     group.add_argument('--dataset-weights', type=int, nargs='+', default=None)
     group.add_argument('--read-start-step', type=int, default=None)
+    group.add_argument('--cv-dataset-name', type=str, default=None, help='Single dataset name to train')
     
     return parser
 
