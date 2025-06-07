@@ -329,6 +329,14 @@ def peft_parser(parser):
                        help='The dropout rate for lora weight.')
     group.add_argument('--run-lora-in-fp32', action='store_true',
                        help='Whether to keep lora weight in fp32.')
+    # --------------------------- goat ----------------------------------
+    group.add_argument('--use-goat', action='store_true')
+    group.add_argument('--aux-loss-coeff', type=float, default=1e-3)
+    group.add_argument('--goat-init-type', type=str, default='goat')
+    group.add_argument('--goat-scaling-type', type=str, default='lora')
+    group.add_argument('--goat-rho', type=float, default=10.0)
+    group.add_argument('--goat-eta', type=float, default=1.0)
+    group.add_argument('--goat-init-cof', type=float, default=1.0)
     
     # --------------------------- galore ----------------------------------
     group.add_argument('--use-galore', action='store_true',
