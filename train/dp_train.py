@@ -11,7 +11,7 @@ from common.lora_modules.relora import optimizer_reset
 from common.lora_modules.salora import LinearWithSALoRA
 from common.lora_modules.adalora import update_and_allocate
 from common.lora_modules.delta_lora import LinearWithDeltaLoRA
-from common.lora_modules import LinearWithLoRA, LinearWithPLoRA, find_lora_names
+from common.lora_modules import LinearWithLoRA, LinearWithPLoRA
 
 @contextmanager
 def gather_params_ctx(param, modifier_rank: int = 0, fwd_module: torch.nn.Module = None):
@@ -27,13 +27,7 @@ def forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader,
         batch = to_device(batch, args.device)
 
     with torch.profiler.record_function("forward_path"):
-        if args.huggingface:
-            loss = model(input_ids=batch['input_ids'],
-                         labels=batch['labels'],
-                         attention_mask=batch['attention_mask']).loss
-            metric = {}
-        else:
-            loss, metric = model(**batch)
+        loss, metric = model(**batch)
 
         if args.all_reduce_loss:
             # Reduce loss for average loss print, not for backpropagation.
@@ -233,13 +227,7 @@ def eval_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, ar
         batch = next(data_loader)
         batch = to_device(batch, args.device)
         with torch.no_grad():
-            if args.huggingface:
-                loss = model(input_ids=batch['input_ids'],
-                            labels=batch['labels'],
-                            attention_mask=batch['attention_mask']).loss
-                metric = {}
-            else:
-                loss, metric = model(**batch)
+            loss, metric = model(**batch)
             # TODO: all reduce metrics
         return loss.item(), metric
     
