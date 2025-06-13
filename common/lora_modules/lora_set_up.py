@@ -367,15 +367,23 @@ def setup_lora(model: nn.Module, args: Namespace, model_config: Optional[Any] = 
         switch_to_lora(model, args)
 
     # Set enable_list
-    lora_weight = ['lambda', 'gemma'] if args.use_randlora else (
-        ['lambda'] if args.use_vera else (
-        ['weight_b'] if args.lora_fa else (
-        ['weight_a', 'weight_b', 'lambda'] if args.use_tied_lora else (
-        ['weight_a', 'weight_b', 'origin_magnitude'] if (args.use_dora or args.use_dude) else 
-        ['weight_a', 'weight_b']))))
-    args.enable_list = lora_weight if args.enable_list is None else list(set(args.enable_list + lora_weight))
+    lora_weight_names = get_lora_weight_names(args)
+    args.enable_list = lora_weight_names if args.enable_list is None else list(set(args.enable_list + lora_weight_names))
     
     model.to(args.device)
+
+def get_lora_weight_names(args):
+    conditions = [
+        (args.use_randlora, ['lambda', 'gemma']),
+        (args.use_vera, ['lambda']),
+        (args.lora_fa, ['weight_b']),
+        (args.use_tied_lora, ['weight_a', 'weight_b', 'lambda']),
+        (args.use_dora or args.use_dude, ['weight_a', 'weight_b', 'origin_magnitude']),
+        (args.use_adalora, ['weight_a', 'weight_b', 'weight_e']),
+        (True, ['weight_a', 'weight_b'])
+    ]
+    
+    return next(value for condition, value in conditions if condition)
 
 def check_applied_lora(model: nn.Module) -> bool:
     """
