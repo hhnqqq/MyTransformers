@@ -351,13 +351,13 @@ def peft_parser(parser):
     # --------------------------- adalora ----------------------------------
     group.add_argument('--use-adalora', action='store_true',
                        help='Whether to use adalora')
-    group.add_argument('--target-r', type=int, default=16,
+    group.add_argument('--target-r', type=int, default=8,
                        help='Target Lora matrix dimension.')
-    group.add_argument('--init-r', type=int, default=8,
+    group.add_argument('--init-r', type=int, default=12,
                        help='Initial Lora matrix dimension.')
-    group.add_argument('--tinit', type=int, default=0,
+    group.add_argument('--tinit', type=int, default=10,
                        help='The steps of initial warmup.')
-    group.add_argument('--tfinal', type=int, default=0,
+    group.add_argument('--tfinal', type=int, default=100,
                        help='The steps of final warmup.')
     group.add_argument('--deltaT', type=int, default=1,
                        help='Step interval of rank allocation.')
