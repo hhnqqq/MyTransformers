@@ -39,6 +39,7 @@ from common.lora_modules.gora import *
 from common.lora_modules.increlora import *
 from common.lora_modules.mola import *
 from common.lora_modules.lora_ga_pro import *
+from common.lora_modules.lora_one import *
 
 @contextlib.contextmanager
 def DisableLoRA(model):
@@ -88,6 +89,11 @@ def prepare_lora(model, train_dataloader, args):
                     dataloader=train_dataloader,
                     args=args,
                     iters=args.lora_ga_n_steps)
+    if args.use_lora_one:
+        lora_one_reinit(model=model,
+                    dataloader=train_dataloader,
+                    args=args,
+                    iters=args.lora_one_n_steps)
     if args.use_gora:
         gora_reinit(model=model,
                     dataloader=train_dataloader,
