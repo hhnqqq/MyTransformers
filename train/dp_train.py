@@ -21,6 +21,11 @@ def gather_params_ctx(param, modifier_rank: int = 0, fwd_module: torch.nn.Module
         yield
     return
 
+def reduce_gradients(model, world_size):
+    for param in model.parameters():
+        if param.requires_grad:
+            param.grad.data = reduce_tensor(param.grad.data, world_size)
+
 def forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
     with torch.profiler.record_function("get_data"):
         batch = next(data_loader)
@@ -37,7 +42,7 @@ def forward_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader,
             del loss_reduced
             
         return loss, metric
-    
+
 def backward_step_deepspeed(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
     with record_function("backward_path"):
         model.backward(loss)
@@ -87,6 +92,99 @@ def backward_step_deepspeed_deltalora(model: DeepSpeedEngine, optimizer, loss, l
             if isinstance(module, LinearWithDeltaLoRA):
                 module.update_pretrained_weight()
         return model
+    
+def backward_step_deepspeed_adalora(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
+    with record_function("backward_path"):
+        adalora_loss = calc_adalora_loss(args, loss, model)
+        model.backward(adalora_loss)
+
+        update_flag = False
+
+        # here we need to update and allocate the rank of adalora model
+        if model.is_gradient_accumulation_boundary():
+            saved_gradients = {name: deepspeed.utils.safe_get_full_grad(param) for name, param in model.named_parameters() if deepspeed.utils.safe_get_full_grad(param) is not None}
+            update_flag = True
+
+        # deepspeed/runtime/engine.py ##line 2134
+        # Only update model when self.is_gradient_accumulation_boundary()
+        model.step()
+
+        if update_flag:
+            # here the step should be the global step
+            # step starts from 1
+            update_and_allocate(model, model.global_steps, saved_gradients)
+            update_flag = False
+
+        return model
+
+def backward_step_deepspeed_salora(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
+    with record_function("backward_path"):
+        salora_loss = calc_salora_loss(args, loss, model)
+        model.backward(salora_loss)
+        model.step()
+
+        return model
+
+def backward_step_deepspeed_increlora_stage0(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
+    loss = loss / args.gradient_accumulation_steps
+    regu_weight = args.orth_reg_weight
+    regu_loss, num_param = 0., 0
+    for n, p in model.named_parameters():
+        if "weight_a" in n or "weight_b" in n:
+            para_cov = p @ p.T if "weight_a" in n else p.T @ p
+            I = torch.eye(*para_cov.size(), out=torch.empty_like(para_cov))
+            I.requires_grad = False
+            regu_loss += torch.norm(para_cov-I, p="fro")
+            num_param += 1
+    increlora_loss = loss + regu_weight*regu_loss/num_param
+    increlora_loss.backward()
+
+    # init
+    if (step-1) == 0:
+        curr_rank, incre_threshold = model.rankallocator.update_and_increase_increlora(model, 0, optimizer, lr_scheduler, args)
+
+    if step % args.gradient_accumulation_steps == 0 or step == args.num_micro_update_steps:
+        reduce_gradients(model, args.world_size)
+        optimizer.step()
+        curr_rank, incre_threshold = model.rankallocator.update_and_increase_increlora(model, (step+1)//model.gradient_accumulation_steps(), optimizer, lr_scheduler, args)
+        lr_scheduler.step()
+        optimizer.zero_grad()
+
+def backward_step_deepspeed_stage0(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
+    loss = loss / args.gradient_accumulation_steps
+    loss.backward()
+    if step % args.gradient_accumulation_steps == 0 or step == args.num_micro_update_steps:
+        reduce_gradients(model, args.world_size)
+        optimizer.step()
+        lr_scheduler.step()
+        optimizer.zero_grad()
+
+def backward_step_deepspeed_loramoe(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
+    loss = loss + calc_lora_expert_loss(args, model)
+    with record_function("backward_path"):
+        model.backward(loss)
+        # deepspeed/runtime/engine.py ##line 2134
+        # Only update model when self.is_gradient_accumulation_boundary()
+        model.step()
+
+    return model
+
+def eval_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
+    with record_function("eval_path"):
+        batch = next(data_loader)
+        batch = to_device(batch, args.device)
+        with torch.no_grad():
+            loss, metric = model(**batch)
+            # TODO: all reduce metrics
+        return loss.item(), metric
+
+def calc_lora_expert_loss(args, model):
+    aux_loss = torch.tensor(0.0, device=args.device)
+    for module in model.modules():
+        if hasattr(module, 'layer_loss'):
+            if module.layer_loss is not None:
+                aux_loss += module.layer_loss.to(device=args.device, dtype=aux_loss.dtype)
+    return aux_loss
 
 def calc_orthogonal_loss(model):
     regu_loss = 0
@@ -137,100 +235,8 @@ def calc_salora_loss(args, loss, model):
 
     salora_loss = loss + orth_reg_weight * calc_orthogonal_loss(model) + calc_l0_loss(model)
 
-    return salora_loss
-    
-def backward_step_deepspeed_adalora(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
-    with record_function("backward_path"):
-        adalora_loss = calc_adalora_loss(args, loss, model)
-        model.backward(adalora_loss)
+    return salora_loss    
 
-        update_flag = False
-
-        # here we need to update and allocate the rank of adalora model
-        if model.is_gradient_accumulation_boundary():
-            saved_gradients = {name: deepspeed.utils.safe_get_full_grad(param) for name, param in model.named_parameters() if deepspeed.utils.safe_get_full_grad(param) is not None}
-            update_flag = True
-
-        # deepspeed/runtime/engine.py ##line 2134
-        # Only update model when self.is_gradient_accumulation_boundary()
-        model.step()
-
-        if update_flag:
-            # here the step should be the global step
-            # step starts from 1
-            update_and_allocate(model, model.global_steps, saved_gradients)
-            update_flag = False
-
-        return model
-
-def backward_step_deepspeed_salora(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
-    with record_function("backward_path"):
-        salora_loss = calc_salora_loss(args, loss, model)
-        model.backward(salora_loss)
-        model.step()
-
-        return model
-    
-def eval_step_deepspeed_adalora(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
-    with record_function("eval_path"):
-        batch = next(data_loader)
-        batch = to_device(batch, args.device)
-        with torch.no_grad():
-            loss, metric = model(**batch)
-            # loss = adalora_step(args, loss, model)
-            # TODO: all reduce metrics
-
-        return loss.item(), metric
-
-def backward_step_deepspeed_increlora_stage0(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
-    loss = loss / args.gradient_accumulation_steps
-    regu_weight = args.orth_reg_weight
-    regu_loss, num_param = 0., 0
-    for n, p in model.named_parameters():
-        if "weight_a" in n or "weight_b" in n:
-            para_cov = p @ p.T if "weight_a" in n else p.T @ p
-            I = torch.eye(*para_cov.size(), out=torch.empty_like(para_cov))
-            I.requires_grad = False
-            regu_loss += torch.norm(para_cov-I, p="fro")
-            num_param += 1
-    increlora_loss = loss + regu_weight*regu_loss/num_param
-    increlora_loss.backward()
-
-    # init
-    if (step-1) == 0:
-        curr_rank, incre_threshold = model.rankallocator.update_and_increase_increlora(model, 0, optimizer, lr_scheduler, args)
-
-    if step % args.gradient_accumulation_steps == 0 or step == args.num_micro_update_steps:
-        reduce_gradients(model, args.world_size)
-        optimizer.step()
-        curr_rank, incre_threshold = model.rankallocator.update_and_increase_increlora(model, (step+1)//model.gradient_accumulation_steps(), optimizer, lr_scheduler, args)
-        lr_scheduler.step()
-        optimizer.zero_grad()
-
-
-def reduce_gradients(model, world_size):
-    for param in model.parameters():
-        if param.requires_grad:
-            param.grad.data = reduce_tensor(param.grad.data, world_size)
-
-def backward_step_deepspeed_stage0(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
-    loss = loss / args.gradient_accumulation_steps
-    loss.backward()
-    if step % args.gradient_accumulation_steps == 0 or step == args.num_micro_update_steps:
-        reduce_gradients(model, args.world_size)
-        optimizer.step()
-        lr_scheduler.step()
-        optimizer.zero_grad()
-
-def eval_step_deepspeed(model: DeepSpeedEngine, data_loader: RepeatingLoader, args: Namespace, step: int):
-    with record_function("eval_path"):
-        batch = next(data_loader)
-        batch = to_device(batch, args.device)
-        with torch.no_grad():
-            loss, metric = model(**batch)
-            # TODO: all reduce metrics
-        return loss.item(), metric
-    
 def task_print_ntp(all_metric, args):
     return ""
 

@@ -30,6 +30,7 @@ from common.lora_modules.randlora import LinearWithRandLoRA
 from common.lora_modules.dude import LinearWithDude
 from common.lora_modules.lora_ga_pro import LinearWithLoRAGAPro
 from common.lora_modules.lora_one import LinearWithLoRAOne
+from common.lora_modules.goat import LinearWithGOAT
 
 @dataclass
 class LoRAVariant:
@@ -166,7 +167,17 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
     "use_loraga_pro": LoRAVariant(
                 LinearWithLoRAGAPro,
                 lambda a: {"rank_stablize":a.lora_ga_pro_rank_stablize, "dynamic_scaling":a.lora_ga_pro_dynamic_scaling}, 
-                "")
+                ""),
+    "use_goat": LoRAVariant(
+                LinearWithGOAT,
+                lambda a: {"scalling_type":a.goat_scaling_type,
+                              "init_type":a.goat_init_type,
+                              "num_experts":a.lora_moe_n_experts,
+                              "top_k":a.lora_moe_top_k,
+                              "rho":a.goat_rho,
+                              "eta":a.goat_eta,
+                              "init_cof":a.goat_init_cof},
+                ". The initialization of GOAT requires some time, waiting...")
 }
 
 class LoRAManager:
