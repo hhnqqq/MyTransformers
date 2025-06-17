@@ -110,13 +110,8 @@ if __name__ == '__main__':
         backward_step = None
         task_print = task_print_pipeline
     else:
-        if args.use_adalora:
-            # forward_step = forward_step_deepspeed_adalora
-            # eval_step = eval_step_deepspeed_adalora
-            eval_step = eval_step_deepspeed
-        else:
-            forward_step = forward_step_deepspeed
-            eval_step = eval_step_deepspeed
+        forward_step = forward_step_deepspeed
+        eval_step = eval_step_deepspeed
         if args.disable_zero_optimizer and not args.use_increlora:
             backward_step = backward_step_deepspeed_stage0
         elif args.relora_steps is not None:
@@ -129,6 +124,8 @@ if __name__ == '__main__':
             backward_step = backward_step_deepspeed_adalora
         elif args.use_increlora:
             backward_step = backward_step_deepspeed_increlora_stage0
+        elif args.use_goat:
+            backward_step = backward_step_deepspeed_loramoe
         else:
             backward_step = backward_step_deepspeed
         task_print = task_print_ntp

@@ -32,14 +32,21 @@ class LinearWithDoRA(LinearWithLoRA):
             weight = self._apply_dora(weight)
         return F.linear(x, weight, self.bias)
     
+    def init_lora_weights(self):
+        super().init_lora_weights()
+        dtype = self._get_lora_dtype()
+        requires_grad = not self.quant
+        self.origin_magnitude = nn.Parameter(
+            torch.linalg.norm(self.weight.detach(), dim=1).to(dtype=dtype),
+            requires_grad=requires_grad
+        )
+
+
     def _apply_dora(self, weight: torch.Tensor) -> torch.Tensor:
         # Make sure that the dtype of weight same as dtype of lora weights.
         lora_weight = self._compute_lora_weight()
 
         origin_weight_dtype = weight.dtype
-        # Compute column-wise L2 norm.
-        origin_magnitude: torch.Tensor = torch.linalg.norm(weight.detach(), dim=1).to(lora_weight.dtype)
-        
         weight = weight.to(lora_weight.dtype)
         weight = weight + lora_weight
         new_magnitude: torch.Tensor = torch.linalg.norm(weight.detach(), dim=1).to(lora_weight.dtype)
@@ -50,8 +57,7 @@ class LinearWithDoRA(LinearWithLoRA):
         # reflects the updates of ∆V , it won’t receive any gradient
         # during backpropagation"
         new_magnitude = new_magnitude.detach()
-        origin_magnitude = origin_magnitude.detach()
-
+        origin_magnitude = self.origin_magnitude.to(lora_weight.dtype)
         # In peft. This should be added on top of the base layer output.
         # result_dora = (mag_norm_scale - 1) * (
         # F.linear(x, transpose(weight, self.fan_in_fan_out))

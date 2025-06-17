@@ -285,6 +285,10 @@ def peft_parser(parser):
                        help='Wheather to use lora ga')
     group.add_argument('--lora-ga-n-steps', type=int, default=8,
                        help='N steps for lora-ga to estimate full-rank gradient.')
+    group.add_argument('--use-lora-one', action='store_true',
+                       help='Wheather to use lora ga')
+    group.add_argument('--lora-one-n-steps', type=int, default=8,
+                       help='N steps for lora-one to estimate full-rank gradient.')
     group.add_argument('--use-lora-ga-pro', action='store_true')
     group.add_argument('--lora-ga-pro-rank-stablize', action='store_true')
     group.add_argument('--lora-ga-pro-dynamic-scaling', action='store_true')
@@ -307,6 +311,8 @@ def peft_parser(parser):
     group.add_argument('--lora-ga-scale-method', type=str, default='gd')
     group.add_argument('--lora-ga-reset-weight', action='store_true',
                        help='Whether to reset pretrained weight when using LoRA-GA, this will improve numerical stability.')
+    group.add_argument('--lora-one-reset-weight', action='store_true',
+                       help='Whether to reset pretrained weight when using LoRA-One, this will improve numerical stability.')
     group.add_argument('--relora-steps', type=int, default=None,
                        help='How much step to merge and reset the lora weight')
     group.add_argument('--relora-warmup-steps', type=int, default=None)
@@ -324,6 +330,14 @@ def peft_parser(parser):
                        help='The dropout rate for lora weight.')
     group.add_argument('--run-lora-in-fp32', action='store_true',
                        help='Whether to keep lora weight in fp32.')
+    # --------------------------- goat ----------------------------------
+    group.add_argument('--use-goat', action='store_true')
+    group.add_argument('--aux-loss-coeff', type=float, default=1e-3)
+    group.add_argument('--goat-init-type', type=str, default='goat')
+    group.add_argument('--goat-scaling-type', type=str, default='lora')
+    group.add_argument('--goat-rho', type=float, default=10.0)
+    group.add_argument('--goat-eta', type=float, default=1.0)
+    group.add_argument('--goat-init-cof', type=float, default=1.0)
     
     # --------------------------- galore ----------------------------------
     group.add_argument('--use-galore', action='store_true',
@@ -338,13 +352,13 @@ def peft_parser(parser):
     # --------------------------- adalora ----------------------------------
     group.add_argument('--use-adalora', action='store_true',
                        help='Whether to use adalora')
-    group.add_argument('--target-r', type=int, default=16,
+    group.add_argument('--target-r', type=int, default=8,
                        help='Target Lora matrix dimension.')
-    group.add_argument('--init-r', type=int, default=8,
+    group.add_argument('--init-r', type=int, default=12,
                        help='Initial Lora matrix dimension.')
-    group.add_argument('--tinit', type=int, default=0,
+    group.add_argument('--tinit', type=int, default=10,
                        help='The steps of initial warmup.')
-    group.add_argument('--tfinal', type=int, default=0,
+    group.add_argument('--tfinal', type=int, default=100,
                        help='The steps of final warmup.')
     group.add_argument('--deltaT', type=int, default=1,
                        help='Step interval of rank allocation.')

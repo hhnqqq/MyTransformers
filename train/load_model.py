@@ -12,7 +12,7 @@ from common.registry import registry
 from common.utils.params_manager import set_up_multimodal_config
 from common.utils import (
     load_ckpt_for_train,
-    print_rank_0, read_config, load_ckpt,
+    print_rank_0, read_config, load_ckpt, modify_hf_forward,
     dict_to_dataclass, set_default_tensor_type, STR_DTYPE_TO_TORCH_DTYPE)
 
 def load_huggingface_model_config(args):
@@ -37,6 +37,7 @@ def load_huggingface_model(args):
                                                  attn_implementation="sdpa",
                                                  device_map=f"cuda:{args.local_rank}",
                                                  use_cache=False if args.activation_checkpoint else True)
+    model = modify_hf_forward(model)
     if args.activation_checkpoint:
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         model.enable_input_require_grads()
