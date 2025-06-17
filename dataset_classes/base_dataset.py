@@ -103,7 +103,8 @@ class BaseDataset(Dataset):
         self.cal_metric_pos = dataset_config.cal_metric_pos
         self.encode_single_gene = dataset_config.encode_single_gene
         self.padding = dataset_config.padding 
-        self.pad_id = getattr(self.tokenizer, 'label_pad_id', self.tokenizer.pad_id)
+        self.label_pad_id = getattr(self.tokenizer, 'label_pad_id', self.tokenizer.pad_id)
+        self.pad_id = self.tokenizer.pad_id
         self.apply_chat_template = dataset_config.apply_chat_template and isinstance(tokenizer, PreTrainedTokenizerBase)
         self._init_data_format(dataset_config.meta_prompt, 
                               dataset_config.prefix, 
@@ -195,7 +196,7 @@ class BaseDataset(Dataset):
 
         cal_metric_pos = self._calculate_metric_position(input_len, output_len)
         if self.mode == 'sft':
-            labels = [self.pad_id] * input_len + output_ids
+            labels = [self.label_pad_id] * input_len + output_ids
         elif self.mode == 'pretrain':
             labels = input_ids
         attention_masks = [1] * totoal_len
@@ -203,7 +204,7 @@ class BaseDataset(Dataset):
             # Do not need to pad when stretegy is packing.
             pad_len = self.max_len - totoal_len
             input_ids = input_ids + [self.pad_id] * pad_len
-            labels = labels + [self.pad_id] * pad_len
+            labels = labels + [self.label_pad_id] * pad_len
             attention_masks += [0] * pad_len
 
         assert len(input_ids) == len(labels) == len(attention_masks)
@@ -267,7 +268,7 @@ class BaseDataset(Dataset):
             """
             input_text, output_text = self._extract_texts(sample)
             input_ids = self._process_text(input_text)
-            return input_text, output_text, input_ids, []
+            return input_text, output_text, input_ids
     
     def _extract_texts(self, sample):
         """

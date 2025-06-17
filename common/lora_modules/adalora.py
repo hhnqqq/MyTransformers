@@ -27,7 +27,7 @@ class LinearWithAdaLoRA(LinearWithLoRA):
             self._get_lora_dtype()
         )
         weight_e = self.weight_e.to(self._get_lora_dtype())
-        ranknum = self.ranknum + 1e-5
+        ranknum = self.ranknum + 1
 
         lora_result = F.linear(
             F.linear(self.lora_dropout(x), weight_a * weight_e),
@@ -44,7 +44,7 @@ class LinearWithAdaLoRA(LinearWithLoRA):
             weight_e = self.weight_quantizer
             # When using vanilla lora, the ab mixer is a identical matrix
 
-        ranknum = self.ranknum + 1e-5
+        ranknum = self.ranknum + 1
         lora_result = F.linear(weight_a * weight_e,weight_b,)
         lora_weight =  lora_result * self.lora_scaler / ranknum
         return lora_weight
@@ -87,10 +87,10 @@ class RankAllocator:
 
     """
 
-    def __init__(self, model, peft_config):
-        self.peft_config = peft_config
-        self.beta1 = peft_config.beta1
-        self.beta2 = peft_config.beta2
+    def __init__(self, model, args):
+        self.args = args
+        self.beta1 = args.beta1
+        self.beta2 = args.beta2
         self.rank_pattern = {}
         assert self.beta1 > 0 and self.beta1 < 1
         assert self.beta2 > 0 and self.beta2 < 1
@@ -112,12 +112,12 @@ class RankAllocator:
                 self.name_set.add(n.replace("weight_a", "%s"))
         self.name_set = sorted(self.name_set)
         # The total final rank budget
-        self.target_bgt = self.peft_config.target_r * len(self.name_set)
+        self.target_bgt = self.args.target_r * len(self.name_set)
 
     def budget_schedule(self, step: int):
-        tinit = self.peft_config.tinit
-        tfinal = self.peft_config.tfinal
-        total_step = self.peft_config.num_global_update_steps
+        tinit = self.args.tinit
+        tfinal = self.args.tfinal
+        total_step = self.args.num_global_update_steps
         # Initial warmup
         if step <= tinit:
             budget = self.init_bgt
@@ -132,7 +132,7 @@ class RankAllocator:
             budget = int(
                 (self.init_bgt - self.target_bgt) * (mul_coeff**3) + self.target_bgt
             )
-            mask_ind = True if step % self.peft_config.deltaT == 0 else False
+            mask_ind = True if step % self.args.deltaT == 0 else False
         return budget, mask_ind
 
     def update_ipt(self, model, saved_gradients):
@@ -208,7 +208,6 @@ class RankAllocator:
             name_E = name_m % "weight_e"
             triplet_ipt[name_E] = sum_ipt.view(-1, 1)
             all_score.append(sum_ipt.view(-1))
-
         mask_threshold = torch.kthvalue(
             torch.cat(all_score),
             k=self.init_bgt - budget,
@@ -235,7 +234,7 @@ class RankAllocator:
         # # Update the importance score and allocate the budget
         if (
             global_step
-            < self.peft_config.num_global_update_steps - self.peft_config.tfinal
+            < self.args.num_global_update_steps - self.args.tfinal
         ):
             self.update_ipt(model, saved_gradients)
         budget, mask_ind = self.budget_schedule(global_step)
@@ -275,7 +274,7 @@ def update_and_allocate(model, global_step, saved_gradients):
     >>> optimizer.zero_grad()
     ```
     """
-    lora_config = model.rankallocator.peft_config
+    lora_config = model.rankallocator.args
     # Update the importance score and allocate the budget
     if global_step < lora_config.num_global_update_steps - lora_config.tfinal:
         _, rank_pattern = model.rankallocator.update_and_allocate(model, global_step, saved_gradients)

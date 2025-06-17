@@ -4,6 +4,7 @@ import io
 import sys
 import time
 import json
+import types
 import random
 import logging
 import deepspeed
@@ -60,6 +61,23 @@ def ignore_module_print():
     sys.stdout = io.StringIO()
     yield
     sys.stdout = save_stdout
+
+def modify_hf_forward(model):
+    original_forward = model.forward
+    
+    def new_forward(self, *args, **kwargs):
+        import inspect
+        original_params = inspect.signature(original_forward).parameters
+        filtered_kwargs = {}
+    
+        for name in original_params:
+            if name in kwargs:
+                filtered_kwargs[name] = kwargs[name]
+        
+        return original_forward(**filtered_kwargs).loss, {}
+    
+    model.forward = types.MethodType(new_forward, model)
+    return model
 
 class Timer(object):
     def __init__(self, start=None, n_round=2, iterations: Optional[int] = None):
