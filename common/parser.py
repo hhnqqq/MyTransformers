@@ -191,6 +191,7 @@ def dataset_parser(parser):
                        help='The stretegy for batching dataset')
     group.add_argument('--dataset-weights', type=int, nargs='+', default=None)
     group.add_argument('--read-start-step', type=int, default=None)
+    group.add_argument('--cv-dataset-name', type=str, default=None, help='Single dataset name to train')
     
     return parser
 
@@ -204,6 +205,8 @@ def peft_parser(parser):
                        help='Whether to apply std normalization to LoRA weights.')
     group.add_argument('--use-vera', action='store_true', default=None,
                        help='Whether to use vera')
+    group.add_argument('--use-lora-share', action='store_true', default=None,
+                       help='Whether to use shared LoRA (shares A and B matrices across layers)')
     group.add_argument('--use-tied-lora', action='store_true', default=None,
                        help='Whether to use tied lora')
     group.add_argument('--use-randlora', action='store_true', default=None,
@@ -211,7 +214,7 @@ def peft_parser(parser):
     group.add_argument('--lambda-b-init-method', type=str, default='zero',
                        help='Init method for lora lambda b')
     group.add_argument('--lambda-d-init-method', type=str, default='small_constant',
-                       help='Init method for lora lambda b')
+                       help='Init method for lora lambda d')
     group.add_argument('--use-lora-pro', action='store_true',
                        help='Whether to use LoRA-Pro optimizer')
     group.add_argument('--use-dora', action='store_true',

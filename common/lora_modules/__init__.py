@@ -23,6 +23,8 @@ Currently suppored LoRA variants are listed below:
 19. DeltaLoRA
 20. LoRA-FA
 21. IncreLoRA [IncreLoRA: Incremental Parameter Allocation Method for Parameter-Efficient Fine-tuning](https://arxiv.org/abs/2308.12043)
+22. VeRA [VeRA: Vector-based Random Matrix Adaptation](https://arxiv.org/abs/2310.11454)
+23. Shared LoRA - A new variant where A and B matrices are shared across all layers
 """
 import contextlib
 from common.lora_modules.lora import *
@@ -42,6 +44,8 @@ from common.lora_modules.dude import *
 from common.lora_modules.lora_ga_pro import *
 from common.lora_modules.goat import *
 from common.lora_modules.lora_one import *
+from common.lora_modules.vera import *
+from common.lora_modules.lora_share import *
 
 @contextlib.contextmanager
 def DisableLoRA(model):
@@ -84,7 +88,8 @@ def prepare_lora(model, train_dataloader, args):
     """
     Prepare lora if needed
 
-    For example, if LoRA-GA is utilized, then we need to pre-compute gradients befor training.
+    For example, if LoRA-GA is utilized, then we need to pre-compute gradients before training.
+    For VeRA and Shared LoRA, we need to prepare shared weights.
     """
     if args.use_lora_ga:
         lora_ga_reinit(model=model,
@@ -114,3 +119,19 @@ def prepare_lora(model, train_dataloader, args):
                     dataloader=train_dataloader,
                     args=args,
                     iters=args.lora_ga_n_steps)
+    
+    # Prepare shared weights for VeRA
+    if args.use_vera:
+        from common.lora_modules.vera import prepare_vera_shared_weights, apply_vera_to_model
+        print_rank_0("Preparing shared VeRA weights...", args.global_rank)
+        vera_A, vera_B = prepare_vera_shared_weights(model, args)
+        apply_vera_to_model(model, vera_A, vera_B)
+        print_rank_0("VeRA shared weights prepared and applied.", args.global_rank)
+    
+    # Prepare shared weights for Shared LoRA
+    if args.use_lora_share:
+        from common.lora_modules.lora_share import prepare_shared_lora_weights, apply_shared_lora_to_model
+        print_rank_0("Preparing shared LoRA weights...", args.global_rank)
+        shared_lora_A, shared_lora_B = prepare_shared_lora_weights(model, args)
+        apply_shared_lora_to_model(model, shared_lora_A, shared_lora_B)
+        print_rank_0("Shared LoRA weights prepared and applied.", args.global_rank)
