@@ -34,10 +34,12 @@ def setup_optimizer(model, base_lr):
     # Check for specific parameter types based on LoRA variant
     for name, param in model.named_parameters():
         if param.requires_grad:
-            if any(lora_param in name for lora_param in ['weight_a', 'weight_b', 'lora_', 'lambda']):
+            if any(lora_param in name for lora_param in ['weight_a', 'weight_b', 'lora_', 'lambda', 'shared_lora']):
                 lora_params.append(param)
+                print_rank_0(f"Found trainable LoRA param: {name} with shape {param.shape}", args.global_rank)
             else:
                 other_params.append(param)
+                print_rank_0(f"Found other trainable param: {name} with shape {param.shape}", args.global_rank)
     
     # Create parameter groups with appropriate learning rates
     param_groups = []
@@ -47,12 +49,17 @@ def setup_optimizer(model, base_lr):
             'params': lora_params, 
             'lr': base_lr * getattr(args, 'lora_plus_scaler', 1.0)
         })
+        print_rank_0(f"LoRA parameter group created with {len(lora_params)} parameters", args.global_rank)
     
     if other_params:
         param_groups.append({
             'params': other_params, 
             'lr': base_lr
         })
+        print_rank_0(f"Other parameter group created with {len(other_params)} parameters", args.global_rank)
+    
+    if not param_groups:
+        raise ValueError("No trainable parameters found! This means the LoRA setup failed.")
     
     optimizer = torch.optim.AdamW(param_groups, weight_decay=0.01)
     
@@ -166,7 +173,6 @@ class CLIPClassificationTrainer(Trainer):
             pixel_values = inputs["pixel_values"].to(model.device)
             labels = inputs["labels"].to(model.device)
             
-            # breakpoint()
             outputs = model(pixel_values, labels)
             loss = outputs[0]
         
@@ -195,8 +201,19 @@ class CLIPClassificationTrainer(Trainer):
         exp_dir = os.path.join(self.args.output_dir, args.experiment_name)
         os.makedirs(exp_dir, exist_ok=True)
 
-        # Save trainable parameters (LoRA weights)
+        # Save trainable parameters (LoRA weights and shared weights)
         trainable_params = {name: param for name, param in self.model.clip_model.named_parameters() if param.requires_grad}
+        
+        # Also save shared weights if they exist
+        if hasattr(self.model.clip_model, 'shared_lora_A'):
+            trainable_params['shared_lora_A'] = self.model.clip_model.shared_lora_A
+        if hasattr(self.model.clip_model, 'shared_lora_B'):
+            trainable_params['shared_lora_B'] = self.model.clip_model.shared_lora_B
+        if hasattr(self.model.clip_model, 'vera_A'):
+            trainable_params['vera_A'] = self.model.clip_model.vera_A.state_dict()
+        if hasattr(self.model.clip_model, 'vera_B'):
+            trainable_params['vera_B'] = self.model.clip_model.vera_B.state_dict()
+        
         # Save with a fixed name instead of including step count
         ckpt_path = os.path.join(exp_dir, "lora_weights.ckpt")
         torch.save(trainable_params, ckpt_path)
@@ -206,10 +223,10 @@ class CLIPClassificationTrainer(Trainer):
         args_path = os.path.join(exp_dir, "config.json")
         with open(args_path, "w") as f:
             # Filter out non-serializable items if necessary, like 'device'
+            # save_dict = {k: v for k, v in args.__dict__.items() if k != 'device' and isinstance(v, (str, int, float, bool, list, dict, tuple, type(None)))}
             save_dict = {k: v for k, v in args.__dict__.items() if k != 'device' and isinstance(v, (str, int, float, bool, list, dict, tuple))}
             json.dump(save_dict, f, indent=2)
         print(f"Saved config to {args_path}")
-
 
     def _save_optimizer_and_scheduler(self, output_dir=None):
         # We ignore the 'output_dir' argument passed by the Trainer internally (which contains 'checkpoint-xxx')
@@ -239,9 +256,6 @@ class CLIPClassificationTrainer(Trainer):
 
         # Removed saving of optimizer, scheduler, and cuda_rng_state
 
-
-    
-
 def compute_metrics(eval_pred):
     preds, labels = eval_pred
     accuracy = accuracy_score(labels, preds)
@@ -256,6 +270,26 @@ def collate_fn(batch):
         "pixel_values": pixel_values,
         "labels": labels
     }
+
+def print_trainable_parameters(model):
+    """
+    Print information about trainable parameters in the model.
+    """
+    trainable_params = 0
+    all_param = 0
+    shared_params = 0
+    
+    for name, param in model.named_parameters():
+        all_param += param.numel()
+        if param.requires_grad:
+            trainable_params += param.numel()
+            if 'shared_lora' in name or 'vera_A' in name or 'vera_B' in name:
+                shared_params += param.numel()
+            print_rank_0(f"Trainable parameter: {name}, shape: {param.shape}, numel: {param.numel()}", args.global_rank)
+    
+    print_rank_0(f"trainable params: {trainable_params:,} || all params: {all_param:,} || trainable%: {100 * trainable_params / all_param:.2f}", args.global_rank)
+    if shared_params > 0:
+        print_rank_0(f"shared params: {shared_params:,} || shared%: {100 * shared_params / trainable_params:.2f}", args.global_rank)
 
 def train_and_evaluate(dataset_name):
     clip_model = CLIPModel.from_pretrained(MODEL_NAME)
@@ -282,6 +316,9 @@ def train_and_evaluate(dataset_name):
     
     # Set up trainable parameters
     set_up_trainable_param(clip_model, args)
+    
+    # Print trainable parameter information
+    print_trainable_parameters(clip_model)
     
     # Setup optimizer with proper parameter groups
     optimizer = setup_optimizer(clip_model, args.lr)
@@ -320,7 +357,6 @@ def train_and_evaluate(dataset_name):
         optimizers=(optimizer, None)
     )
 
-    # breakpoint()
     print("Starting training...")
     trainer.train()
 

@@ -32,7 +32,7 @@ do
             --batch-size-per-gpu 64 \
             --eval-batch-size-per-gpu 128 \
             --output-path /fs-computility/mabasic/yepeng/liminglei/MyTransformers/checkpoint/clip_lora_finetuned \
-            --tensorboard
+            --tensorboard \
             --tb-log-dir /fs-computility/mabasic/yepeng/liminglei/MyTransformers/tensorboard_logs/train_clip/${name}_${dataset}_seed${seed} \
             --model-name clip \
             --device cuda \

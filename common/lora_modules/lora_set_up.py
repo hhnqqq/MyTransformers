@@ -14,6 +14,7 @@ from common.lora_modules.rslora import LinearWithRSLoRA
 from common.lora_modules.pissa import LinearWithPiSSA
 from common.lora_modules.olora import LinearWithOLoRA
 from common.lora_modules.vera import LinearWithVeRA
+from common.lora_modules.lora_share import LinearWithSharedLoRA
 from common.lora_modules.lora_moe import LinearWithLoRAMoE
 from common.lora_modules.milora import LinearWithMILoRA
 from common.lora_modules.delta_lora import LinearWithDeltaLoRA
@@ -97,6 +98,11 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method,}, 
                 "VeRA shares A and B across layers, and keeps A and B frozen during training process. "
                 "Only vector weights are tuned during training. Enabling a larger rank compared to LoRA under same resource constraints."),
+    "use_lora_share": LoRAVariant(
+                LinearWithSharedLoRA,
+                lambda a: {},
+                "Shared LoRA shares A and B matrices across all layers. Both A and B matrices are trainable. "
+                "This significantly reduces parameters while maintaining expressiveness."),
     "use_tied_lora": LoRAVariant(
                 LinearWithVeRA, 
                 lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method,}, 
@@ -276,7 +282,6 @@ class LoRAManager:
             lora_layer.weight_scaler = module.weight_scaler
         lora_layer.bias = getattr(module, "bias", None)
         
-        # Initialize LoRA weights
         lora_layer.init_lora_weights()
         return lora_layer
 
@@ -376,6 +381,7 @@ def get_lora_weight_names(args):
     conditions = [
         (args.use_randlora, ['lambda', 'gemma']),
         (args.use_vera, ['lambda']),
+        (args.use_lora_share, ['shared_lora']),
         (args.lora_fa, ['weight_b']),
         (args.use_tied_lora, ['weight_a', 'weight_b', 'lambda']),
         (args.use_dora or args.use_dude, ['weight_a', 'weight_b', 'origin_magnitude']),
