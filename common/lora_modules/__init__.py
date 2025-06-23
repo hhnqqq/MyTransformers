@@ -121,17 +121,8 @@ def prepare_lora(model, train_dataloader, args):
                     iters=args.lora_ga_n_steps)
     
     # Prepare shared weights for VeRA
-    if args.use_vera:
-        from common.lora_modules.vera import prepare_vera_shared_weights, apply_vera_to_model
-        print_rank_0("Preparing shared VeRA weights...", args.global_rank)
-        vera_A, vera_B = prepare_vera_shared_weights(model, args)
-        apply_vera_to_model(model, vera_A, vera_B)
-        print_rank_0("VeRA shared weights prepared and applied.", args.global_rank)
-    
-    # Prepare shared weights for Shared LoRA
-    if args.use_lora_share:
-        from common.lora_modules.lora_share import prepare_shared_lora_weights, apply_shared_lora_to_model
+    if args.use_vera or args.use_lora_share:
         print_rank_0("Preparing shared LoRA weights...", args.global_rank)
-        shared_lora_A, shared_lora_B = prepare_shared_lora_weights(model, args)
-        apply_shared_lora_to_model(model, shared_lora_A, shared_lora_B)
+        prepare_shared_lora_weights(model, args)
+        update_shared_weights_to_layer(model)
         print_rank_0("Shared LoRA weights prepared and applied.", args.global_rank)

@@ -381,7 +381,6 @@ def get_lora_weight_names(args):
     conditions = [
         (args.use_randlora, ['lambda', 'gemma']),
         (args.use_vera, ['lambda']),
-        (args.use_lora_share, ['shared_lora']),
         (args.lora_fa, ['weight_b']),
         (args.use_tied_lora, ['weight_a', 'weight_b', 'lambda']),
         (args.use_dora or args.use_dude, ['weight_a', 'weight_b', 'origin_magnitude']),
