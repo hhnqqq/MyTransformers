@@ -28,23 +28,19 @@ class LinearWithRandLoRA(LinearWithLoRA):
     def __init__(self, 
                 lora_config: LoRAConfig):
         super().__init__(lora_config)
-        
-        self.min_features = min(self.in_features, self.out_features)
-
-        if lora_config.weight_b_init_method is None:
-            raise ValueError('The init method for weight b in randlora can not be zero.')
+        self.share_lora_weights = True
         if lora_config.quant:
             print(f'Currently RandLoRA is incompatible with quant, skipped quant')
-            
-        self.num_loras = math.ceil(self.min_features / self.lora_rank)
 
-    def init_lora_weights(self):
+    def update_shared_weights(
+        self,
+        weight_a,
+        weight_b
+    ):
         dtype = self._get_lora_dtype()
-        requires_grad = True
-
-        self.weight_a = nn.Parameter(torch.empty((self.lora_rank, 1, self.in_features), dtype=dtype), requires_grad=requires_grad)
-        self.weight_b = nn.Parameter(torch.zeros((self.out_features, self.num_loras, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
-        
+        self.weight_a = weight_a
+        self.weight_b = weight_b
+        self.num_loras = weight_b.shape[1]
         self.randlora_gemma = nn.Parameter(
             torch.ones(self.num_loras, self.in_features, dtype=dtype)
             / self.out_features,
@@ -53,16 +49,16 @@ class LinearWithRandLoRA(LinearWithLoRA):
         
         self.randlora_lambda = nn.Parameter(torch.randn(self.lora_rank, self.num_loras, dtype=dtype), requires_grad=True)
 
-        self._init_weight('weight_a')
-        self._init_weight('weight_b')
-        # see https://github.com/PaulAlbert31/RandLoRA/blob/main/peft/src/peft/tuners/randlora/model.py line 193
-        self.weight_a.data = self.weight_a.data / self.weight_a.data.std()
-        self.weight_b.data = self.weight_b.data / self.weight_b.data.std()
+    def init_lora_weights(self):
+        pass
             
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
+        weight_a = self.weight_a[:self.lora_rank, :, :self.in_features]
+        weight_b = self.weight_b[:self.out_features, :, :self.lora_rank]
+
         # [r, 1, in] -> [r, n, in]
-        weight_a = self.weight_a.to(self._get_lora_dtype()).repeat(1, self.num_loras, 1)
+        weight_a = weight_a.to(self._get_lora_dtype()).repeat(1, self.num_loras, 1)
         # [r, n]
         randlora_lambda = self.randlora_lambda.to(self._get_lora_dtype())
         # [n, in]
@@ -70,7 +66,7 @@ class LinearWithRandLoRA(LinearWithLoRA):
         # [r, n, in] -> [r*n, in]
         weight_a = UniqueBaseGrad.apply(weight_a, randlora_lambda, randlora_gemma).flatten(end_dim=1)
         # [out, n, r] -> [out, n*r]
-        weight_b = self.weight_b.to(self._get_lora_dtype()).flatten(start_dim=1)
+        weight_b = weight_b.to(self._get_lora_dtype()).flatten(start_dim=1)
         
         # [bsz, seq_len, in][r*n, in]^T -> [bsz, seq_len, r*n]d[out, n*r]^T -> [bsz, seq_len, out]
         lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b)
@@ -80,8 +76,12 @@ class LinearWithRandLoRA(LinearWithLoRA):
     
     def _compute_lora(self):
         if self.has_lora_weights:
-            weight_a = self.weight_a.to(self._get_lora_dtype()).repeat(1, self.num_loras, 1)
-            weight_b = self.weight_b.to(self._get_lora_dtype()).flatten(start_dim=1)
+            weight_a = self.weight_a[:self.lora_rank, :, :self.in_features]
+            weight_b = self.weight_b[:self.out_features, :, :self.lora_rank]
+
+            weight_a = weight_a.to(self._get_lora_dtype()).repeat(1, self.num_loras, 1)
+            weight_b = weight_b.to(self._get_lora_dtype()).flatten(start_dim=1)
+            
             randlora_lambda = self.randlora_lambda.to(self._get_lora_dtype())
             randlora_gemma = self.randlora_gemma.to(self._get_lora_dtype())
             weight_a = randlora_lambda[:, :, None] * weight_a * randlora_gemma[None, : , :]
@@ -97,3 +97,59 @@ class LinearWithRandLoRA(LinearWithLoRA):
         has_gemma = hasattr(self, 'randlora_gemma') and self.randlora_gemma is not None
         has_lambda_gemma = has_lambda and has_gemma
         return has_lambda_gemma and super().has_lora_weights
+    
+def prepare_shared_lora_weights_randlora(model: nn.Module, args) -> tuple[nn.Parameter, nn.Parameter]:
+    """
+    Prepare shared LoRA weights that will be used across all layers.
+    
+    Args:
+        model: The model containing LoRA layers
+        args: Arguments containing LoRA configuration
+        
+    Returns:
+        Tuple of (weight_a, weight_b) Parameters
+    """
+    # Find the maximum dimensions needed across all layers
+    max_in_features = 0
+    max_out_features = 0
+    
+    for module in model.modules():
+        if isinstance(module, LinearWithRandLoRA):
+            max_in_features = max(max_in_features, module.in_features)
+            max_out_features = max(max_out_features, module.out_features)
+
+    num_loras = math.ceil(min(max_in_features, max_out_features) / args.lora_rank)
+
+    if max_in_features == 0 or max_out_features == 0:
+        raise ValueError("No LinearWithRandLoRA layers found in the model")
+    
+    # Create shared parameters
+    dtype = torch.float32 if args.run_lora_in_fp32 else torch.float16
+    device = next(model.parameters()).device
+    
+    # Initialize A matrix
+    weight_a = nn.Parameter(
+        torch.empty((args.lora_rank, 1, max_in_features), dtype=dtype, device=device))
+    
+    # Initialize B matrix  
+    weight_b = nn.Parameter(
+        torch.zeros((max_out_features, num_loras, args.lora_rank), dtype=dtype, device=device))
+    
+    # Initialize weights
+    with torch.no_grad():
+        if args.weight_a_init_method == 'kaiming':
+            nn.init.kaiming_uniform_(weight_a, a=5**0.5, mode='fan_in')
+        else:
+            nn.init.normal_(weight_a, mean=0.0, std=1 / (max_in_features ** 0.5))
+        
+        if args.weight_b_init_method == 'kaiming':
+            nn.init.kaiming_uniform_(weight_b, a=5**0.5, mode='fan_in')
+        elif args.weight_b_init_method == 'normal':
+            nn.init.normal_(weight_b, mean=0.0, std=0.02)
+
+    # see https://github.com/PaulAlbert31/RandLoRA/blob/main/peft/src/peft/tuners/randlora/model.py line 193
+    weight_a.data = weight_a.data / weight_a.data.std()
+    weight_b.data = weight_b.data / weight_b.data.std()
+
+    model.weight_a = weight_a
+    model.weight_b = weight_b
