@@ -1,6 +1,3 @@
-"""
-This is a naive implementation for RandLoRA, optimized version will be uploaded soon!
-"""
 import math
 from common.lora_modules.lora import *
     
@@ -37,13 +34,21 @@ class LinearWithRandLoRA(LinearWithLoRA):
         weight_a,
         weight_b
     ):
+        """
+        Update the low-rank weights of this layer using shared weights.
+        And initialize trainable verctors according the min dimension of this layer.
+        The number of trainable parameters of this layer is:
+            math.ceil(hidden_dim / lora_rank) * (self.min_dim + lora_rank)
+        """
         dtype = self._get_lora_dtype()
         self.weight_a = weight_a
         self.weight_b = weight_b
         self.num_loras = weight_b.shape[1]
+        self.min_dim = min(self.out_features, self.in_features)
+        self.max_dim = max(self.out_features, self.in_features)
         self.randlora_gemma = nn.Parameter(
-            torch.ones(self.num_loras, self.in_features, dtype=dtype)
-            / self.out_features,
+            torch.ones(self.num_loras, self.min_dim, dtype=dtype)
+            / self.max_dim,
             requires_grad=True
         )
         
@@ -52,21 +57,29 @@ class LinearWithRandLoRA(LinearWithLoRA):
     def init_lora_weights(self):
         pass
             
+    
+    def _get_sliced_lora_weights(self):
+        weight_a = self.weight_a[:self.lora_rank, :, :self.min_dim]
+        weight_b = self.weight_b[:self.max_dim, :, :self.lora_rank]
 
-    def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
-        weight_a = self.weight_a[:self.lora_rank, :, :self.in_features]
-        weight_b = self.weight_b[:self.out_features, :, :self.lora_rank]
-
-        # [r, 1, in] -> [r, n, in]
+        # [r, 1, min] -> [r, n, min]
         weight_a = weight_a.to(self._get_lora_dtype()).repeat(1, self.num_loras, 1)
         # [r, n]
         randlora_lambda = self.randlora_lambda.to(self._get_lora_dtype())
-        # [n, in]
+        # [n, min]
         randlora_gemma = self.randlora_gemma.to(self._get_lora_dtype())
-        # [r, n, in] -> [r*n, in]
+        # [r, n, min] -> [r*n, min]
         weight_a = UniqueBaseGrad.apply(weight_a, randlora_lambda, randlora_gemma).flatten(end_dim=1)
-        # [out, n, r] -> [out, n*r]
+        # [max, n, r] -> [max, n*r]
         weight_b = weight_b.to(self._get_lora_dtype()).flatten(start_dim=1)
+        if self.min_dim == self.out_features:
+            # Make sure that out_features corresponding to weight_b.
+            return weight_a, weight_b
+        else:
+            return weight_b.T, weight_a.T
+        
+    def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
+        weight_a, weight_b = self._get_sliced_lora_weights()
         
         # [bsz, seq_len, in][r*n, in]^T -> [bsz, seq_len, r*n]d[out, n*r]^T -> [bsz, seq_len, out]
         lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b)
@@ -76,8 +89,8 @@ class LinearWithRandLoRA(LinearWithLoRA):
     
     def _compute_lora(self):
         if self.has_lora_weights:
-            weight_a = self.weight_a[:self.lora_rank, :, :self.in_features]
-            weight_b = self.weight_b[:self.out_features, :, :self.lora_rank]
+            weight_a = self.weight_a[:self.lora_rank, :, :self.min_dim]
+            weight_b = self.weight_b[:self.max_dim, :, :self.lora_rank]
 
             weight_a = weight_a.to(self._get_lora_dtype()).repeat(1, self.num_loras, 1)
             weight_b = weight_b.to(self._get_lora_dtype()).flatten(start_dim=1)
@@ -89,7 +102,10 @@ class LinearWithRandLoRA(LinearWithLoRA):
             lora_weight = torch.zeros(self.out_features, self.in_features, device=weight_a.device, dtype=weight_a.dtype)
             
             lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
-            return lora_weight.to(self.weight.dtype)
+            if self.max_dim == self.out_features:
+                return lora_weight.to(self.weight.dtype)
+            else:
+                return lora_weight.T.to(self.weight.dtype)
         
     @property
     def has_lora_weights(self):
@@ -129,11 +145,11 @@ def prepare_shared_lora_weights_randlora(model: nn.Module, args) -> tuple[nn.Par
     
     # Initialize A matrix
     weight_a = nn.Parameter(
-        torch.empty((args.lora_rank, 1, max_in_features), dtype=dtype, device=device))
+        torch.empty((args.lora_rank, 1, min(max_in_features, max_out_features)), dtype=dtype, device=device))
     
     # Initialize B matrix  
     weight_b = nn.Parameter(
-        torch.zeros((max_out_features, num_loras, args.lora_rank), dtype=dtype, device=device))
+        torch.empty((max(max_in_features, max_out_features), num_loras, args.lora_rank), dtype=dtype, device=device))
     
     # Initialize weights
     with torch.no_grad():
@@ -144,7 +160,7 @@ def prepare_shared_lora_weights_randlora(model: nn.Module, args) -> tuple[nn.Par
         
         if args.weight_b_init_method == 'kaiming':
             nn.init.kaiming_uniform_(weight_b, a=5**0.5, mode='fan_in')
-        elif args.weight_b_init_method == 'normal':
+        else:
             nn.init.normal_(weight_b, mean=0.0, std=0.02)
 
     # see https://github.com/PaulAlbert31/RandLoRA/blob/main/peft/src/peft/tuners/randlora/model.py line 193
