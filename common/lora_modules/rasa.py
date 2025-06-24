@@ -8,7 +8,8 @@ class LinearWithRASA(LinearWithLoRA):
     def __init__(self, lora_config: LoRAConfig, shared_lora_rank):
         super().__init__(lora_config)
         if shared_lora_rank > self.lora_rank:
-            raise ValueError("RASA's shared_lora_rank can not be larger than lora_rank! Please check your rank configuration.")
+            raise ValueError("RASA's shared_lora_rank can not be larger than lora_rank!"
+                             "Please check your rank configuration.")
         self.lora_rank -= shared_lora_rank
         self.lora_scaler = lora_config.lora_scaler
         self.share_lora_weights = True
@@ -22,20 +23,35 @@ class LinearWithRASA(LinearWithLoRA):
         self.shared_weight_a = weight_a
         self.shared_weight_b = weight_b
         self.module_name = module_name
-        self.effect_rank = weight_a[module_name].shape[0] + self.lora_rank
+        shared_rank = weight_a[module_name].shape[0]
+        self.effect_rank = shared_rank + self.lora_rank
         self.weight_e = nn.Parameter(torch.ones(self.effect_rank, 1))
-        nn.init.constant_(self.weight_e[:self.lora_rank], (0.5 * self.lora_scaler) / (self.lora_rank))
-        nn.init.constant_(self.weight_e[self.lora_rank:], (0.5 * self.lora_scaler) / (self.effect_rank - self.lora_rank))
+        with torch.no_grad():
+            # More stable initialization
+            shared_part = (0.5 * self.lora_scaler) / shared_rank
+            lora_part = (0.5 * self.lora_scaler) / self.lora_rank
+            self.weight_e.normal_(mean=0, std=0.02)
+            self.weight_e[self.lora_rank:].fill_(shared_part)
+            self.weight_e[:self.lora_rank].fill_(lora_part)
 
     def _concat_lora_weights(self):
-        weight_a = torch.cat([self.weight_a.to(self._get_lora_dtype()), 
-                              self.shared_weight_a[self.module_name].to(self._get_lora_dtype())], 
-                              dim=0)
-        weight_b = torch.cat([self.weight_b.to(self._get_lora_dtype()), 
-                              self.shared_weight_b[self.module_name].to(self._get_lora_dtype())], 
-                              dim=1)
-        weight_e = self.weight_e.to(self._get_lora_dtype())
-        return weight_a, weight_b, weight_e
+        """Concatenate shared and private LoRA weights."""
+        if not self._shared_weights_initialized:
+            raise RuntimeError("Shared weights not initialized. Call update_shared_weights first.")
+            
+        dtype = self._get_lora_dtype()
+        weight_a = torch.cat([
+            self.weight_a.to(dtype), 
+            self.shared_weight_a[self.module_name].to(dtype)
+        ], dim=0)
+        
+        weight_b = torch.cat([
+            self.weight_b.to(dtype), 
+            self.shared_weight_b[self.module_name].to(dtype)
+        ], dim=1)
+        
+        return weight_a, weight_b, self.weight_e.to(dtype)
+    
     
     def _lora_forward(self, x: Tensor, result: Tensor) -> Tensor:
         weight_a, weight_b, weight_e = self._concat_lora_weights()
@@ -44,7 +60,7 @@ class LinearWithRASA(LinearWithLoRA):
             F.linear(self.lora_dropout(x), weight_a * weight_e),
             weight_b,
             ).to(result.dtype)
-        return lora_result
+        return result + lora_result
 
     def _compute_lora(self):
         if self.has_lora_weights:
@@ -63,6 +79,15 @@ class LinearWithRASA(LinearWithLoRA):
         return has_shared_weight_a and has_shared_weight_b and super().has_lora_weights
 
 def get_module_groups(model):
+    """
+    Group modules by their type across layers and verify shape consistency.
+    
+    Args:
+        model: The model to analyze
+        
+    Returns:
+        Dictionary mapping module names to their shape and layer information
+    """
     module2shape = {}
     for key, module in model.named_modules():
         if isinstance(module, LinearWithRASA):
@@ -99,6 +124,16 @@ def get_module_groups(model):
     return module_groups
 
 def prepare_shared_lora_weights_rasa(model: nn.Module, args) -> tuple[nn.Parameter, nn.Parameter]:
+    """
+    Prepare shared LoRA weights for RASA based on model architecture.
+    
+    Args:
+        model: The model to prepare weights for
+        args: Configuration arguments
+        
+    Returns:
+        Tuple of (shared_weight_a, shared_weight_b) ParameterDicts
+    """
     # Find the maximum dimensions needed across all layers
     module_groups = get_module_groups(model)
     
@@ -118,7 +153,6 @@ def prepare_shared_lora_weights_rasa(model: nn.Module, args) -> tuple[nn.Paramet
         # Initialize B matrix  
         weight_b = nn.Parameter(
             torch.zeros((out_features, rasa_shared_rank), dtype=dtype, device=device))
-        
         # Initialize weights
         with torch.no_grad():
             if args.weight_a_init_method == 'kaiming':
@@ -140,12 +174,10 @@ def prepare_shared_lora_weights_rasa(model: nn.Module, args) -> tuple[nn.Paramet
 
 def update_shared_weights_to_layer_rasa(model: nn.Module):
     """
-    Apply shared LoRA weights to all LinearWithSharedLoRA layers in the model.
+    Apply shared LoRA weights to all LinearWithRASA layers in the model.
     
     Args:
         model: The model containing LoRA layers
-        weight_a: Shared A matrix parameter
-        weight_b: Shared B matrix parameter
     """
     for name, module in model.named_modules():
         if getattr(module, 'share_lora_weights', False):
