@@ -95,8 +95,8 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 "The initialization of OLoRA requires some time, waiting..."),
     "use_vera": LoRAVariant(
                 LinearWithVeRA, 
-                lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method,}, 
-                "VeRA shares A and B across layers, and keeps A and B frozen during training process. "
+                lambda a: {"lambda_b_init_method":a.lambda_b_init_method, "lambda_d_init_method":a.lambda_d_init_method, "init_unque_lora_weights":a.vera_init_unique_weights}, 
+                "VeRA shares A and B across layers if not args.vera_init_unique_weights, and keeps A and B frozen during training process. "
                 "Only vector weights are tuned during training. Enabling a larger rank compared to LoRA under same resource constraints."),
     "use_lora_share": LoRAVariant(
                 LinearWithSharedLoRA,
@@ -248,7 +248,45 @@ class LoRAManager:
             bias=(getattr(module, "bias", None) is not None),
             quant=getattr(module, "quant", False)
         )
-
+    
+    @staticmethod
+    def check_lora_settings(args, lora_layer_class):
+        # Check incompatible settings
+        if any([args.use_dora, args.use_dude, args.use_hira, args.use_delta_lora]) and args.lora_dropout:
+            print_rank_0(
+                f'LoRA dropout is not compatible with class: {lora_layer_class.__name__}, skip',
+                args.global_rank
+            )
+        
+        # Validate GOAT settings
+        if args.use_goat:
+            valid_scaling_types = {'lora', 'rslora', 'goat'}
+            if args.goat_scaling_type not in valid_scaling_types:
+                raise ValueError(
+                    f"Invalid scaling type for goat: {args.goat_scaling_type}. "
+                    f"Choose from {sorted(valid_scaling_types)}."
+                )
+            
+            valid_init_types = {'svd', 'goat-mini', 'vanilla'}
+            if args.goat_init_type not in valid_init_types:
+                raise ValueError(
+                    f"Invalid initialization type for goat: {args.goat_init_type}. "
+                    f"Choose from {sorted(valid_init_types)}."
+                )
+        
+        # Validate GORA settings
+        if args.use_gora:
+            valid_gora_methods = {'vanilla', 'weight_svd', 'grad_svd', 'compress'}
+            if args.gora_init_method not in valid_gora_methods:
+                raise ValueError(
+                    f"Invalid initialization type for gora: {args.gora_init_method}. "
+                    f"Choose from {sorted(valid_gora_methods)}."
+                )
+        
+        # Validate VERA settings
+        if any([args.use_vera, args.use_randlora]) and args.weight_b_init_method is None:
+            raise ValueError(f'The init method for weight b cannot be None when {lora_layer_class.__name__} is applied.')
+                
     @staticmethod
     def create_lora_layer(module: nn.Module, 
                          lora_layer_class: Type,
@@ -316,6 +354,7 @@ def switch_to_lora(model: nn.Module, args: Namespace, transposition: bool = Fals
     assert args.replace_modules is not None, 'Replace modules cannot be None'
     
     lora_layer_class, variant_config = LoRAManager.get_lora_layer_class(args)
+    LoRAManager.check_lora_settings(args, lora_layer_class)
     if args.run_lora_in_fp32:
         print_rank_0('--->Will keep lora weights in float32', args.global_rank)
 

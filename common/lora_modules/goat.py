@@ -27,9 +27,7 @@ class LinearWithGOAT(LinearWithLoRA):
         self.top_k = top_k
         self.lora_scaler = lora_config.lora_scaler
         self.scaling_type = scalling_type
-        assert self.scaling_type in ['lora', 'rslora', 'goat'], f"Invalid scaling type: {self.scaling_type}. Choose from ['lora', 'rslora', 'goat']."
         self.init_type = init_type
-        assert self.init_type in ['goat', 'goat-mini', 'vanilla'], f"Invalid initialization type: {self.init_type}. Choose from ['svd', 'goat-mini', 'vanilla']."
 
         self.rho = rho
         self.eta = eta

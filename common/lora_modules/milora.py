@@ -18,7 +18,7 @@ class LinearWithMILoRA(LinearWithLoRA):
         super().__init__(lora_config)
 
     def init_lora_weights(self):
-        # PiSSA share same functions with vinalla lora only with a different initialize method.
+        # MILoRA share same functions with vinalla lora only with a different initialize method.
         dtype = self._get_lora_dtype()
         weight_dtype = self.weight.dtype
         requires_grad = not self.quant

@@ -25,8 +25,6 @@ class LinearWithDeltaLoRA(LinearWithLoRA):
                  lora_config: LoRAConfig,
                  update_ratio: float = 2):
         super().__init__(lora_config)
-        if lora_config.lora_dropout is not None:
-            raise ValueError('DeltaLoRA is not compatible with dropout.')
         
         self.previous_lora_weights = {}
         self.update_ratio = update_ratio

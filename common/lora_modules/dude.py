@@ -6,8 +6,6 @@ class LinearWithDude(LinearWithPiSSA, LinearWithDoRA):
                 lora_config: LoRAConfig,
                 fast_svd_n_iters: Optional[int] = 1):
         LinearWithPiSSA.__init__(self, lora_config, fast_svd_n_iters)
-        if lora_config.lora_dropout:
-            print(f'Dude is incompatible with lora dropout, skiped lora dropout')
 
     def init_lora_weights(self):
         # PiSSA share same functions with vinalla lora only with a different initialize method.

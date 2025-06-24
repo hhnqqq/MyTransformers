@@ -187,7 +187,8 @@ def lora_ga_reinit(
             hook.remove()
 
         torch.cuda.empty_cache()
-        torch.distributed.barrier()
+        if args.world_size > 1:
+            torch.distributed.barrier()
 
         print_rank_0('--->All reduce LoRA-GA stored gradients if needed.', args.global_rank)
         for p in model.parameters():

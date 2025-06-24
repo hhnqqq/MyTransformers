@@ -25,7 +25,7 @@ class LinearWithGoRA(LinearWithLoRA):
         self,
         lora_config: LoRAConfig,
         fast_svd_n_iters: Optional[int] = 16,
-        gora_init_method: str = 'weight_svd',
+        gora_init_method: str = 'compress',
         gora_rank_stablize: bool = False,
         gora_dynamic_scaling: bool = False
     ):
@@ -35,7 +35,6 @@ class LinearWithGoRA(LinearWithLoRA):
         self.dynamic_scaling = gora_dynamic_scaling
         self.rank_stablize = gora_rank_stablize
         self.scaling_alpha = lora_config.lora_scaler
-        assert gora_init_method in ['vanilla', 'weight_svd', 'grad_svd', 'compress']
         super().__init__(lora_config,)
 
     def init_lora_weights(self):
@@ -83,7 +82,6 @@ class LinearWithGoRA(LinearWithLoRA):
                 del self.weight.iters
 
     def compress_init(self, 
-                    #   niters, 
                       lr: float, 
                       scaling_by_lr: bool = False, 
                       stable_gemma: int = 8, 
@@ -331,7 +329,6 @@ def get_allocated_rank(model, args):
                 named_importances[name] = importance
 
                 # Calculate features and budget
-                # 可以减少features对rank分配的影响，但是似乎是负面影响？
                 adjusted_features = feature_adjust_func(features)
                 named_smooth_features[name] = adjusted_features
                 named_features[name] = features
@@ -356,7 +353,6 @@ def get_allocated_rank(model, args):
 
         # Allocate ranks based on calculated budgets
         for name, normalized_importance in zip(named_importances.keys(), normalized_importances):
-            # 均衡的问题
             # trainable = allocate_func(total_budget * normalized_importance.item())
             smooth_trainable = allocate_func(smooth_total_budget * normalized_importance.item())
 
@@ -377,9 +373,7 @@ def gora_reinit(
     task_name: str = '',
     forward_backward_func: Callable = None
 ):
-    # TODO：for real large model (such as 32b), 1. off load the model to cpu, 2. create a model using zero3 inference mode
-    # 3. forward and compute grad 4. all gather to collect grad and save to cpu, 5. delete the deepspeed model and load the origin model to gpu
-    # 6. initializing lora parameters for the model
+    
     print_rank_0("--->Estimating gradient for gora.", rank=args.global_rank)
     # avoid OOM
     torch.cuda.empty_cache()

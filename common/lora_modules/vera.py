@@ -29,6 +29,7 @@ class LinearWithVeRA(LinearWithLoRA):
         lora_config: LoRAConfig,
         lambda_b_init_method: str = 'zero',
         lambda_d_init_method: str = 'small_constant',
+        init_unque_lora_weights: bool = False
     ):
         """
         Initialize the LinearWithVeRA layer.
@@ -38,12 +39,9 @@ class LinearWithVeRA(LinearWithLoRA):
             lambda_d_init_method (str, optional): Initialization method for lambda d. ['zero', 'ones', 'small_constant', 'random']. Default is 'small_constant'.
         """
         super().__init__(lora_config)
-        self.share_lora_weights = True
+        self.share_lora_weights = ~init_unque_lora_weights
         self.lambda_b_init_method = lambda_b_init_method
         self.lambda_d_init_method = lambda_d_init_method
-        
-        if lora_config.weight_b_init_method is None:
-            raise ValueError('The init method for weight b in vera cannot be None.')
     
     def init_lora_weights(self):
         """
@@ -51,7 +49,10 @@ class LinearWithVeRA(LinearWithLoRA):
         Only initialize the lambda vectors.
         The shared A and B will be set externally via update_shared_weights.
         """
-        self._init_lambdas(self.lambda_b_init_method, self.lambda_d_init_method)
+        if not self.share_lora_weights:
+            super().init_lora_weights()
+        else:
+            self._init_lambdas(self.lambda_b_init_method, self.lambda_d_init_method)
 
     def update_shared_weights(
         self,
@@ -134,7 +135,7 @@ class LinearWithVeRA(LinearWithLoRA):
         Called by merge lora method in LinearWithLoRA
         Computes the effective weight using shared VeRA matrices and layer-specific lambdas.
         """
-        if not self.has_vera_weights:
+        if not self.has_lora_weights:
             return None
         
         # Get shared matrices (sliced to current layer dimensions)
@@ -165,5 +166,3 @@ class LinearWithVeRA(LinearWithLoRA):
             delattr(self, "lambda_b")
         if hasattr(self, 'lambda_d'):
             delattr(self, "lambda_d")
-        
-        # Don't delete shared matrices, they are managed globally
