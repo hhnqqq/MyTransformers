@@ -63,7 +63,6 @@ class LinearWithVeRA(LinearWithLoRA):
         Update this layer to use shared VeRA weights.
         
         Args:
-            adapter_name: Name of the adapter
             weight_a: Shared A matrix buffer
             weight_b: Shared B matrix buffer
         """

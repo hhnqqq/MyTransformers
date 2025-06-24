@@ -1,7 +1,7 @@
 import re
-from collections import defaultdict
 from common.lora_modules.lora import *
 from common.lora_modules.lora import LoRAConfig
+from common.lora_modules.lora_share import get_module_groups
 from torch import Tensor
 
 class LinearWithRASA(LinearWithLoRA):
@@ -78,51 +78,6 @@ class LinearWithRASA(LinearWithLoRA):
         has_shared_weight_b = hasattr(self, 'shared_weight_a')
         return has_shared_weight_a and has_shared_weight_b and super().has_lora_weights
 
-def get_module_groups(model):
-    """
-    Group modules by their type across layers and verify shape consistency.
-    
-    Args:
-        model: The model to analyze
-        
-    Returns:
-        Dictionary mapping module names to their shape and layer information
-    """
-    module2shape = {}
-    for key, module in model.named_modules():
-        if isinstance(module, LinearWithRASA):
-            module2shape[key] = tuple(module.weight.shape)
-
-    if not module2shape:
-        raise ValueError("No LinearWithRASA layer was found.")
-
-    # Group modules across layers
-    module_groups = defaultdict(list)
-    pattern = re.compile(r'layers\.(\d+)\.(.+)')
-
-    for key, value in module2shape.items():
-        match = pattern.search(key)
-        if match:
-            layer_id = match.group(1)
-            module_name = match.group(2).replace('.', '__')
-            module_groups[module_name].append((layer_id, value))
-
-    module_groups = dict(module_groups)
-
-    # Assert each type of module has the same shape across layers
-    for key, value in module_groups.items():
-        assert all([v[1] == value[0][1] for v in value]), f"Shape mismatch for {key} layers: {value}"
-
-    # Add the number of layers for each module type
-    for key in module_groups.keys():
-        module_groups[key] = {
-            "shape": module_groups[key][0][1],
-            "layer_ids": [int(v[0]) for v in module_groups[key]],
-            "num_layers": len(module_groups[key]),
-        }
-
-    return module_groups
-
 def prepare_shared_lora_weights_rasa(model: nn.Module, args) -> tuple[nn.Parameter, nn.Parameter]:
     """
     Prepare shared LoRA weights for RASA based on model architecture.
@@ -170,18 +125,3 @@ def prepare_shared_lora_weights_rasa(model: nn.Module, args) -> tuple[nn.Paramet
 
     model.weight_a = shared_weight_a
     model.weight_b = shared_weight_b
-
-
-def update_shared_weights_to_layer_rasa(model: nn.Module):
-    """
-    Apply shared LoRA weights to all LinearWithRASA layers in the model.
-    
-    Args:
-        model: The model containing LoRA layers
-    """
-    for name, module in model.named_modules():
-        if getattr(module, 'share_lora_weights', False):
-            pattern = re.compile(r'layers\.(\d+)\.(.+)')
-            match = pattern.search(name)
-            module_name = match.group(2).replace('.', '__')
-            module.update_shared_weights(model.weight_a, model.weight_b, module_name)

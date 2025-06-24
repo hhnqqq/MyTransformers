@@ -33,6 +33,7 @@ from common.lora_modules.lora_ga_pro import LinearWithLoRAGAPro
 from common.lora_modules.lora_one import LinearWithLoRAOne
 from common.lora_modules.goat import LinearWithGOAT
 from common.lora_modules.rasa import LinearWithRASA
+from common.lora_modules.dense_lora import LinearWithDenseLoRA
 
 @dataclass
 class LoRAVariant:
@@ -189,6 +190,12 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 LinearWithRASA,
                 lambda a: {"shared_lora_rank":a.rasa_shared_lora_rank},
                 "RASA shares some lora ranks across layers to increase the overall rank."
+    ),
+    "use_dense_lora": LoRAVariant(
+                LinearWithDenseLoRA,
+                lambda a: {},
+                "DenseLoRA is similar to MosLoRA while weight_a and weight_b are shared across layers."
+                "DenseLoRA also introduce non-linear function for LoRA computation."
     )
 }
 
@@ -430,6 +437,7 @@ def get_lora_weight_names(args):
         (args.use_tied_lora, ['weight_a', 'weight_b', 'lambda']),
         (args.use_dora or args.use_dude, ['weight_a', 'weight_b', 'origin_magnitude']),
         (args.use_adalora or args.use_rasa, ['weight_a', 'weight_b', 'weight_e']),
+        (args.use_mos_lora or args.use_dense_lora or args.use_nlora, ['weight_a', 'weight_b', 'weight_ab_mixer']),
         (True, ['weight_a', 'weight_b'])
     ]
     

@@ -210,6 +210,8 @@ def peft_parser(parser):
     group.add_argument('--use-rasa', action='store_true',
                        help='Whether to use rasa.')
     group.add_argument('--rasa-shared-lora-rank', type=int, default=1)
+    group.add_argument('--use-dense-lora', action='store_true',
+                       help='Whether to use denselora.')
     group.add_argument('--use-lora-share', action='store_true', default=None,
                        help='Whether to use shared LoRA (shares A and B matrices across layers)')
     group.add_argument('--use-tied-lora', action='store_true', default=None,
