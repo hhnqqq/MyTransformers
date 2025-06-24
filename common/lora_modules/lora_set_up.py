@@ -32,6 +32,7 @@ from common.lora_modules.dude import LinearWithDude
 from common.lora_modules.lora_ga_pro import LinearWithLoRAGAPro
 from common.lora_modules.lora_one import LinearWithLoRAOne
 from common.lora_modules.goat import LinearWithGOAT
+from common.lora_modules.rasa import LinearWithRASA
 
 @dataclass
 class LoRAVariant:
@@ -177,13 +178,18 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
     "use_goat": LoRAVariant(
                 LinearWithGOAT,
                 lambda a: {"scalling_type":a.goat_scaling_type,
-                              "init_type":a.goat_init_type,
-                              "num_experts":a.lora_moe_n_experts,
-                              "top_k":a.lora_moe_top_k,
-                              "rho":a.goat_rho,
-                              "eta":a.goat_eta,
-                              "init_cof":a.goat_init_cof},
-                ". The initialization of GOAT requires some time, waiting...")
+                            "init_type":a.goat_init_type,
+                            "num_experts":a.lora_moe_n_experts,
+                            "top_k":a.lora_moe_top_k,
+                            "rho":a.goat_rho,
+                            "eta":a.goat_eta,
+                            "init_cof":a.goat_init_cof},
+                "The initialization of GOAT requires some time, waiting..."),
+    "use_rasa": LoRAVariant(
+                LinearWithRASA,
+                lambda a: {"shared_lora_rank":a.rasa_shared_lora_rank},
+                "RASA shares some lora ranks across layers to increase the overall rank."
+    )
 }
 
 class LoRAManager:
@@ -423,7 +429,7 @@ def get_lora_weight_names(args):
         (args.lora_fa, ['weight_b']),
         (args.use_tied_lora, ['weight_a', 'weight_b', 'lambda']),
         (args.use_dora or args.use_dude, ['weight_a', 'weight_b', 'origin_magnitude']),
-        (args.use_adalora, ['weight_a', 'weight_b', 'weight_e']),
+        (args.use_adalora or args.use_rasa, ['weight_a', 'weight_b', 'weight_e']),
         (True, ['weight_a', 'weight_b'])
     ]
     

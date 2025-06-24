@@ -121,11 +121,14 @@ def prepare_lora(model, train_dataloader, args):
                     iters=args.lora_ga_n_steps)
     
     # Prepare shared weights for VeRA
-    if (args.use_vera and not args.vera_init_unique_weights) or args.use_lora_share or args.use_randlora:
+    if (args.use_vera and not args.vera_init_unique_weights) or args.use_lora_share or args.use_randlora or args.use_rasa:
         
         if args.use_randlora:
             from common.lora_modules.randlora import prepare_shared_lora_weights_randlora as prepare_shared_lora_weights
-
+        if args.use_rasa:
+            from common.lora_modules.rasa import prepare_shared_lora_weights_rasa as prepare_shared_lora_weights
+            from common.lora_modules.rasa import update_shared_weights_to_layer_rasa as update_shared_weights_to_layer
+            
         print_rank_0("Preparing shared LoRA weights...", args.global_rank)
         prepare_shared_lora_weights(model, args)
         update_shared_weights_to_layer(model)

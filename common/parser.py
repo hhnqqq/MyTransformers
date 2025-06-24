@@ -205,6 +205,11 @@ def peft_parser(parser):
                        help='Whether to apply std normalization to LoRA weights.')
     group.add_argument('--use-vera', action='store_true', default=None,
                        help='Whether to use vera')
+    group.add_argument('--vera-init-unique-weights', action='store_true',
+                       help='Whether to init unque lora weigths for each vera layer')
+    group.add_argument('--use-rasa', action='store_true',
+                       help='Whether to use rasa.')
+    group.add_argument('--rasa-shared-lora-rank', type=int, default=1)
     group.add_argument('--use-lora-share', action='store_true', default=None,
                        help='Whether to use shared LoRA (shares A and B matrices across layers)')
     group.add_argument('--use-tied-lora', action='store_true', default=None,
