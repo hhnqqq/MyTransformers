@@ -85,7 +85,7 @@ def MergeLoRA(model):
             if isinstance(module, LinearWithLoRA):
                 module._unmerge_lora()
 
-def prepare_lora(model, train_dataloader, tokenizer, args):
+def prepare_lora(model, train_dataloader, args):
     """
     Prepare lora if needed
 
@@ -121,12 +121,10 @@ def prepare_lora(model, train_dataloader, tokenizer, args):
                     args=args,
                     iters=args.lora_ga_n_steps)
     if args.use_eva:
-        pad_id = getattr(tokenizer, 'label_pad_id', tokenizer.pad_id)
-        EVA_reinit(
+        eva_reinit(
             model=model,
             dataloader=train_dataloader,
-            args=args,
-            pad_id = pad_id
+            args=args
         )
     
     # Prepare shared weights for VeRA

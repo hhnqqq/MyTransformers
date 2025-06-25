@@ -355,13 +355,13 @@ def peft_parser(parser):
     # --------------------------- eva ----------------------------------
     group.add_argument('--use-eva', action='store_true',
                        help='Whether to use EVA')
-    group.add_argument('--rho', type=float, default=2.0)
-    group.add_argument('--early-stop-sim-thresh', type=float, default=0.99)
-    group.add_argument('--mini_batches', type=int, default=0)
-    group.add_argument('--early-stop-redist-metric', default='ratio', choices=['raw','ratio', 'sum', 'max'])
-    group.add_argument('--scale-by-singular-values', type=bool, default=False)
-    group.add_argument('--whiten', type=bool, default=False)
-    group.add_argument('--log-convergence-stats', type=bool, default=True)
+    group.add_argument('--eva-rho', type=float, default=2.0)
+    group.add_argument('--eva-early-stop-sim-thresh', type=float, default=0.99)
+    group.add_argument('--eva-n-steps', type=int, default=0)
+    group.add_argument('--eva-early-stop-redist-metric', default='ratio', choices=['raw','ratio', 'sum', 'max'])
+    group.add_argument('--eva-scale-by-singular-values', type=bool, default=False)
+    group.add_argument('--eva-whiten', type=bool, default=False)
+    group.add_argument('--eva-log-convergence-stats', type=bool, default=True)
 
     # --------------------------- galore ----------------------------------
     group.add_argument('--use-galore', action='store_true',

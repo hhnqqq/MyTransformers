@@ -55,6 +55,7 @@ def load_huggingface_model(args):
     # For compatibility with Dataset classes.
     tokenizer.pad_id, tokenizer.bos_id, tokenizer.eos_id = tokenizer.pad_token_id, tokenizer.bos_token_id, tokenizer.eos_token_id
     tokenizer.label_pad_id = -100
+    args.pad_id = -100
     return model, tokenizer, model_config, return_dataset_kwargs
 
 def load_local_model(args):
@@ -72,7 +73,7 @@ def load_local_model(args):
     with set_default_tensor_type(args.default_dtype):
         model = registry.get_model_class(args.model_name)(model_config)
 
-    print_rank_0(f'--->Using model: {args.model_name}, and loading its trainning variant', args.global_rank)
+    print_rank_0(f'--->Using model: {args.model_name}, and loading its training variant', args.global_rank)
 
     # Load checkpoint if checkpoint path is provieded.
     if args.ckpt_path is not None and args.from_pretrained:
