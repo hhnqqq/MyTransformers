@@ -1,3 +1,4 @@
+import traceback
 import torch.nn as nn
 from typing import Type, Dict, Any, Optional, Tuple, List, Callable, Union
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ from common.lora_modules.lora_one import LinearWithLoRAOne
 from common.lora_modules.goat import LinearWithGOAT
 from common.lora_modules.rasa import LinearWithRASA
 from common.lora_modules.dense_lora import LinearWithDenseLoRA
+from common.lora_modules.delora import LinearWithDELoRA
 
 @dataclass
 class LoRAVariant:
@@ -196,6 +198,12 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: {},
                 "DenseLoRA is similar to MosLoRA while weight_a and weight_b are shared across layers."
                 "DenseLoRA also introduce non-linear function for LoRA computation."
+    ),
+    "use_delora": LoRAVariant(
+                LinearWithDELoRA,
+                lambda a: {"delora_lambda": a.delora_lambda},
+                "DeLoRA bounding the distance of the transformation, effectively decouples the angular learning from the adaptation strength,"
+                "enhancing robustness without compromising performance."
     )
 }
 
@@ -297,7 +305,7 @@ class LoRAManager:
                 )
         
         # Validate VERA settings
-        if any([args.use_vera, args.use_randlora]) and args.weight_b_init_method is None:
+        if any([args.use_vera, args.use_randlora, args.use_delora]) and args.weight_b_init_method is None:
             raise ValueError(f'The init method for weight b cannot be None when {lora_layer_class.__name__} is applied.')
                 
     @staticmethod
@@ -387,7 +395,8 @@ def switch_to_lora(model: nn.Module, args: Namespace, transposition: bool = Fals
                         setattr(parent, module_name, lora_layer)
             elif isinstance(module, LinearWithLoRA):
                 module.merge_and_del()
-        except Exception as e:
+        except Exception:
+            e = traceback.format_exc()
             print_rank_0(f"Error processing module {name}: {str(e)}", args.global_rank)
 
 def setup_lora(model: nn.Module, args: Namespace, model_config: Optional[Any] = None) -> None:
@@ -434,7 +443,7 @@ def get_lora_weight_names(args):
         (args.use_randlora, ['lambda', 'gemma']),
         (args.use_vera, ['lambda']),
         (args.lora_fa, ['weight_b']),
-        (args.use_tied_lora, ['weight_a', 'weight_b', 'lambda']),
+        (args.use_tied_lora or args.use_delora, ['weight_a', 'weight_b', 'lambda']),
         (args.use_dora or args.use_dude, ['weight_a', 'weight_b', 'origin_magnitude']),
         (args.use_adalora or args.use_rasa, ['weight_a', 'weight_b', 'weight_e']),
         (args.use_mos_lora or args.use_dense_lora or args.use_nlora, ['weight_a', 'weight_b', 'weight_ab_mixer']),
