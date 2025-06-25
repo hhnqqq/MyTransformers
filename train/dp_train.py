@@ -128,16 +128,9 @@ def backward_step_deepspeed_salora(model: DeepSpeedEngine, optimizer, loss, lr_s
 def backward_step_deepspeed_increlora_stage0(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
     loss = loss / args.gradient_accumulation_steps
     regu_weight = args.orth_reg_weight
-    regu_loss, num_param = 0., 0
-    for n, p in model.named_parameters():
-        if "weight_a" in n or "weight_b" in n:
-            para_cov = p @ p.T if "weight_a" in n else p.T @ p
-            I = torch.eye(*para_cov.size(), out=torch.empty_like(para_cov))
-            I.requires_grad = False
-            regu_loss += torch.norm(para_cov-I, p="fro")
-            num_param += 1
-    increlora_loss = loss + regu_weight*regu_loss/num_param
-    increlora_loss.backward()
+    regu_loss = calc_orthogonal_loss(model)
+    loss += regu_weight*regu_loss
+    model.backward(loss)
 
     # init
     if (step-1) == 0:

@@ -3,6 +3,7 @@
 """Un-official implements IncreLoRA(https://arxiv.org/abs/2308.12043)."""
 
 from common.lora_modules.lora import *
+from common.utils.utils import print_rank_0
 import pdb
 import math
 
@@ -38,7 +39,6 @@ class LinearWithIncreLoRA(LinearWithLoRA):
             weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
             weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
             weight_e = self.weight_quantizer
-            # When using vanilla lora, the ab mixer is a identical matrix
 
         return self.W(weight_a, weight_e, weight_b, self.lora_scaler, self.ranknum).T
 
@@ -91,7 +91,6 @@ class LinearWithIncreLoRA(LinearWithLoRA):
             nn.init.normal_(self.weight_b[0], mean=0.0, std=0.02)
 
     def backward_hook(self, module, grad_input, grad_output):
-        # print("Output_Grad:", grad_output)
         grad_Matrix = grad_output[0]
         try:
             W = (
@@ -135,8 +134,8 @@ class loraW(nn.Module):
 
     def forward(self, A, E, B, scaling, ranknum):
         return (
-            torch.cat([b for b in B], 1)
-            @ (torch.cat([a for a in A], 0) * torch.cat([e for e in E], 0))
+            torch.cat(B, 1)
+            @ (torch.cat(A, 0) * torch.cat(E, 0))
             * scaling
             / (ranknum + 1e-5)
         )
@@ -160,17 +159,17 @@ class IncreRankAllocator:
         target_total_rank (`Optinal[int]`): The speficified final total rank.
     """
 
-    def __init__(self, model, peft_config):
-        self.peft_config = peft_config
+    def __init__(self, model, args):
+        self.args = args
 
-        self.ave_target_rank = peft_config.target_r
+        self.ave_target_rank = args.target_r
         self.target_rank = None
-        self.lora_init_rank = peft_config.init_r
+        self.lora_init_rank = args.init_rargs
 
-        self.init_warmup = peft_config.tinit
-        self.incre_interval = peft_config.deltaT
+        self.init_warmup = args.tinit
+        self.incre_interval = args.deltaT
         self.advance_learn = True
-        self.top_h = peft_config.top_h
+        self.top_h = args.top_h
         incre_rank_num = None
         if incre_rank_num:
             self.incre_rank_num = incre_rank_num
@@ -178,9 +177,9 @@ class IncreRankAllocator:
             rank_dic = {2: 1, 4: 2, 6: 3, 8: 4}
             self.incre_rank_num = rank_dic[self.ave_target_rank]
 
-        self.beta1 = peft_config.beta1
-        self.beta2 = peft_config.beta2
-        self.total_step = peft_config.num_global_update_steps
+        self.beta1 = args.beta1
+        self.beta2 = args.beta2
+        self.total_step = args.num_global_update_steps
 
         self.model = model
         self.weight_decay = None
@@ -192,8 +191,8 @@ class IncreRankAllocator:
         self.get_lora_param_name()
         self.total_rank = self.initial_total_rank
 
-        self.beta1 = peft_config.beta1
-        self.beta2 = peft_config.beta2
+        self.beta1 = args.beta1
+        self.beta2 = args.beta2
         assert self.beta1 < 1 and self.beta1 > 0
         assert self.beta2 < 1 and self.beta2 > 0
 
@@ -208,8 +207,8 @@ class IncreRankAllocator:
             if isinstance(layer, LinearWithIncreLoRA):
                 self.name_set.add(n)
                 self.initial_total_rank += layer.weight_a[0].size(0)
-                self.shape_dict[n + ".lora_A"] = layer.weight_a[0].shape
-                self.shape_dict[n + ".lora_B"] = layer.weight_b[0].shape
+                self.shape_dict[n + ".weight_a"] = layer.weight_a[0].shape
+                self.shape_dict[n + ".weight_b"] = layer.weight_b[0].shape
 
         self.name_set = list(sorted(self.name_set))
         if self.target_rank is None:
@@ -223,10 +222,10 @@ class IncreRankAllocator:
         )
         total_incre_step = self.incre_interval * total_round
 
-        print(
+        print_rank_0(
             "Total incremental step: total_incre_step: {}, of total steps: {:.0%}".format(
                 total_incre_step, total_incre_step / self.total_step
-            )
+            ), self.args.global_rank
         )
 
     def get_rank_pattern(self):
@@ -241,7 +240,6 @@ class IncreRankAllocator:
                     self.exp_avg_ipt[n] = 0
                     self.exp_avg_unc[n] = 0
 
-                # self.tb_writter.add_scalar("GradMatrix_Rank/%s"%(n[:-7],), layer.gradMatrix_rank, global_step)
                 try:
                     self.ipt[n] = layer.score
 
@@ -257,7 +255,7 @@ class IncreRankAllocator:
                     )
                 except:
                     pdb.set_trace()
-                    print(layer)
+                    print_rank_0(layer, self.args.global_rank)
 
     def calculate_score(self, n, layer, metric="ipt"):
         if metric == "ipt":
@@ -272,7 +270,7 @@ class IncreRankAllocator:
         return ipt_score
 
     def increase_to_target_rank(
-        self, model, global_step, optimizer, lr_scheduler, args
+        self, model, optimizer, args
     ):
         is_dict = {}
         all_is = []
@@ -287,8 +285,6 @@ class IncreRankAllocator:
         k = min(self.top_h, self.target_rank - self.total_rank)
         increase_threshold = torch.topk(torch.tensor(all_is), k)[0][-1].item()
         with torch.no_grad():
-            curr_sum_rank = 0
-            sum_param = 0
             new_param_list = []
             add_r = self.incre_rank_num
             for n, layer in model.named_modules():
@@ -316,13 +312,12 @@ class IncreRankAllocator:
                                 new_param_list.append(param)
                             layer.add_reserve_param(add_r, False)
 
-                        print(
+                        print_rank_0(
                             "The lora parameters rank of {} increased by {}".format(
                                 n, add_r
-                            )
+                            ), args.global_rank
                         )
 
-            # update_deepspeed_optimizer(model, optimizer, lr_scheduler, args)
             optimizer.add_param_group(
                 {
                     "params": new_param_list,
@@ -331,7 +326,7 @@ class IncreRankAllocator:
             )
 
             if self.total_rank == self.target_rank:
-                for name, module in model.named_modules():
+                for module in model.modules():
                     if isinstance(module, LinearWithIncreLoRA):
                         module.hook_handle.remove()
                         for param in module.weight_e[-add_r:]:
@@ -348,13 +343,12 @@ class IncreRankAllocator:
 
         if global_step == 0:
             new_param_list = []
-            for name, module in model.named_modules():
+            for module in model.modules():
                 if isinstance(module, LinearWithIncreLoRA):
                     module.add_reserve_param(add_r, self.advance_learn)
                     new_param_list.extend(module.weight_a[-add_r:])
                     new_param_list.extend(module.weight_b[-add_r:])
             if self.advance_learn:
-                # update_deepspeed_optimizer(model, optimizer, lr_scheduler, args)
                 optimizer.add_param_group(
                     {
                         "params": new_param_list,
@@ -370,7 +364,7 @@ class IncreRankAllocator:
                 and global_step % self.incre_interval == 0
             ):
                 increase_threshold = self.increase_to_target_rank(
-                    model, global_step, optimizer, lr_scheduler, args
+                    model, optimizer, args
                 )
 
         return self.top_h, increase_threshold
