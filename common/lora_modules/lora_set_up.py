@@ -35,6 +35,7 @@ from common.lora_modules.lora_one import LinearWithLoRAOne
 from common.lora_modules.goat import LinearWithGOAT
 from common.lora_modules.rasa import LinearWithRASA
 from common.lora_modules.dense_lora import LinearWithDenseLoRA
+from common.lora_modules.eva import LinearWithEVA
 from common.lora_modules.delora import LinearWithDELoRA
 
 @dataclass
@@ -198,6 +199,11 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: {},
                 "DenseLoRA is similar to MosLoRA while weight_a and weight_b are shared across layers."
                 "DenseLoRA also introduce non-linear function for LoRA computation."
+    ),
+    "use_eva": LoRAVariant(
+                LinearWithEVA,
+                lambda a: {},
+                "EVA is a variant of LoRA, which uses the SVD decomposition result of the activation values to initialize the A matrix weights of LoRA."
     ),
     "use_delora": LoRAVariant(
                 LinearWithDELoRA,

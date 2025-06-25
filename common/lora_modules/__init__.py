@@ -46,6 +46,7 @@ from common.lora_modules.goat import *
 from common.lora_modules.lora_one import *
 from common.lora_modules.vera import *
 from common.lora_modules.lora_share import *
+from common.lora_modules.eva import *
 
 @contextlib.contextmanager
 def DisableLoRA(model):
@@ -84,7 +85,7 @@ def MergeLoRA(model):
             if isinstance(module, LinearWithLoRA):
                 module._unmerge_lora()
 
-def prepare_lora(model, train_dataloader, args):
+def prepare_lora(model, train_dataloader, tokenizer, args):
     """
     Prepare lora if needed
 
@@ -119,6 +120,14 @@ def prepare_lora(model, train_dataloader, args):
                     dataloader=train_dataloader,
                     args=args,
                     iters=args.lora_ga_n_steps)
+    if args.use_eva:
+        pad_id = getattr(tokenizer, 'label_pad_id', tokenizer.pad_id)
+        EVA_reinit(
+            model=model,
+            dataloader=train_dataloader,
+            args=args,
+            pad_id = pad_id
+        )
     
     # Prepare shared weights for VeRA
     if (args.use_vera and not args.vera_init_unique_weights) or args.use_lora_share or args.use_randlora or args.use_rasa or args.use_dense_lora:
