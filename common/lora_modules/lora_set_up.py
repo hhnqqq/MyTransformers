@@ -307,6 +307,9 @@ class LoRAManager:
         # Validate VERA settings
         if any([args.use_vera, args.use_randlora, args.use_delora]) and args.weight_b_init_method is None:
             raise ValueError(f'The init method for weight b cannot be None when {lora_layer_class.__name__} is applied.')
+        
+        if args.use_mora and args.mora_type not in {'rope', 'sharing'}:
+            raise ValueError(f'Not supported mora type: {args.mora_type}!')
                 
     @staticmethod
     def create_lora_layer(module: nn.Module, 
