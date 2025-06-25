@@ -1,6 +1,6 @@
 import math
 import torch
-path = '/ailab/user/hehaonan/checkpoint/8gpu_math_base/math_tdlora_random_fp32/final.ckpt'
+path = ''
 lora_rank = 8
 lora_alpha = 16
 

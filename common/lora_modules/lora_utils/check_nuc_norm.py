@@ -1,6 +1,6 @@
 import torch
 
-sd = torch.load('/ailab/user/hehaonan/pretrained_model/llama/llama3.1-base/consolidated.00.pth', map_location='cpu')
+sd = torch.load('', map_location='cpu')
 
 for n, p in sd.items():
     p = p.cuda().float()
