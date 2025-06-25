@@ -201,6 +201,10 @@ def peft_parser(parser):
     # --------------------------- lora ----------------------------------
     group.add_argument('--use-lora', action='store_true',
                        help='Whether to use LoRA')
+    group.add_argument('--use-delora', action='store_true',
+                       help='Whether to use delora')
+    group.add_argument('--delora-lambda', type=float, default=1.0,
+                       help='The lambda of delora.')
     group.add_argument('--std-normalize-lora', action='store_true',
                        help='Whether to apply std normalization to LoRA weights.')
     group.add_argument('--use-vera', action='store_true', default=None,

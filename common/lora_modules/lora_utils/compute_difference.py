@@ -1,8 +1,8 @@
 import torch
 
-full_sd = torch.load('/ailab/user/hehaonan/pretrained_model/llama/llama3.1-base/consolidated.00.pth')
-tdlora_sd = torch.load(r'/ailab/user/hehaonan/checkpoint/8gpu_math_base/math_tdlora_ablation3_8e-2_seed{42}_fp32/final.ckpt')['model_state_dict']
-lora_sd = torch.load('/ailab/user/hehaonan/checkpoint/8gpu_math_base/math_loraplus_fp32/final.ckpt')['model_state_dict']
+full_sd = torch.load('')
+tdlora_sd = torch.load(r'')['model_state_dict']
+lora_sd = torch.load('')['model_state_dict']
 
 
 layer_names = []
