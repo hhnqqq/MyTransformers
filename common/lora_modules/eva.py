@@ -21,7 +21,7 @@ class LinearWithEVA(LinearWithLoRA):
 
     def prepare_init(self, lora_rank: int):
         self.lora_rank = lora_rank
-        self.lora_scaler = self.lora_alpha / self.lora_rank  # 检查一下是否符合EVA的处理方式？
+        self.lora_scaler = self.lora_alpha / self.lora_rank  
 
     def EVA_reinit(self, lora_rank: int, weight_a: Tensor):
         """
@@ -111,14 +111,7 @@ def get_rank_distribution(hooks, metric, rank_budget, max_components):
     keys, values = zip(*[(k, c) for k, _ in hooks.items() for c in exp_vars[k]])
     idx = torch.stack(values).argsort(descending=True)
     counts = Counter([keys[i] for i in idx[:rank_budget]])
-    counts = {k: counts.get(k, 0) for k in hooks.keys()} # init layers with 0 rank
-    # 感觉很triky，舍弃不要？
-    # for k, k_hook in equal_inputs_map.items():
-    #     # ensure hook layers have the highest rank if they are equal to another layer
-    #     rank, rank_hook = counts[k], counts[k_hook]
-    #     if rank_hook >= rank:
-    #         continue
-    #     counts[k_hook], counts[k] = rank, rank_hook
+    counts = {k: counts.get(k, 0) for k in hooks.keys()}
     return counts
 
 def compute_svd(
@@ -150,7 +143,7 @@ def compute_svd(
         }]
     
     # start svd calculation
-    pbar = tqdm(enumerate(iter(cycle(data_loader))), position=0, leave=False)
+    pbar = tqdm(enumerate(iter(cycle(data_loader))), total=args.eva_n_steps, position=0, leave=False)
     convergence_dict = {k: False for k in hooks.keys()}
     rank_dist = {k: max_components for k in hooks.keys()}
 

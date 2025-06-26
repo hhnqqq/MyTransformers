@@ -37,6 +37,7 @@ from common.lora_modules.rasa import LinearWithRASA
 from common.lora_modules.dense_lora import LinearWithDenseLoRA
 from common.lora_modules.eva import LinearWithEVA
 from common.lora_modules.delora import LinearWithDELoRA
+from common.lora_modules.nzlora import LinearWithNZLoRA
 
 @dataclass
 class LoRAVariant:
@@ -210,6 +211,11 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: {"delora_lambda": a.delora_lambda},
                 "DeLoRA bounding the distance of the transformation, effectively decouples the angular learning from the adaptation strength,"
                 "enhancing robustness without compromising performance."
+    ),
+    "use_nzlora": LoRAVariant(
+                LinearWithNZLoRA,
+                lambda a: {"reset_weight": a.lora_reset_weight, "init_scale_a": a.nzlora_init_scale_a, "init_scale_b": a.nzlora_init_scale_b},
+                "NZLoRA use kaiming uniform to initialize weight_a and weight_b."
     )
 }
 

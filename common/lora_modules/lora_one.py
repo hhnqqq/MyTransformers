@@ -113,7 +113,7 @@ def lora_one_reinit(
                 print_rank_0(f'--->Module {name} is reinitiating lora weight', args.global_rank)
                 module.gradient_reinit(global_rank=args.global_rank, 
                                        is_first=is_first,
-                                       reset_weight=args.lora_one_reset_weight)
+                                       reset_weight=args.lora_reset_weight)
                 is_first = False
 
 

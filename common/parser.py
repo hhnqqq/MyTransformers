@@ -201,111 +201,100 @@ def peft_parser(parser):
     # --------------------------- lora ----------------------------------
     group.add_argument('--use-lora', action='store_true',
                        help='Whether to use LoRA')
-    group.add_argument('--use-delora', action='store_true',
-                       help='Whether to use delora')
-    group.add_argument('--delora-lambda', type=float, default=1.0,
-                       help='The lambda of delora.')
     group.add_argument('--std-normalize-lora', action='store_true',
                        help='Whether to apply std normalization to LoRA weights.')
-    group.add_argument('--use-vera', action='store_true', default=None,
-                       help='Whether to use vera')
-    group.add_argument('--vera-init-unique-weights', action='store_true',
-                       help='Whether to init unque lora weigths for each vera layer')
-    group.add_argument('--use-rasa', action='store_true',
-                       help='Whether to use rasa.')
-    group.add_argument('--rasa-shared-lora-rank', type=int, default=1)
-    group.add_argument('--use-dense-lora', action='store_true',
-                       help='Whether to use denselora.')
-    group.add_argument('--use-lora-share', action='store_true', default=None,
-                       help='Whether to use shared LoRA (shares A and B matrices across layers)')
-    group.add_argument('--use-tied-lora', action='store_true', default=None,
-                       help='Whether to use tied lora')
-    group.add_argument('--use-randlora', action='store_true', default=None,
-                       help='Whether to use randlora')
-    group.add_argument('--lambda-b-init-method', type=str, default='zero',
-                       help='Init method for lora lambda b')
-    group.add_argument('--lambda-d-init-method', type=str, default='small_constant',
-                       help='Init method for lora lambda d')
-    group.add_argument('--use-lora-pro', action='store_true',
-                       help='Whether to use LoRA-Pro optimizer')
-    group.add_argument('--use-dora', action='store_true',
-                       help='Whether to use DoRA')
-    group.add_argument('--use-hira', action='store_true',
-                       help='Whether to use HiRA')
-    group.add_argument('--lora-scaler', type=int, default=32,
-                       help='Scaler factor for lora')
-    group.add_argument('--use-lora-plus', action='store_true',
-                       help='Whether to use LoRA+')
-    group.add_argument('--use-mos-lora', action='store_true',
-                       help='Whether to use mos lora')
-    group.add_argument('--use-nlora', action='store_true',
-                        help='Whether to use nlora')
-    group.add_argument('--use-me-lora', action='store_true',
-                       help='Whether to use me lora')
-    group.add_argument('--me-lora-n-split', type=int, default=2)
-    group.add_argument('--me-lora-usage',type=str, default='compress', choices=['compress','higher_rank'])
-    group.add_argument('--me-lora-forward-method', type=str, default='for', choices=['for','einsum'])
-    group.add_argument('--lora-fa', action='store_true',
-                       help='Whether to use LoRA FA')
-    group.add_argument('--use-rslora', action='store_true',
-                       help='Whether to use rslora')
-    group.add_argument('--use-gora', action='store_true',
-                       help='Whether to use gora')
-    group.add_argument('--gora-init-method', type=str, default='weight_svd')
-    group.add_argument('--use-pissa', action='store_true',
-                       help='Whether to use pissa')
-    group.add_argument('--use-milora', action='store_true',
-                       help='Whether to use milora')
-    group.add_argument('--use-olora', action='store_true',
-                       help='Whether to use olora')
-    group.add_argument('--use-delta-lora', action='store_true',
-                       help='Whether to use delta-lora')
-    group.add_argument('--use-mora', action='store_true',
-                       help='Whether to use mora.')
-    group.add_argument('--use-mola', action='store_true',
-                       help='Whether to use mola.')
-    group.add_argument('--use-nora', action='store_true',
-                       help='Whether to use nora.')
-    group.add_argument('--mola-type', type=str, default='triangle')
-    group.add_argument('--mora-type', type=str, default='rope')
-    group.add_argument('--delta-lora-start-steps', type=int, default=500,
-                       help='Start to compute delta lora weights')
-    group.add_argument('--delta-lora-update-ratio', type=int, default=2)
-    group.add_argument('--pissa-n-iters', type=int, default=1, 
-                       help='The number of iterations determines the trade-off \
-                        between the error and computation time')
-    group.add_argument('--pissa-keep-init-weights', action='store_true')
-    group.add_argument('--milora-n-iters', type=int, default=1, 
-                       help='The number of iterations determines the trade-off \
-                        between the error and computation time')
-    group.add_argument('--nora-n-iters', type=int, default=1, 
-                       help='The number of iterations determines the trade-off \
-                        between the error and computation time')
     group.add_argument('--lora-rank', type=int, default=8,
                        help='The rank of LoRA')
-    group.add_argument('--lora-plus-scaler', type=int, default=16,
-                       help='The scaler of learning rate of LoRA weight b \
-                       In the default case, the learning rate of weight b is 16 times of a')
+    group.add_argument('--lora-scaler', type=int, default=32,
+                       help='Scaler factor for lora')
+    group.add_argument('--lora-reset-weight', action='store_true',
+                       help='Whether to reset pretrained weight when using non-zero variants, this will improve numerical stability.')
     group.add_argument('--replace-modules', type=str, nargs='+', default=None,
                        help='List of modules to be replaced by LoRA')
     group.add_argument('--weight-a-init-method', type=str, default=None,
                        help='Init method for lora weight a')
     group.add_argument('--weight-b-init-method', type=str, default=None,                       
                        help='Init method for lora weight b')
+    group.add_argument('--lora-dropout', type=float, default=None,
+                       help='The dropout rate for lora weight.')
+    group.add_argument('--run-lora-in-fp32', action='store_true',
+                       help='Whether to keep lora weight in fp32.')
+    
+    group.add_argument('--use-nzlora', action='store_true',
+                       help='Whether to use Non-Zero LoRA')
+    group.add_argument('--nzlora-init-scale-a', type=float, default=1.0,
+                       help='Initialization scale for weight_a')
+    group.add_argument('--nzlora-init-scale-b', type=float, default=1.0,
+                       help='Initialization scale for weight_b')
+    
+    group.add_argument('--use-delora', action='store_true',
+                       help='Whether to use delora')
+    group.add_argument('--delora-lambda', type=float, default=1.0,
+                       help='The lambda of delora.')
+    
+    group.add_argument('--use-vera', action='store_true', default=None,
+                       help='Whether to use vera')
+    group.add_argument('--vera-init-unique-weights', action='store_true',
+                       help='Whether to init unque lora weigths for each vera layer')
+    group.add_argument('--lambda-b-init-method', type=str, default='zero',
+                       help='Init method for lora lambda b')
+    group.add_argument('--lambda-d-init-method', type=str, default='small_constant',
+                       help='Init method for lora lambda d')
+    
+    group.add_argument('--use-rasa', action='store_true',
+                       help='Whether to use rasa.')
+    group.add_argument('--rasa-shared-lora-rank', type=int, default=1)
+
+    group.add_argument('--use-dense-lora', action='store_true',
+                       help='Whether to use denselora.')
+    
+    group.add_argument('--use-lora-share', action='store_true', default=None,
+                       help='Whether to use shared LoRA (shares A and B matrices across layers)')
+    
+    group.add_argument('--use-tied-lora', action='store_true', default=None,
+                       help='Whether to use tied lora')
+    
+    group.add_argument('--use-randlora', action='store_true', default=None,
+                       help='Whether to use randlora')
+
+    group.add_argument('--use-lora-pro', action='store_true',
+                       help='Whether to use LoRA-Pro optimizer')
+    
+    group.add_argument('--use-dora', action='store_true',
+                       help='Whether to use DoRA')
+    
+    group.add_argument('--use-hira', action='store_true',
+                       help='Whether to use HiRA')
+    
+    group.add_argument('--use-lora-plus', action='store_true',
+                       help='Whether to use LoRA+')
+    group.add_argument('--lora-plus-scaler', type=int, default=16,
+                       help='The scaler of learning rate of LoRA weight b \
+                       In the default case, the learning rate of weight b is 16 times of a')
+    
+    group.add_argument('--use-mos-lora', action='store_true',
+                       help='Whether to use mos lora')
     group.add_argument('--weight-ab-mixer-init-method', type=str, default=None,
                        help='Init method for lora weight ab mixer')
-    group.add_argument('--use-lora-ga', action='store_true',
-                       help='Wheather to use lora ga')
-    group.add_argument('--lora-ga-n-steps', type=int, default=8,
-                       help='N steps for lora-ga to estimate full-rank gradient.')
-    group.add_argument('--use-lora-one', action='store_true',
-                       help='Wheather to use lora ga')
-    group.add_argument('--lora-one-n-steps', type=int, default=8,
-                       help='N steps for lora-one to estimate full-rank gradient.')
-    group.add_argument('--use-lora-ga-pro', action='store_true')
-    group.add_argument('--lora-ga-pro-rank-stablize', action='store_true')
-    group.add_argument('--lora-ga-pro-dynamic-scaling', action='store_true')
-    group.add_argument('--use-dude', action='store_true')
+    
+    group.add_argument('--use-nlora', action='store_true',
+                        help='Whether to use nlora')
+    
+    group.add_argument('--use-me-lora', action='store_true',
+                       help='Whether to use me lora')
+    group.add_argument('--me-lora-n-split', type=int, default=2)
+    group.add_argument('--me-lora-usage',type=str, default='compress', choices=['compress','higher_rank'])
+    group.add_argument('--me-lora-forward-method', type=str, default='for', choices=['for','einsum'])
+
+    group.add_argument('--lora-fa', action='store_true',
+                       help='Whether to use LoRA FA')
+    
+    group.add_argument('--use-rslora', action='store_true',
+                       help='Whether to use rslora')
+    
+    group.add_argument('--use-gora', action='store_true',
+                       help='Whether to use gora')
+    group.add_argument('--gora-init-method', type=str, default='weight_svd')
     group.add_argument('--gora-n-steps', type=int, default=8,
                        help='N steps for gora to estimate full-rank gradient.')
     group.add_argument('--gora-max-rank', type=int, default=9999)
@@ -321,11 +310,60 @@ def peft_parser(parser):
     group.add_argument('--gora-scale-importance', action='store_true')
     group.add_argument('--gora-importance-type', type=str, default='union_frobenius_norm')
     group.add_argument('--gora-stable-gemma', type=float, default=0.02)
+
+    group.add_argument('--use-pissa', action='store_true',
+                       help='Whether to use pissa')
+    group.add_argument('--pissa-n-iters', type=int, default=1, 
+                       help='The number of iterations determines the trade-off \
+                        between the error and computation time')
+    group.add_argument('--pissa-keep-init-weights', action='store_true')
+    
+    group.add_argument('--use-milora', action='store_true',
+                       help='Whether to use milora')
+    group.add_argument('--milora-n-iters', type=int, default=1, 
+                       help='The number of iterations determines the trade-off \
+                        between the error and computation time')
+    
+    group.add_argument('--use-olora', action='store_true',
+                       help='Whether to use olora')
+    
+    group.add_argument('--use-delta-lora', action='store_true',
+                       help='Whether to use delta-lora')
+    group.add_argument('--delta-lora-start-steps', type=int, default=500,
+                       help='Start to compute delta lora weights')
+    group.add_argument('--delta-lora-update-ratio', type=int, default=2)
+    
+    group.add_argument('--use-mora', action='store_true',
+                       help='Whether to use mora.')
+    group.add_argument('--mora-type', type=str, default='rope')
+    
+    group.add_argument('--use-mola', action='store_true',
+                       help='Whether to use mola.')
+    group.add_argument('--mola-type', type=str, default='triangle')
+    
+    group.add_argument('--use-nora', action='store_true',
+                       help='Whether to use nora.')
+    group.add_argument('--nora-n-iters', type=int, default=1, 
+                       help='The number of iterations determines the trade-off \
+                        between the error and computation time')
+    
+    group.add_argument('--use-lora-ga', action='store_true',
+                       help='Wheather to use lora ga')
+    group.add_argument('--lora-ga-n-steps', type=int, default=8,
+                       help='N steps for lora-ga to estimate full-rank gradient.')
     group.add_argument('--lora-ga-scale-method', type=str, default='gd')
-    group.add_argument('--lora-ga-reset-weight', action='store_true',
-                       help='Whether to reset pretrained weight when using LoRA-GA, this will improve numerical stability.')
-    group.add_argument('--lora-one-reset-weight', action='store_true',
-                       help='Whether to reset pretrained weight when using LoRA-One, this will improve numerical stability.')
+    
+    group.add_argument('--use-lora-one', action='store_true',
+                       help='Wheather to use lora ga')
+    group.add_argument('--lora-one-n-steps', type=int, default=8,
+                       help='N steps for lora-one to estimate full-rank gradient.')
+    
+    group.add_argument('--use-lora-ga-pro', action='store_true')
+    group.add_argument('--lora-ga-pro-rank-stablize', action='store_true')
+    group.add_argument('--lora-ga-pro-dynamic-scaling', action='store_true')
+
+    group.add_argument('--use-dude', action='store_true')
+
     group.add_argument('--relora-steps', type=int, default=None,
                        help='How much step to merge and reset the lora weight')
     group.add_argument('--relora-warmup-steps', type=int, default=None)
@@ -334,15 +372,14 @@ def peft_parser(parser):
     group.add_argument('--relora-fully-reset-optimizer', action='store_true')
     group.add_argument('--relora-optimizer-random-pruning', type=float, default=None)
     group.add_argument('--relora-optimizer-magnitude-pruning', type=float, default=None)
+
     group.add_argument('--use-plora', action='store_true')
     group.add_argument('--plora-momentum', type=float, default=0.1)
+
     group.add_argument('--use-lora-moe', action='store_true')
     group.add_argument('--lora-moe-n-experts', type=int, default=2)
     group.add_argument('--lora-moe-top-k', type=int, default=2)
-    group.add_argument('--lora-dropout', type=float, default=None,
-                       help='The dropout rate for lora weight.')
-    group.add_argument('--run-lora-in-fp32', action='store_true',
-                       help='Whether to keep lora weight in fp32.')
+
     # --------------------------- goat ----------------------------------
     group.add_argument('--use-goat', action='store_true')
     group.add_argument('--aux-loss-coeff', type=float, default=1e-3)

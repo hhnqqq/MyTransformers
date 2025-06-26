@@ -204,7 +204,7 @@ def lora_ga_reinit(
                 module.gradient_reinit(scale=args.lora_ga_scale_method, 
                                        global_rank=args.global_rank, 
                                        is_first=is_first,
-                                       reset_weight=args.lora_ga_reset_weight)
+                                       reset_weight=args.lora_reset_weight)
                 is_first = False
 
 
