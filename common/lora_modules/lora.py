@@ -229,7 +229,8 @@ class LinearWithLoRA(nn.Linear):
                             mean=init_kwargs.get('mean', 0)),
             'unit': partial(nn.init.normal_, std=init_kwargs.get('std', 1), 
                             mean=init_kwargs.get('mean', 0)),
-            'orthogonal': nn.init.orthogonal_
+            'orthogonal': nn.init.orthogonal_,
+            "uniform": partial(nn.init.uniform_, a=init_kwargs.get('a', 0), b=init_kwargs.get('b', 1))
         }
 
         if method in init_methods:

@@ -5,7 +5,6 @@ paper: https://arxiv.org/pdf/2505.23194
 code: https://github.com/Leopold1423/non_zero_lora-icml25/blob/icml25-cr/peft/src/peft/tuners/lora.py
 """
 from common.lora_modules.lora import *
-from common.lora_modules.lora import LoRAConfig
 
 class LinearWithNZLoRA(LinearWithLoRA):
     
