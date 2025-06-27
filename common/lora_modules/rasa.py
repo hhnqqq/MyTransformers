@@ -1,6 +1,4 @@
-import re
 from common.lora_modules.lora import *
-from common.lora_modules.lora import LoRAConfig
 from common.lora_modules.lora_share import get_module_groups
 from torch import Tensor
 
@@ -16,14 +14,14 @@ class LinearWithRASA(LinearWithLoRA):
 
     def update_shared_weights(
         self,
-        weight_a,
-        weight_b,
+        shared_weight_a,
+        shared_weight_b,
         module_name
     ):
-        self.shared_weight_a = weight_a
-        self.shared_weight_b = weight_b
+        self.shared_weight_a = shared_weight_a
+        self.shared_weight_b = shared_weight_b
         self.module_name = module_name
-        shared_rank = weight_a[module_name].shape[0]
+        shared_rank = shared_weight_a[module_name].shape[0]
         self.effect_rank = shared_rank + self.lora_rank
         self.weight_e = nn.Parameter(torch.ones(self.effect_rank, 1))
         with torch.no_grad():
@@ -36,7 +34,7 @@ class LinearWithRASA(LinearWithLoRA):
 
     def _concat_lora_weights(self):
         """Concatenate shared and private LoRA weights."""
-        if not self._shared_weights_initialized:
+        if not self.has_lora_weights:
             raise RuntimeError("Shared weights not initialized. Call update_shared_weights first.")
             
         dtype = self._get_lora_dtype()
@@ -96,32 +94,31 @@ def prepare_shared_lora_weights_rasa(model: nn.Module, args) -> tuple[nn.Paramet
     dtype = torch.float32 if args.run_lora_in_fp32 else torch.float16
     device = next(model.parameters()).device
     
-    shared_weight_a = nn.ParameterDict()
-    shared_weight_b = nn.ParameterDict()
+    shared_weight_a_dict = nn.ParameterDict()
+    shared_weight_b_dict = nn.ParameterDict()
     for name, info in module_groups.items():
         out_features, in_features = info["shape"]
         rasa_shared_rank = args.rasa_shared_lora_rank * info["num_layers"]
         # Initialize A matrix
-        weight_a = nn.Parameter(
+        shared_weight_a = nn.Parameter(
             torch.empty((rasa_shared_rank, in_features), dtype=dtype, device=device))
         
         # Initialize B matrix  
-        weight_b = nn.Parameter(
+        shared_weight_b = nn.Parameter(
             torch.zeros((out_features, rasa_shared_rank), dtype=dtype, device=device))
         # Initialize weights
         with torch.no_grad():
             if args.weight_a_init_method == 'kaiming':
-                nn.init.kaiming_uniform_(weight_a, a=5**0.5, mode='fan_in')
+                nn.init.kaiming_uniform_(shared_weight_a, a=5**0.5, mode='fan_in')
             else:
-                nn.init.normal_(weight_a, mean=0.0, std=1 / (in_features ** 0.5))
+                nn.init.normal_(shared_weight_a, mean=0.0, std=1 / (in_features ** 0.5))
             
             if args.weight_b_init_method == 'kaiming':
-                nn.init.kaiming_uniform_(weight_b, a=5**0.5, mode='fan_in')
+                nn.init.kaiming_uniform_(shared_weight_b, a=5**0.5, mode='fan_in')
             elif args.weight_b_init_method == 'normal':
-                nn.init.normal_(weight_b, mean=0.0, std=0.02)
+                nn.init.normal_(shared_weight_b, mean=0.0, std=0.02)
 
-        shared_weight_a[name] = weight_a
-        shared_weight_b[name] = weight_b
+        shared_weight_a_dict[name] = shared_weight_a
+        shared_weight_b_dict[name] = shared_weight_b
 
-    model.weight_a = shared_weight_a
-    model.weight_b = shared_weight_b
+    return shared_weight_a_dict, shared_weight_b_dict

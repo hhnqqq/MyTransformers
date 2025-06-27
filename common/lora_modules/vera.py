@@ -51,13 +51,12 @@ class LinearWithVeRA(LinearWithLoRA):
         """
         if not self.share_lora_weights:
             super().init_lora_weights()
-        else:
-            self._init_lambdas(self.lambda_b_init_method, self.lambda_d_init_method)
+        self._init_lambdas(self.lambda_b_init_method, self.lambda_d_init_method)
 
     def update_shared_weights(
         self,
-        weight_a,
-        weight_b
+        shared_weight_a,
+        shared_weight_b
     ):
         """
         Update this layer to use shared VeRA weights.
@@ -66,8 +65,12 @@ class LinearWithVeRA(LinearWithLoRA):
             weight_a: Shared A matrix buffer
             weight_b: Shared B matrix buffer
         """
-        self.weight_a = weight_a
-        self.weight_b = weight_b
+        # For saving shared weights.
+        self.shared_weight_a = shared_weight_a
+        self.shared_weight_b = shared_weight_b
+        # For unified computation.
+        self.weight_a = shared_weight_a
+        self.weight_B = shared_weight_b
 
     def _init_lambdas(self, b_init_method: str, d_init_method: str):
         """

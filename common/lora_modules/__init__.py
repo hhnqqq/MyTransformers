@@ -45,7 +45,6 @@ from common.lora_modules.lora_ga_pro import *
 from common.lora_modules.goat import *
 from common.lora_modules.lora_one import *
 from common.lora_modules.vera import *
-from common.lora_modules.lora_share import *
 from common.lora_modules.eva import *
 
 @contextlib.contextmanager
@@ -84,6 +83,41 @@ def MergeLoRA(model):
         for module in model.modules():
             if isinstance(module, LinearWithLoRA):
                 module._unmerge_lora()
+
+def check_shared_lora_weights_required(args):
+    shared_weight_conditions = [
+        args.use_vera and not args.vera_init_unique_weights,
+        args.use_lora_share,
+        args.use_randlora,
+        args.use_rasa,
+        args.use_dense_lora
+    ]
+    
+    # Return True if any condition is met
+    return any(shared_weight_conditions)
+
+def insert_shared_lora_weights(model, args):
+    if args.params_to_save:
+        args.params_to_save.append('shared')
+    else:
+        args.params_to_save = ['shared']
+
+    from common.lora_modules.lora_share import prepare_shared_lora_weights, update_shared_weights_to_layer
+    
+    if args.use_randlora:
+        from common.lora_modules.randlora import prepare_shared_lora_weights_randlora as prepare_shared_lora_weights
+    if args.use_rasa:
+        from common.lora_modules.rasa import prepare_shared_lora_weights_rasa as prepare_shared_lora_weights
+        from common.lora_modules.lora_share import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
+    if args.use_dense_lora:
+        from common.lora_modules.dense_lora import prepare_shared_lora_weights_denselora as prepare_shared_lora_weights
+        from common.lora_modules.lora_share import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
+
+        
+    print_rank_0("Preparing shared LoRA weights...", args.global_rank)
+    shared_weight_a, shared_weight_b = prepare_shared_lora_weights(model, args)
+    update_shared_weights_to_layer(model, shared_weight_a, shared_weight_b)
+    print_rank_0("Shared LoRA weights prepared and applied.", args.global_rank)
 
 def prepare_lora(model, train_dataloader, args):
     """
@@ -128,19 +162,5 @@ def prepare_lora(model, train_dataloader, args):
         )
     
     # Prepare shared weights for VeRA
-    if (args.use_vera and not args.vera_init_unique_weights) or args.use_lora_share or args.use_randlora or args.use_rasa or args.use_dense_lora:
-        
-        if args.use_randlora:
-            from common.lora_modules.randlora import prepare_shared_lora_weights_randlora as prepare_shared_lora_weights
-        if args.use_rasa:
-            from common.lora_modules.rasa import prepare_shared_lora_weights_rasa as prepare_shared_lora_weights
-            from common.lora_modules.lora_share import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
-        if args.use_dense_lora:
-            from common.lora_modules.dense_lora import prepare_shared_lora_weights_denselora as prepare_shared_lora_weights
-            from common.lora_modules.lora_share import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
-
-            
-        print_rank_0("Preparing shared LoRA weights...", args.global_rank)
-        prepare_shared_lora_weights(model, args)
-        update_shared_weights_to_layer(model)
-        print_rank_0("Shared LoRA weights prepared and applied.", args.global_rank)
+    if check_shared_lora_weights_required:
+        insert_shared_lora_weights(model, args)

@@ -11,8 +11,8 @@ class LinearWithDenseLoRA(LinearWithLoRA):
 
     def update_shared_weights(
         self,
-        weight_a: nn.Parameter,
-        weight_b: nn.Parameter,
+        shared_weight_a: nn.Parameter,
+        shared_weight_b: nn.Parameter,
         module_name: str
     ):
         """
@@ -23,15 +23,15 @@ class LinearWithDenseLoRA(LinearWithLoRA):
             weight_b: Shared B matrix parameter
         """
         dtype = self._get_lora_dtype()
-        self.weight_a = weight_a
-        self.weight_b = weight_b
+        self.shared_weight_a = shared_weight_a
+        self.shared_weight_b = shared_weight_b
         self.module_name = module_name
         self.weight_ab_mixer = nn.Parameter(torch.empty((self.lora_rank, self.lora_rank), dtype=dtype))
         nn.init.kaiming_uniform_(self.weight_ab_mixer, a=5**0.5, mode='fan_in')
         
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
-        weight_a = self._quantize_weight(self.weight_a[self.module_name], self.weight_a_quantizer).to(self._get_lora_dtype())
-        weight_b = self._quantize_weight(self.weight_b[self.module_name], self.weight_b_quantizer).to(self._get_lora_dtype())
+        weight_a = self._quantize_weight(self.shared_weight_a[self.module_name], self.weight_a_quantizer).to(self._get_lora_dtype())
+        weight_b = self._quantize_weight(self.shared_weight_b[self.module_name], self.weight_b_quantizer).to(self._get_lora_dtype())
         weight_ab_mixer = self._quantize_weight(self.weight_ab_mixer, self.weight_ab_quantizer).to(self._get_lora_dtype())
         lora_result = F.gelu(F.linear(F.linear(F.gelu(F.linear(self.lora_dropout(x), weight_a)), weight_ab_mixer), weight_b)).to(result.dtype)
         return result + self.lora_scaler * lora_result
@@ -74,31 +74,30 @@ def prepare_shared_lora_weights_denselora(model: nn.Module, args) -> tuple[nn.Pa
     dtype = torch.float32 if args.run_lora_in_fp32 else torch.float16
     device = next(model.parameters()).device
     
-    shared_weight_a = nn.ParameterDict()
-    shared_weight_b = nn.ParameterDict()
+    shared_weight_a_dict = nn.ParameterDict()
+    shared_weight_b_dict = nn.ParameterDict()
     for name, info in module_groups.items():
         out_features, in_features = info["shape"]
         # Initialize A matrix
-        weight_a = nn.Parameter(
+        shared_weight_a = nn.Parameter(
             torch.empty((args.lora_rank, in_features), dtype=dtype, device=device))
         
         # Initialize B matrix  
-        weight_b = nn.Parameter(
+        shared_weight_b = nn.Parameter(
             torch.zeros((out_features, args.lora_rank), dtype=dtype, device=device))
         # Initialize weights
         with torch.no_grad():
             if args.weight_a_init_method == 'kaiming':
-                nn.init.kaiming_uniform_(weight_a, a=5**0.5, mode='fan_in')
+                nn.init.kaiming_uniform_(shared_weight_a, a=5**0.5, mode='fan_in')
             else:
-                nn.init.normal_(weight_a, mean=0.0, std=1 / (in_features ** 0.5))
+                nn.init.normal_(shared_weight_a, mean=0.0, std=1 / (in_features ** 0.5))
             
             if args.weight_b_init_method == 'kaiming':
-                nn.init.kaiming_uniform_(weight_b, a=5**0.5, mode='fan_in')
+                nn.init.kaiming_uniform_(shared_weight_b, a=5**0.5, mode='fan_in')
             elif args.weight_b_init_method == 'normal':
-                nn.init.normal_(weight_b, mean=0.0, std=0.02)
+                nn.init.normal_(shared_weight_b, mean=0.0, std=0.02)
 
-        shared_weight_a[name] = weight_a
-        shared_weight_b[name] = weight_b
+        shared_weight_a_dict[name] = shared_weight_a
+        shared_weight_b_dict[name] = shared_weight_b
 
-    model.weight_a = shared_weight_a
-    model.weight_b = shared_weight_b
+    return shared_weight_a_dict, shared_weight_b_dict
