@@ -78,17 +78,9 @@ def lora_one_reinit(
 
         for idx, batch in enumerate(dataloader):
             batch = to_device(batch, args.device)
-            if args.huggingface:
-                loss = model(input_ids=batch['input_ids'],
-                        labels=batch['labels'],
-                        attention_mask=batch['attention_mask']).loss
-            else:
-                output = model(**batch)
-                loss = output[0]
+            loss = model(**batch)[0]
+            loss.backward()
             print_rank_0(f'--->LoRA-One gradient computing step: {idx+1}, loss: {loss.item()}, remaining steps: {iters - (idx+1)} ', args.global_rank)
-
-            for p in model.parameters():
-                p.grad = None
 
             if (idx + 1) == iters:
                 break

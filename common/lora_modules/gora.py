@@ -399,13 +399,8 @@ def gora_reinit(
             batch = to_device(batch, args.device)
             if forward_backward_func:
                 loss = forward_backward_func(model, batch)
-            elif args.huggingface:
-                loss = model(input_ids=batch['input_ids'],
-                            labels=batch['labels'],
-                            attention_mask=batch['attention_mask']).loss
             else:
-                output = model(**batch)
-                loss = output[0]
+                loss = model(**batch)[0]
             loss.backward()
             print_rank_0(f'--->GoRA gradient computing step: {idx+1}, loss: {loss.item()}, remaining steps: {iters - (idx+1)} ', args.global_rank)
 

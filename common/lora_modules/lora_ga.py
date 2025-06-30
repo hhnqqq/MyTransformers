@@ -41,6 +41,7 @@ class LinearWithLoRAGA(LinearWithLoRA):
         method in the first step of training(before the model.step() call, or the gradient will be cleared.)
         """
         if not hasattr(self.weight, 'grad_stored'):
+            print('no gradients')
             return
         
         # Perform SVD on the weight gradient
@@ -166,19 +167,17 @@ def lora_ga_reinit(
             if isinstance(module, LinearWithLoRAGA)
         ]
 
+        for module in model.modules():
+            if isinstance(module, LinearWithLoRAGA):
+                module.weight.requires_grad = True
+            elif isinstance(module, torch.nn.Linear):
+                module.weight.requires_grad = False
+
         for idx, batch in enumerate(dataloader):
             batch = to_device(batch, args.device)
-            if args.huggingface:
-                loss = model(input_ids=batch['input_ids'],
-                        labels=batch['labels'],
-                        attention_mask=batch['attention_mask']).loss
-            else:
-                output = model(**batch)
-                loss = output[0]
+            loss = model(**batch)[0]
+            loss.backward()
             print_rank_0(f'--->LoRA-GA gradient computing step: {idx+1}, loss: {loss.item()}, remaining steps: {iters - (idx+1)} ', args.global_rank)
-
-            for p in model.parameters():
-                p.grad = None
 
             if (idx + 1) == iters:
                 break
