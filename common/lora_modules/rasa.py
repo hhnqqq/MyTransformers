@@ -11,26 +11,32 @@ class LinearWithRASA(LinearWithLoRA):
         self.lora_rank -= shared_lora_rank
         self.lora_scaler = lora_config.lora_scaler
         self.share_lora_weights = True
+        self.first_update = True
 
     def update_shared_weights(
         self,
         shared_weight_a,
         shared_weight_b,
-        module_name
+        module_name = None
     ):
         self.shared_weight_a = shared_weight_a
         self.shared_weight_b = shared_weight_b
-        self.module_name = module_name
-        shared_rank = shared_weight_a[module_name].shape[0]
-        self.effect_rank = shared_rank + self.lora_rank
-        self.weight_e = nn.Parameter(torch.ones(self.effect_rank, 1))
-        with torch.no_grad():
-            # More stable initialization
-            shared_part = (0.5 * self.lora_scaler) / shared_rank
-            lora_part = (0.5 * self.lora_scaler) / self.lora_rank
-            self.weight_e.normal_(mean=0, std=0.02)
-            self.weight_e[self.lora_rank:].fill_(shared_part)
-            self.weight_e[:self.lora_rank].fill_(lora_part)
+        if self.first_update:
+            # Only create once.
+            if module_name is None:
+                raise ValueError("Module name can not be None")
+            self.module_name = module_name
+            shared_rank = shared_weight_a[module_name].shape[0]
+            self.effect_rank = shared_rank + self.lora_rank
+            self.weight_e = nn.Parameter(torch.ones(self.effect_rank, 1))
+            with torch.no_grad():
+                # More stable initialization
+                shared_part = (0.5 * self.lora_scaler) / shared_rank
+                lora_part = (0.5 * self.lora_scaler) / self.lora_rank
+                self.weight_e.normal_(mean=0, std=0.02)
+                self.weight_e[self.lora_rank:].fill_(shared_part)
+                self.weight_e[:self.lora_rank].fill_(lora_part)
+            self.first_update = False
 
     def _concat_lora_weights(self):
         """Concatenate shared and private LoRA weights."""

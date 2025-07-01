@@ -7,13 +7,14 @@ class LinearWithDenseLoRA(LinearWithLoRA):
         weight_ab_mixer_init_method: Optional[str] = None):
         self.weight_ab_mixer_init_method = weight_ab_mixer_init_method
         self.share_lora_weights = True
+        self.first_update = True
         super().__init__(lora_config)
 
     def update_shared_weights(
         self,
         shared_weight_a: nn.Parameter,
         shared_weight_b: nn.Parameter,
-        module_name: str
+        module_name: str = None
     ):
         """
         Update this layer to use shared LoRA weights.
@@ -25,9 +26,13 @@ class LinearWithDenseLoRA(LinearWithLoRA):
         dtype = self._get_lora_dtype()
         self.shared_weight_a = shared_weight_a
         self.shared_weight_b = shared_weight_b
-        self.module_name = module_name
-        self.weight_ab_mixer = nn.Parameter(torch.empty((self.lora_rank, self.lora_rank), dtype=dtype))
-        nn.init.kaiming_uniform_(self.weight_ab_mixer, a=5**0.5, mode='fan_in')
+        if self.first_update:
+            if module_name is None:
+                raise ValueError("Module name can not be None")
+            self.module_name = module_name
+            self.weight_ab_mixer = nn.Parameter(torch.empty((self.lora_rank, self.lora_rank), dtype=dtype))
+            nn.init.kaiming_uniform_(self.weight_ab_mixer, a=5**0.5, mode='fan_in')
+            self.first_update = False
         
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         weight_a = self._quantize_weight(self.shared_weight_a[self.module_name], self.weight_a_quantizer).to(self._get_lora_dtype())

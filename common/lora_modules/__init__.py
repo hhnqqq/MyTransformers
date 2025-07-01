@@ -114,10 +114,21 @@ def insert_shared_lora_weights(model, args):
         from common.lora_modules.lora_share import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
 
         
-    print_rank_0("Preparing shared LoRA weights...", args.global_rank)
+    print_rank_0("--->Preparing shared LoRA weights...", args.global_rank)
     shared_weight_a, shared_weight_b = prepare_shared_lora_weights(model, args)
     update_shared_weights_to_layer(model, shared_weight_a, shared_weight_b)
-    print_rank_0("Shared LoRA weights prepared and applied.", args.global_rank)
+    print_rank_0("--->Shared LoRA weights prepared and applied.", args.global_rank)
+
+def create_shared_weight_references(model):
+    ref_a, ref_b = None, None
+    for module in model.modules():
+        if isinstance(module, LinearWithLoRA) and getattr(module, "share_lora_weights", False) and module.has_lora_weights:
+            ref_a, ref_b = module.shared_weight_a, module.shared_weight_b
+            break
+    
+    for module in model.modules():
+        if isinstance(module, LinearWithLoRA) and getattr(module, "share_lora_weights", False):
+            module.update_shared_weights(ref_a, ref_b)
 
 def prepare_lora(model, train_dataloader, args):
     """
@@ -162,5 +173,5 @@ def prepare_lora(model, train_dataloader, args):
         )
     
     # Prepare shared weights for VeRA
-    if check_shared_lora_weights_required:
+    if check_shared_lora_weights_required(args):
         insert_shared_lora_weights(model, args)
