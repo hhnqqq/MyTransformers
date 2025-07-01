@@ -1,6 +1,5 @@
 from common.lora_modules.lora import *
 from common.lora_modules.lora import LoRAConfig
-from torch import Tensor
 
 class LinearWithDELoRA(LinearWithLoRA):
     def __init__(self, lora_config: LoRAConfig, delora_lambda):
@@ -23,37 +22,21 @@ class LinearWithDELoRA(LinearWithLoRA):
         delora_lambda = self.delora_lambda.to(dtype).to(device)
 
         # Get norms
-        weight_a_norm = weight_a.norm(dim=1)
-        weight_b_norm = weight_b.norm(dim=0)
+        weight_a_norm = weight_a.norm(dim=1)  # shape: [rank]
+        weight_b_norm = weight_b.norm(dim=0)  # shape: [rank]
 
-        # AB normalization
-        diag = torch.div(delora_lambda / self.lora_rank, torch.mul(weight_a_norm, weight_b_norm))
-        diag = torch.diag_embed(diag)
+        # Compute diagonal scaling factors (avoid constructing full diag matrix)
+        diag_values = delora_lambda / (self.lora_rank * weight_a_norm * weight_b_norm)  # shape: [rank]
 
-        # Get ABCD
-        lora_weight = weight_b @ diag @ weight_a
-
-        self.Wnorm = self.weight.data.norm(dim=0).unsqueeze(0)
-        lora_weight = torch.mul(lora_weight, self.Wnorm)
+        # Optimized computation: (weight_b * diag_values) @ weight_a
+        lora_weight = torch.matmul(weight_b * diag_values, weight_a)  # equivalent to weight_b @ diag @ weight_a
+        lora_weight.mul_(self.Wnorm)
 
         return lora_weight
     
-    def _lora_forward(self, x: Tensor, result: Tensor) -> Tensor:
-        lora_result = F.linear(self.lora_dropout(x), self._compute_lora_weight())
-        return result + lora_result
-    
-    @property
-    def has_lora_weights(self):
-        """
-        Check if this layer has DELoRA weights.
-        """
-        has_init_a = hasattr(self, 'frozen_a') and self.frozen_a is not None
-        has_init_b = hasattr(self, 'frozen_b') and self.frozen_b is not None
-        return has_init_a and has_init_b and super().has_lora_weights
-
-    def _del_lora(self):
-        super()._del_lora()
-        if hasattr(self, 'frozen_a'):
-            delattr(self, "frozen_a")
-        if hasattr(self, 'frozen_b'):
-            delattr(self, "frozen_b")
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        origin_dtype = self.weight.dtype
+        weight = self._quantize_weight(self.weight, self.weight_quantizer)
+        if not self.disable_lora:
+            weight = weight + self._compute_lora_weight().to(origin_dtype)
+        return F.linear(x, weight, self.bias)
