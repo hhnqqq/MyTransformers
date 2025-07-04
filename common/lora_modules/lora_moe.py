@@ -1,7 +1,7 @@
 # @author: haonan he
 # @date: 2024-08-21
-""" Implements MELORA"""
-
+""" Implements LORAMoE"""
+import math
 from common.lora_modules.lora import *
 
 class LinearWithLoRAMoE(LinearWithLoRA):
@@ -20,9 +20,17 @@ class LinearWithLoRAMoE(LinearWithLoRA):
             lora_dropout, quant, weight_a_init_method, and weight_b_init_method, 
             please refer to the parent class LinearWithLoRA.
         """
+        super().__init__(lora_config)
         self.lora_moe_n_experts = lora_moe_n_experts
         self.moe_top_k = lora_moe_top_k
-        super().__init__(lora_config)
+
+        self.lora_rank = math.ceil(self.lora_rank / lora_moe_n_experts)
+        # Different droupout should be used for different lora expert.
+        if lora_config.lora_dropout:
+            self.lora_dropout = nn.ModuleList([nn.Dropout(lora_config.lora_dropout) for _ in range(lora_moe_n_experts)])
+        else:
+            self.lora_dropout = nn.ModuleList([nn.Identity() for _ in range(lora_moe_n_experts)])
+
         if lora_config.quant:
             print(f'Currently LoRAMoE is incompatible with quant, skipped quant')
 
@@ -70,25 +78,23 @@ class LinearWithLoRAMoE(LinearWithLoRA):
                 expert_weight_a = expert_weight_a.to(self._get_lora_dtype())
                 expert_weight_b = expert_weight_b.to(self._get_lora_dtype())
                 batch_idx, nth_expert = torch.where(selected_experts == i)
-                lora_results[batch_idx] += weights[batch_idx, nth_expert, None] * F.linear(F.linear(self.lora_dropout(x[batch_idx]), expert_weight_a), expert_weight_b).to(result.dtype)
+                lora_results[batch_idx] += weights[batch_idx, nth_expert, None] * F.linear(F.linear(self.lora_dropout[i](x[batch_idx]), expert_weight_a), expert_weight_b).to(result.dtype)
         else:
             for i, (expert_weight_a, expert_weight_b) in enumerate(zip(self.weight_a, self.weight_b)):
                 expert_weight_a = expert_weight_a.to(self._get_lora_dtype())
                 expert_weight_b = expert_weight_b.to(self._get_lora_dtype())
-                lora_results += F.linear(F.linear(self.lora_dropout(x), expert_weight_a), expert_weight_b).to(result.dtype)
+                lora_results += F.linear(F.linear(self.lora_dropout[i](x), expert_weight_a), expert_weight_b).to(result.dtype)
             lora_results /= self.lora_moe_n_experts
         return result + self.lora_scaler * lora_results.reshape(*origin_shape[:2], self.out_features)
     
     def _compute_lora_weight(self):
         lora_weight = torch.zeros((self.in_features, self.out_features))
-        if not self.requires_gate:
-            for i, (expert_weight_a, expert_weight_b) in enumerate(zip(self.weight_a, self.weight_b)):
-                expert_weight_a = expert_weight_a.to(self._get_lora_dtype())
-                expert_weight_b = expert_weight_b.to(self._get_lora_dtype())
-                lora_weight += self.lora_scaler * torch.matmul(expert_weight_b, expert_weight_a)
-            return lora_weight.to(self.weight.dtype)
-        else:
-            raise ValueError('LoRAMoE is not competible with _compute_lora_weight when requires_gate==True')
+        for i, (expert_weight_a, expert_weight_b) in enumerate(zip(self.weight_a, self.weight_b)):
+            expert_weight_a = expert_weight_a.to(self._get_lora_dtype())
+            expert_weight_b = expert_weight_b.to(self._get_lora_dtype())
+            lora_weight += self.lora_scaler * torch.matmul(expert_weight_b, expert_weight_a)
+        lora_weight / self.lora_moe_n_experts
+        return lora_weight.to(self.weight.dtype)
         
     def print_details(self) -> None:
         print(f"{self.__class__.__name__} Layer: in_features={self.in_features}, out_features={self.out_features}")
