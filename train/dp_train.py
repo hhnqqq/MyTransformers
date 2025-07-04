@@ -153,11 +153,9 @@ def backward_step_deepspeed_stage0(model: DeepSpeedEngine, optimizer, loss, lr_s
         optimizer.zero_grad()
 
 def backward_step_deepspeed_loramoe(model: DeepSpeedEngine, optimizer, loss, lr_scheduler, args, step):
-    loss = loss + calc_lora_expert_loss(args, model)
+    loss = loss + args.lora_moe_aux_loss_coeff * calc_lora_expert_loss(args, model)
     with record_function("backward_path"):
         model.backward(loss)
-        # deepspeed/runtime/engine.py ##line 2134
-        # Only update model when self.is_gradient_accumulation_boundary()
         model.step()
 
     return model

@@ -256,6 +256,9 @@ def peft_parser(parser):
     
     group.add_argument('--use-randlora', action='store_true', default=None,
                        help='Whether to use randlora')
+    group.add_argument('--randlora-use-sparse', action='store_true', default=None,
+                       help='Whether to use randlora sparse bases.')
+    group.add_argument('--randlora-sparse-factor', type=float, default=3.0)
 
     group.add_argument('--use-lora-pro', action='store_true',
                        help='Whether to use LoRA-Pro optimizer')
@@ -379,16 +382,17 @@ def peft_parser(parser):
     group.add_argument('--use-lora-moe', action='store_true')
     group.add_argument('--lora-moe-n-experts', type=int, default=2)
     group.add_argument('--lora-moe-top-k', type=int, default=2)
+    group.add_argument('--lora-moe-aux-loss-coeff', type=float, default=1e-3)
 
     # --------------------------- goat ----------------------------------
     group.add_argument('--use-goat', action='store_true')
-    group.add_argument('--aux-loss-coeff', type=float, default=1e-3)
     group.add_argument('--goat-init-type', type=str, default='goat')
     group.add_argument('--goat-scaling-type', type=str, default='lora')
     group.add_argument('--goat-rho', type=float, default=10.0)
     group.add_argument('--goat-eta', type=float, default=1.0)
     group.add_argument('--goat-init-cof', type=float, default=1.0)
     
+    group.add_argument('--rasa-moe', action='store_true')
     # --------------------------- eva ----------------------------------
     group.add_argument('--use-eva', action='store_true',
                        help='Whether to use EVA')
@@ -399,6 +403,10 @@ def peft_parser(parser):
     group.add_argument('--eva-scale-by-singular-values', type=bool, default=False)
     group.add_argument('--eva-whiten', type=bool, default=False)
     group.add_argument('--eva-log-convergence-stats', type=bool, default=True)
+    # --------------------------- rasamoe ----------------------------------
+    group.add_argument('--use-rasamoe', action='store_true',
+                       help='Whether to use RASAMOE')
+    
 
     # --------------------------- galore ----------------------------------
     group.add_argument('--use-galore', action='store_true',
