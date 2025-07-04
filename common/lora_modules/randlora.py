@@ -30,6 +30,7 @@ class LinearWithRandLoRA(LinearWithLoRA):
                 lora_config: LoRAConfig):
         super().__init__(lora_config)
         self.share_lora_weights = True
+        self.first_update = True
         if lora_config.quant:
             print(f'Currently RandLoRA is incompatible with quant, skipped quant')
 
@@ -51,20 +52,22 @@ class LinearWithRandLoRA(LinearWithLoRA):
         self.shared_weight_b = shared_weight_b
         self.weight_a = shared_weight_a
         self.weight_b = shared_weight_b
-        self.num_loras = shared_weight_b.shape[1]
-        self.min_dim = min(self.out_features, self.in_features)
-        self.max_dim = max(self.out_features, self.in_features)
-        self.randlora_gemma = nn.Parameter(
-            torch.ones(self.num_loras, self.min_dim, dtype=dtype)
-            / self.max_dim,
-            requires_grad=True
-        )
-        
-        self.randlora_lambda = nn.Parameter(torch.randn(self.lora_rank, self.num_loras, dtype=dtype), requires_grad=True)
-        # The scaling factor follows Table 9 in the paper, which uses 2/sqrt(num_loras).
-        # Note: While the PEFT implementation (peft/tuners/randlora/layer.py line 123) 
-        # uses alpha/r/sqrt(num_loras) scaling, we maintain the paper's recommended value for consistency.
-        self.lora_scaler /= math.sqrt(self.num_loras) 
+        if self.first_update:
+            self.num_loras = shared_weight_b.shape[1]
+            self.min_dim = min(self.out_features, self.in_features)
+            self.max_dim = max(self.out_features, self.in_features)
+            self.randlora_gemma = nn.Parameter(
+                torch.ones(self.num_loras, self.min_dim, dtype=dtype)
+                / self.max_dim,
+                requires_grad=True
+            )
+            
+            self.randlora_lambda = nn.Parameter(torch.randn(self.lora_rank, self.num_loras, dtype=dtype), requires_grad=True)
+            # The scaling factor follows Table 9 in the paper, which uses 2/sqrt(num_loras).
+            # Note: While the PEFT implementation (peft/tuners/randlora/layer.py line 123) 
+            # uses alpha/r/sqrt(num_loras) scaling, we maintain the paper's recommended value for consistency.
+            self.lora_scaler /= math.sqrt(self.num_loras) 
+            self.first_update = False
 
     def init_lora_weights(self):
         pass
