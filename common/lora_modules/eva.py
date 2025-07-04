@@ -22,22 +22,24 @@ class LinearWithEVA(LinearWithLoRA):
     def prepare_init(self, lora_rank: int):
         self.lora_rank = lora_rank
         self.lora_scaler = self.lora_alpha / self.lora_rank  
+    
+    def init_lora_weights(self):
+        pass
+
+    def EVA_init(self, lora_rank: int):
+        self.prepare_init(lora_rank)
+        super().init_lora_weights()
 
     def EVA_reinit(self, lora_rank: int, weight_a: Tensor):
-        """
-        Reinitialize the EVA weights.
-        This method is used to set the LoRA weights based on the SVD components.
 
-        Args:
-            svd_matrix (Tensor): The SVD matrix to initialize the LoRA weights.
-        """
+        # Reinitialize the EVA weights.
+        # This method is used to set the LoRA weights based on the SVD components.
         if lora_rank != weight_a.shape[0]:
             raise RuntimeError(f"lora_rank {lora_rank} does not match weight_a shape {weight_a.shape[0]}")
         if weight_a.shape[1] != self.in_features:
             raise RuntimeError(f"weight_a shape {weight_a.shape} does not match in_features {self.in_features}")
 
-        self.prepare_init(lora_rank)
-        self.init_lora_weights()
+        self.EVA_init(lora_rank)
         self.weight_a.data = weight_a.contiguous().to(dtype=self._get_lora_dtype())
 
 class SVDHook:
