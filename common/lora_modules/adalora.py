@@ -11,9 +11,11 @@ class LinearWithAdaLoRA(LinearWithLoRA):
         Initialize the LinearWithAdaLoRA layer.
 
         Args:
-
+            lora_config: General configuration for LoRA and its variants
+            init_r: Initial rank of the low-rank adapter.
         Note:
-        
+            The ranknum here, actually remain unchanged during training.
+            The implementation of ranknum is a copy of the offical implementation of ranknum.
         """
         super().__init__(lora_config)
         self.lora_scaler = lora_config.lora_scaler
@@ -27,7 +29,7 @@ class LinearWithAdaLoRA(LinearWithLoRA):
             self._get_lora_dtype()
         )
         weight_e = self.weight_e.to(self._get_lora_dtype())
-        ranknum = self.ranknum + 1
+        ranknum = self.ranknum + 1 if self.ranknum == 0 else self.ranknum
 
         lora_result = F.linear(
             F.linear(self.lora_dropout(x), weight_a * weight_e),
@@ -44,7 +46,7 @@ class LinearWithAdaLoRA(LinearWithLoRA):
             weight_e = self.weight_quantizer
             # When using vanilla lora, the ab mixer is a identical matrix
 
-        ranknum = self.ranknum + 1
+        ranknum = self.ranknum + 1 if self.ranknum == 0 else self.ranknum
         lora_result = F.linear(weight_a * weight_e,weight_b,)
         lora_weight =  lora_result * self.lora_scaler / ranknum
         return lora_weight

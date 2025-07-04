@@ -1,4 +1,3 @@
-# TODO:改成用vllm跑（可能需要把lora merge进pretrained权重）
 import os
 import json
 import argparse
@@ -30,7 +29,16 @@ Enter quit() to quit
 Enter output_len() to change output_len
 Enter prefix() to change prefix
 Enter meta_prompt() to change meta prompt
-Enter clear() to clear meta prompt and prefix:'''
+Enter clear() to clear meta prompt and prefix: \n'''
+
+def save_results(df, result_path):
+    os.makedirs(result_path, exist_ok=True)
+    df.to_json(
+        os.path.join(result_path, 'result.json'),
+        orient='records',
+        force_ascii=False,
+        lines=True
+    )
 
 def stratified_sample(df, strata_col, total_sample_size, equal_sample=False, replace=False):
     strata_sizes = df[strata_col].value_counts()
@@ -66,23 +74,23 @@ def main(args):
     else:
         floder_path = os.path.dirname(args.pretrained_ckpt)
 
-    training_config = None
+    training_args = None
     if os.path.exists(floder_path) and os.path.isdir(floder_path):
         config_path = os.path.join(floder_path, 'config.json')
         if os.path.exists(config_path):
-            training_config = Namespace(**json.load(open(config_path, 'r')))
+            training_args = Namespace(**json.load(open(config_path, 'r')))
             
     model_config = registry.get_model_config_class('_'.join([args.model_name, args.variant]))()
     model: nn.Module = registry.get_model_class(args.model_name)
-    if training_config:
-        if training_config.bf16:
+    if training_args:
+        if training_args.bf16:
             model_config.dtype = "bf16" 
-        elif training_config.fp16:
+        elif training_args.fp16:
             model_config.dtype = "fp16"
     else:
         model_config.dtype = "fp32"
     model_config.quant = args.quant
-    model_config.tokenizer = args.tokenizer if args.tokenizer is not None else training_config.tokenizer_path 
+    model_config.tokenizer = args.tokenizer if args.tokenizer is not None else training_args.tokenizer_path 
     print(model_config.tokenizer)    
 
     # Seed random.
@@ -96,32 +104,15 @@ def main(args):
         print("load checkpoint")
         if args.pretrained_ckpt is not None:
             load_ckpt(model=model.model, ckpt_path=args.pretrained_ckpt)
-            print(f"loaded pretrained weight at{args.pretrained_ckpt}")
-        if training_config and training_config.use_lora:
+            print(f"loaded pretrained weight at {args.pretrained_ckpt}")
+        if training_args and training_args.use_lora:
             print("Replacing model with lora layers")
-            switch_to_lora(model, 
-            args=training_config)
-            if hasattr(training_config, 'use_gora') and training_config.use_gora:
-                rank_config_file = os.path.join(os.path.dirname(args.ckpt), 'rank.json')
-                rank_config = json.load(open(rank_config_file,'r'))
-                for name,module in model.model.named_modules():
-                    if isinstance(module, LinearWithGoRA):
-                        rank = rank_config[name]
-                        module.init_method = 'vanilla'
-                        module.dynamic_init(training_config.lora_rank, rank)
-            if (hasattr(training_config, 'use_lora_ga_pro') and training_config.use_lora_ga_pro):
-                rank_config_file = os.path.join(os.path.dirname(args.ckpt), 'rank.json')
-                rank_config = json.load(open(rank_config_file, 'r'))
-                for name, module in model.model.named_modules():
-                    if isinstance(module, LinearWithLoRAGAPro):
-                        rank = rank_config[name]
-                        module.prepare_init(allocated_rank=rank)
-                        module.init_lora_weights()
-            if check_shared_lora_weights_required:
-                insert_shared_lora_weights(model, args)
+            prepare_lora_for_inference(model, training_args)
         if args.ckpt is not None:
             load_ckpt(model=model.model, partial_ckpt_path=args.ckpt)
             print(f"loaded weight at{args.ckpt}")
+            if check_shared_lora_weights_required:
+                create_shared_weight_references(model)
         model = model.to(device).eval()
     print("Model loading done")
     print('======================================')
@@ -130,10 +121,10 @@ def main(args):
     print('======================================')
     # Print the prompts and results.
 
-    if training_config:
-        args.meta_prompt = training_config.meta_prompt
-        args.prefix = training_config.prefix
-        args.postfix = training_config.postfix
+    if training_args:
+        args.meta_prompt = training_args.meta_prompt
+        args.prefix = training_args.prefix
+        args.postfix = training_args.postfix
     print(f'Using meta prompt {args.meta_prompt}, prefix {args.prefix}, postfix {args.postfix}')
 
     if args.prompt is not None:
@@ -143,44 +134,84 @@ def main(args):
         print(f'RESULT: {result}')
         print('======================================')
 
-    if args.dataset_path is not None:
-        if not args.result_path:
-            args.result_path = floder_path
-        format = args.dataset_path.split('.')[-1]
-        read_func = format_dict[format]
-        df = read_func(args.dataset_path)
+    if args.dataset_path is not None:   
+
+        # Initialize result path
+        args.result_path = args.result_path or floder_path
+        
+        # Read and prepare dataset
+        file_format = args.dataset_path.split('.')[-1]
+        df = format_dict[file_format](args.dataset_path)
+        
         if args.read_num:
             df = stratified_sample(df, strata_col='task', total_sample_size=args.read_num)
+        
         df['result'] = ''
-        acc_count = 0
-        w_count = 0
-        disable = not args.tqdm
-        iter_start = 0
-        iter_end = df.shape[0]
-        with tqdm(range(iter_start, iter_end, args.batch_size), desc='runing dataset', disable=disable) as tbar:
-            for i in tbar:
-                start, end = i, i+(args.batch_size-1)
-                inputs = df.loc[start:end, 'input'].apply(lambda x: args.meta_prompt + args.prefix + x + args.postfix).to_list()
-                # results = model.generate(inputs, device, output_len=args.output_len, eos=False, temperature=0)[0]
-                results = model.generate(inputs, device, output_len=args.output_len, eos=False, temperature=0.8, top_p=0.95)[0]
-                results = [result.strip("<|begin_of_text|>") for result in results]
-                for idx, result in enumerate(results):
-                    print(f"Index: {start+idx}, Result: {result}")  # Debugging each result
-                    if result == df.loc[i+idx, 'output']:
+        acc_count = w_count = 0
+        disable_tqdm = not args.tqdm
+        total_samples = df.shape[0]
+        
+        # Process in batches
+        with tqdm(range(0, total_samples, args.batch_size), 
+                desc='Processing dataset', 
+                disable=disable_tqdm) as tbar:
+            
+            for batch_start in tbar:
+                batch_end = min(batch_start + args.batch_size - 1, total_samples - 1)
+                batch_indices = range(batch_start, batch_end + 1)
+                
+                # Prepare inputs
+                inputs = [
+                    args.meta_prompt + args.prefix + x + args.postfix
+                    for x in df.loc[batch_indices, 'input']
+                ]
+                
+                # Generate results
+                results = model.generate(
+                    inputs, 
+                    device, 
+                    output_len=args.output_len, 
+                    eos=False, 
+                    temperature=args.temperature,
+                    top_p=args.top_p
+                )[0]
+                
+                # Process results
+                results = [r.strip("<|begin_of_text|>") for r in results]
+                
+                for idx, (result, true_output) in enumerate(zip(
+                    results, 
+                    df.loc[batch_indices, 'output']
+                )):
+                    current_idx = batch_start + idx
+                    if result == true_output:
                         acc_count += 1
                     else:
                         w_count += 1
-                    df.loc[start+idx, 'result'] = result
-                postfix={"acc":f'{round(acc_count/(end+1),4) * 100}%', 'wrong':f'{round(w_count/(end+1),4) * 100}%'}   
-                tbar.set_postfix(postfix)
-                if disable:
-                    print(df.loc[start:end, ['output','result']])
-                    print(postfix)
-                if i % 1000 == 0:
-                    # Save the file every 1000 steps.
-                    os.makedirs(args.result_path, exist_ok=True)
-                    df.to_json(os.path.join(args.result_path, 'result.json'), orient='records', force_ascii=False, lines=True)
-        df.to_json(os.path.join(args.result_path, 'result.json'), orient='records', force_ascii=False, lines=True)
+                    
+                    df.loc[current_idx, 'result'] = result
+                    
+                    if disable_tqdm:
+                        print(f"Index: {current_idx}, Result: {result}")
+                
+                # Update progress
+                accuracy = round(acc_count/(batch_end + 1), 4) * 100
+                wrong_rate = round(w_count/(batch_end + 1), 4) * 100
+                tbar.set_postfix({
+                    "accuracy": f"{accuracy}%", 
+                    "wrong": f"{wrong_rate}%"
+                })
+                
+                if disable_tqdm:
+                    print(df.loc[batch_indices, ['output', 'result']])
+                    print(f"Accuracy: {accuracy}%, Wrong: {wrong_rate}%")
+                
+                # Periodic save
+                if batch_start % 1000 == 0:
+                    save_results(df, args.result_path)
+        
+        # Final save
+        save_results(df, args.result_path)
                 
     if args.run_loop:
         while True:
@@ -199,7 +230,12 @@ def main(args):
             else:
                 # Make sure the meta prompt is correct.
                 prompt = args.meta_prompt + args.prefix + user_input +args.postfix
-                result = model.generate(prompt, device, output_len=args.output_len, eos=False, temperature=0)
+                result = model.generate(prompt, 
+                                        device, 
+                                        output_len=args.output_len, 
+                                        eos=False, 
+                                        temperature=args.temperature,
+                                        top_p=args.top_p)[0][0]
                 print('======================================')
                 print(f'RESULT: {result}')
                 print('======================================')
@@ -228,10 +264,6 @@ if __name__ == "__main__":
                         default="cuda",
                         choices=["cpu", "cuda"])
     parser.add_argument("--run_loop", action='store_true')
-    parser.add_argument("--use_lora", action='store_true')
-    parser.add_argument('--use_mos_lora', action='store_true')
-    parser.add_argument("--use_dora", action='store_true')
-    parser.add_argument("--lora_rank", type=int, default=4)
     parser.add_argument("--output_len", type=int, default=128)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--quant", action='store_true')
@@ -239,6 +271,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--result_path", type=str, default=None)
     parser.add_argument("--local_rank", type=int, default=0)
+    parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--top_p", type=float, default=0.95)
 
     args = parser.parse_args()
 
