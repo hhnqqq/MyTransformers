@@ -3,6 +3,13 @@ from common.lora_modules.lora import LoRAConfig
 
 class LinearWithDELoRA(LinearWithLoRA):
     def __init__(self, lora_config: LoRAConfig, delora_lambda):
+        """
+        Initialize the LinearWithDELoRA layer.
+
+        Args:
+            lora_config: General configuration of LoRA and its variants
+            delora_lambda: The hyperparameter of delora that controlling the magnitude of lora weights.
+        """
         super().__init__(lora_config)
         self.delora_lambda = delora_lambda
 
@@ -11,6 +18,7 @@ class LinearWithDELoRA(LinearWithLoRA):
         self.delora_lambda = nn.Parameter(torch.full((1,), self.delora_lambda))
         self.Wnorm = self.weight.data.norm(dim=0).unsqueeze(0)
         self.weight.data = self.weight.data - self._compute_lora_weight()
+        # Should we reset the wnorm here?
         self.Wnorm = self.weight.data.norm(dim=0).unsqueeze(0)
 
     def _compute_lora_weight(self):
@@ -32,11 +40,12 @@ class LinearWithDELoRA(LinearWithLoRA):
         lora_weight = torch.matmul(weight_b * diag_values, weight_a)  # equivalent to weight_b @ diag @ weight_a
         lora_weight.mul_(self.Wnorm)
 
-        return lora_weight
+        return lora_weight.to(self.weight.dtype)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        origin_dtype = self.weight.dtype
         weight = self._quantize_weight(self.weight, self.weight_quantizer)
         if not self.disable_lora:
-            weight = weight + self._compute_lora_weight().to(origin_dtype)
+            # merge the weight and low-rank weight.
+            # skip a individual forward pass for low-rank weight.
+            weight = weight + self._compute_lora_weight()
         return F.linear(x, weight, self.bias)
