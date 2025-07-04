@@ -1,31 +1,8 @@
 """
 LoRA and LoRA variants implementation.
-
-Currently suppored LoRA variants are listed below:
-1. vanilla LoRA
-2. MELoRA [MELoRA: Mini-Ensemble Low-Rank Adapters for Parameter-Efficient Fine-Tuning](https://arxiv.org/abs/2402.17263)
-3. LoRA-GA [LoRA-GA: Low-Rank Adaptation with Gradient Approximation](https://arxiv.org/abs/2407.05000)
-4. MosLoRA [Mixture-of-Subspaces in Low-Rank Adaptation](https://arxiv.org/abs/2406.11909)
-5. ReLoRA [ReLoRA: High-Rank Training Through Low-Rank Updates](https://arxiv.org/abs/2307.05695)
-6. DoRA [DoRA: Weight-Decomposed Low-Rank Adaptation](https://arxiv.org/abs/2402.09353)
-7. AdaLoRA [AdaLoRA: Adaptive Budget Allocation for Parameter-Efficient Fine-Tuning](https://arxiv.org/abs/2303.10512)
-8. LoRA-pro [LoRA-Pro: Are Low-Rank Adapters Properly Optimized?](https://arxiv.org/abs/2407.18242)
-9. MILoRA 
-10. LoRA+
-11. PISSA
-12. OLoRA
-13. EVA
-14. LoRA-ga
-15. LoRAMoE
-16. ReLoRA
-17. PLoRA
-18. MoRA
-19. DeltaLoRA
-20. LoRA-FA
-21. IncreLoRA [IncreLoRA: Incremental Parameter Allocation Method for Parameter-Efficient Fine-tuning](https://arxiv.org/abs/2308.12043)
-22. VeRA [VeRA: Vector-based Random Matrix Adaptation](https://arxiv.org/abs/2310.11454)
-23. Shared LoRA - A new variant where A and B matrices are shared across all layers
 """
+import re
+import inspect
 import contextlib
 from common.lora_modules.lora import *
 from common.lora_modules.melora import *
@@ -46,6 +23,7 @@ from common.lora_modules.goat import *
 from common.lora_modules.lora_one import *
 from common.lora_modules.vera import *
 from common.lora_modules.eva import *
+from common.lora_modules.rasa_moe import *
 
 @contextlib.contextmanager
 def DisableLoRA(model):
@@ -86,11 +64,12 @@ def MergeLoRA(model):
 
 def check_shared_lora_weights_required(args):
     shared_weight_conditions = [
-        args.use_vera and not args.vera_init_unique_weights,
-        args.use_lora_share,
-        args.use_randlora,
-        args.use_rasa,
-        args.use_dense_lora
+        getattr(args, 'use_vera', False) and not getattr(args, 'vera_init_unique_weights', False),
+        getattr(args, 'use_lora_share', False),
+        getattr(args, 'use_randlora', False),
+        getattr(args, 'use_rasa', False),
+        getattr(args, 'use_dense_lora', False),
+        getattr(args, 'use_rasamoe', False)
     ]
     
     # Return True if any condition is met
@@ -104,13 +83,16 @@ def insert_shared_lora_weights(model, args):
 
     from common.lora_modules.lora_share import prepare_shared_lora_weights, update_shared_weights_to_layer
     
-    if args.use_randlora:
+    if getattr(args, 'use_randlora', False):
         from common.lora_modules.randlora import prepare_shared_lora_weights_randlora as prepare_shared_lora_weights
-    if args.use_rasa:
+    if getattr(args, 'use_rasa', False):
         from common.lora_modules.rasa import prepare_shared_lora_weights_rasa as prepare_shared_lora_weights
         from common.lora_modules.lora_share import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
-    if args.use_dense_lora:
+    if getattr(args, 'use_dense_lora', False):
         from common.lora_modules.dense_lora import prepare_shared_lora_weights_denselora as prepare_shared_lora_weights
+        from common.lora_modules.lora_share import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
+    if getattr(args, 'use_rasamoe', False):
+        from common.lora_modules.rasa_moe import prepare_shared_lora_weights_rasa as prepare_shared_lora_weights
         from common.lora_modules.lora_share import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
 
         
@@ -126,9 +108,21 @@ def create_shared_weight_references(model):
             ref_a, ref_b = module.shared_weight_a, module.shared_weight_b
             break
     
-    for module in model.modules():
+    for name, module in model.named_modules():
         if isinstance(module, LinearWithLoRA) and getattr(module, "share_lora_weights", False):
-            module.update_shared_weights(ref_a, ref_b)
+            pattern = re.compile(r'layers\.(\d+)\.(.+)')
+            match = pattern.search(name)
+            
+            update_method = module.update_shared_weights
+            sig = inspect.signature(update_method)
+            params = sig.parameters
+            
+            if match:
+                module_name = match.group(2).replace('.', '__')
+                if 'module_name' in params:
+                    update_method(ref_a, ref_b, module_name)
+                else:
+                    update_method(ref_a, ref_b)
 
 def prepare_lora(model, train_dataloader, args):
     """
@@ -173,5 +167,36 @@ def prepare_lora(model, train_dataloader, args):
         )
     
     # Prepare shared weights for VeRA
+    if check_shared_lora_weights_required(args):
+        insert_shared_lora_weights(model, args)
+
+def prepare_lora_for_inference(model, args):
+    switch_to_lora(model, args)
+    # Common variables for both conditions
+    rank_config = None
+    if any(getattr(args, attr, False) for attr in ['use_gora', 'use_eva', 'use_loraga_pro']):
+        rank_config_file = os.path.join(args.output_path, args.experiment_name, 'rank.json')
+        rank_config = json.load(open(rank_config_file, 'r'))
+    
+    # Process GoRA modules
+    if getattr(args, 'use_gora', False):
+        for name, module in model.model.named_modules():
+            if isinstance(module, LinearWithGoRA):
+                module.init_method = 'vanilla'
+                module.dynamic_init(args.lora_rank, rank_config[name])
+    
+    if getattr(args, 'use_eva', False):
+        for name, module in model.model.named_modules():
+            if isinstance(module, LinearWithEVA):
+                module.EVA_init(rank_config[name])
+
+    # Process LoRA GA Pro modules
+    if getattr(args, 'use_lora_ga_pro', False):
+        for name, module in model.model.named_modules():
+            if isinstance(module, LinearWithLoRAGAPro):
+                module.prepare_init(allocated_rank=rank_config[name])
+                module.init_lora_weights()
+    
+    # Check for shared weights
     if check_shared_lora_weights_required(args):
         insert_shared_lora_weights(model, args)
