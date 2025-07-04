@@ -15,6 +15,17 @@ from typing import Optional, Dict, Any
 
 @dataclass
 class LoRAConfig:
+    """
+    in_features (int): Number of input features.
+    out_features (int): Number of output features.
+    bias (bool): If there is a bias term in the origin layer.
+    lora_rank (int, optional): Rank of LoRA decomposition. Default is 4.
+    lora_scaler (float, optional): Scaler for LoRA weights. Default is 32.0.
+    quant (bool, optional): Whether to apply weight quantization. Default is False.
+    weight_a_init_method (str, optional): The init method for weight_a.
+    weight_b_init_method (str, optional): The init method for weight_b.
+    run_lora_in_fp32 (bool): Whether to keep lora weight in fp32 regardless of dtype of forzen weight. (Defualt setting in peft's lora implementation.)    
+    """
     in_features: int
     out_features: int
     bias: bool = False
@@ -35,14 +46,7 @@ class LinearWithLoRA(nn.Linear):
         Initialize the LinearWithLoRA layer.
 
         Args:
-            in_features (int): Number of input features.
-            out_features (int): Number of output features.
-            lora_rank (int, optional): Rank of LoRA decomposition. Default is 4.
-            lora_scaler (float, optional): Scaler for LoRA weights. Default is 32.0.
-            quant (bool, optional): Whether to apply weight quantization. Default is False.
-            weight_a_init_method (str, optional): The init method for weight_a.
-            weight_b_init_method (str, optional): The init method for weight_b.
-            run_lora_in_fp32 (bool): Whether to keep lora weight in fp32 regardless of dtype of forzen weight. (Defualt setting in peft's lora implementation.)
+            lora_config: general configuration for lora and its variants.
         """
         super().__init__(lora_config.in_features, lora_config.out_features, bias=lora_config.bias)
         self.lora_rank = lora_config.lora_rank
