@@ -9,6 +9,14 @@ from common.lora_modules.lora import *
 class LinearWithNZLoRA(LinearWithLoRA):
     
     def __init__(self, lora_config: LoRAConfig, init_scale_a, init_scale_b, reset_weight):
+        """
+        Initialize the LinearWithNZLoRA layer.
+
+        Args:
+            init_scale_a: the scaling factor of initialized weight_a.
+            init_scale_b: the scaling factor of initialized weight_b.
+            reset_weight: whether to manipulate the pre-trained weight.
+        """
         super().__init__(lora_config)
         self.init_scale_a = init_scale_a
         self.init_scale_b = init_scale_b
