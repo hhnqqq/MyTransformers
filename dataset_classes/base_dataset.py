@@ -14,6 +14,9 @@ from common.utils import print_rank_0
 from common.registry import registry
 from dataset_classes.dataset_tools import get_line_count
 
+class EmptyOutputError(Exception):
+    pass
+
 @dataclass
 class DatasetConfig:
     # More feasible if any new parameter should be added.
@@ -162,6 +165,9 @@ class BaseDataset(Dataset):
             self.train_token_count += output_len if output_len else input_len
         else:
             input_text, output_text, input_ids = self._preprocess_sample(sample)
+            output_ids = []
+            if self.mode == 'sft' and not output_text:
+                raise EmptyOutputError("Output text is required in SFT mode!")
             if output_text:
                 if self.mode == 'sft':
                     # In the case of sft, the input sample must be a instance of dict.
@@ -170,7 +176,6 @@ class BaseDataset(Dataset):
                 else:
                     # In the case of pretrain, the input sample can be a single string.:
                     # Make sure that the output text can be tokenized.
-                    output_ids = []
                     input_ids += [] if output_text is None else self._encode_text(output_text) 
                     self.train_token_count += len(input_ids)
 
@@ -234,9 +239,12 @@ class BaseDataset(Dataset):
                                 sample = line.strip()
                                 if i==0:
                                     print_rank_0('--->Failed to load jsonl file, check if you use the correct format.', self.global_rank)
-                            self.all_data.append(self.process_sample(sample))
-                            postfix={"train_tokens":self._get_post_fix(self.train_token_count)}   
-                            tbar.set_postfix(postfix)
+                            try:
+                                self.all_data.append(self.process_sample(sample))
+                                postfix={"train_tokens":self._get_post_fix(self.train_token_count)}   
+                                tbar.set_postfix(postfix)
+                            except EmptyOutputError:
+                                continue
                         else:
                             break
         print_rank_0(f'--->train_tokens:{self._get_post_fix(self.train_token_count)}', self.global_rank)

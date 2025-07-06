@@ -5,7 +5,7 @@ from typing import Optional, Union
 
 from transformers import PreTrainedTokenizer
 
-from dataset_classes import BaseDataset, DatasetConfig
+from dataset_classes import BaseDataset, DatasetConfig, EmptyOutputError
 from torch.utils.data import IterableDataset
 from model.tokenizer import BaseTokenizer
 from common.utils import print_rank_0
@@ -145,7 +145,11 @@ class BaseIterableDataset(IterableDataset, BaseDataset):
             step += 1
             if line:
                 sample = self._load_sample(read_idx, line)
-                yield self.process_sample(sample)
+                try:
+                    yield self.process_sample(sample)
+                except EmptyOutputError as e:
+                    print_rank_0(f"Expected output_text at index {read_idx}: {str(e)}", self.global_rank)
+                    continue
                 
     def _get_start_step(self):
         return self.start_step % len(self.read_indices) + 1
