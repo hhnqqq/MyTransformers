@@ -1,5 +1,5 @@
 from common.lora_modules.lora import *
-from common.lora_modules.lora_share import get_module_groups
+from common.lora_modules.share_lora import get_module_groups
 
 class LinearWithDenseLoRA(LinearWithLoRA):
     def __init__(self,
@@ -26,6 +26,8 @@ class LinearWithDenseLoRA(LinearWithLoRA):
         dtype = self._get_lora_dtype()
         self.shared_weight_a = shared_weight_a
         self.shared_weight_b = shared_weight_b
+        self.weight_a = shared_weight_a
+        self.weight_b = shared_weight_b
         if self.first_update:
             if module_name is None:
                 raise ValueError("Module name can not be None")
@@ -58,8 +60,6 @@ class LinearWithDenseLoRA(LinearWithLoRA):
     def has_lora_weights(self):
         has_ab_mixer = hasattr(self, 'weight_ab_mixer') and self.weight_ab_mixer is not None
         return has_ab_mixer and super().has_lora_weights
-    
-
 
 def prepare_shared_lora_weights_denselora(model: nn.Module, args) -> tuple[nn.Parameter, nn.Parameter]:
     """

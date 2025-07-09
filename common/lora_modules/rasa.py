@@ -1,5 +1,5 @@
 from common.lora_modules.lora import *
-from common.lora_modules.lora_share import get_module_groups
+from common.lora_modules.share_lora import get_module_groups
 from torch import Tensor
 
 class LinearWithRASA(LinearWithLoRA):
@@ -76,7 +76,7 @@ class LinearWithRASA(LinearWithLoRA):
     @property
     def has_lora_weights(self):
         """
-        Check if this layer has VeRA weights.
+        Check if this layer has shared low-rank weights and unique low-rank weights.
         """
         has_shared_weight_a = hasattr(self, 'shared_weight_a')
         has_shared_weight_b = hasattr(self, 'shared_weight_a')
