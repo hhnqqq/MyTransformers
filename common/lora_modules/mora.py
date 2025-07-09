@@ -3,8 +3,6 @@ from common.lora_modules.lora import *
 
 class LinearWithMoRA(LinearWithLoRA):
     def __init__(self, lora_config: LoRAConfig, mora_type: str):
-        if mora_type not in {'rope', 'sharing'}:
-            raise ValueError(f'Not supported mora type: {mora_type}!')
         self.mora_type = mora_type
         super().__init__(lora_config)
         self._get_new_rank()
