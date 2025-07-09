@@ -65,7 +65,7 @@ def MergeLoRA(model):
 def check_shared_lora_weights_required(args):
     shared_weight_conditions = [
         getattr(args, 'use_vera', False) and not getattr(args, 'vera_init_unique_weights', False),
-        getattr(args, 'use_lora_share', False),
+        getattr(args, 'use_sharelora', False),
         getattr(args, 'use_randlora', False),
         getattr(args, 'use_rasa', False),
         getattr(args, 'use_dense_lora', False),
@@ -81,19 +81,19 @@ def insert_shared_lora_weights(model, args):
     else:
         args.params_to_save = ['shared']
 
-    from common.lora_modules.lora_share import prepare_shared_lora_weights, update_shared_weights_to_layer
+    from common.lora_modules.share_lora import prepare_shared_lora_weights, update_shared_weights_to_layer
     
     if getattr(args, 'use_randlora', False):
         from common.lora_modules.randlora import prepare_shared_lora_weights_randlora as prepare_shared_lora_weights
     if getattr(args, 'use_rasa', False):
         from common.lora_modules.rasa import prepare_shared_lora_weights_rasa as prepare_shared_lora_weights
-        from common.lora_modules.lora_share import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
+        from common.lora_modules.share_lora import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
     if getattr(args, 'use_dense_lora', False):
         from common.lora_modules.dense_lora import prepare_shared_lora_weights_denselora as prepare_shared_lora_weights
-        from common.lora_modules.lora_share import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
+        from common.lora_modules.share_lora import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
     if getattr(args, 'use_rasamoe', False):
         from common.lora_modules.rasa_moe import prepare_shared_lora_weights_rasa as prepare_shared_lora_weights
-        from common.lora_modules.lora_share import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
+        from common.lora_modules.share_lora import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
 
         
     print_rank_0("--->Preparing shared LoRA weights...", args.global_rank)

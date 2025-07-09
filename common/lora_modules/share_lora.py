@@ -1,33 +1,42 @@
-# @author: minglei li
+# @author: minglei li (modified by haonan he)
 # @date: 2025-6-19
-""" Implementation of Shared LoRA where A and B matrices are shared across all layers.
-All layers share the same A and B parameters, which are trainable. """
+""" Implementation of ShareLoRA where A or B matrices are shared across all layers."""
 import re
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Optional
 from collections import defaultdict
 from common.lora_modules.lora import LinearWithLoRA, LoRAConfig
 
-class LinearWithSharedLoRA(LinearWithLoRA):
-    def __init__(self, lora_config: LoRAConfig):
+class LinearWithShareLoRA(LinearWithLoRA):
+    def __init__(self, lora_config: LoRAConfig, share_part: Optional[str] = None):
         """
         Initialize the LinearWithSharedLoRA layer.
         """
         self.share_lora_weights = True
+        self.share_part = share_part
         super().__init__(lora_config)
 
     def init_lora_weights(self):
         """
-        For shared LoRA, we don't initialize A and B here.
-        The shared A and B will be set externally via update_shared_weights.
+        For share-lora, we initialize the low-rank weights according to share_part.
         """
-        pass
+        # Defualt is fp32 when LinearWithLora init.
+        dtype = self._get_lora_dtype()
+        requires_grad = not self.quant
+
+        if self.share_part == 'A':
+            self.weight_b = nn.Parameter(torch.zeros((self.out_features, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
+            self._init_weight('weight_b')
+        elif self.share_part == 'B':
+            self.weight_a = nn.Parameter(torch.empty((self.lora_rank, self.in_features), dtype=dtype), requires_grad=requires_grad)
+            self._init_weight('weight_a')
 
     def update_shared_weights(
         self,
-        shared_weight_a: nn.Parameter,
-        shared_weight_b: nn.Parameter
+        shared_weight_a: Optional[nn.Parameter] = None,
+        shared_weight_b: Optional[nn.Parameter] = None
     ):
         """
         Update this layer to use shared LoRA weights.
@@ -37,16 +46,20 @@ class LinearWithSharedLoRA(LinearWithLoRA):
             shared_weight_a: Shared A matrix parameter
             shared_weight_b: Shared B matrix parameter
         """
-        self.shared_weight_a = shared_weight_a
-        self.shared_weight_b = shared_weight_b
+        if shared_weight_a is not None:
+            self.shared_weight_a = shared_weight_a
+            self.weight_a = shared_weight_a
+        if shared_weight_b is not None:
+            self.shared_weight_b = shared_weight_b
+            self.weight_b = shared_weight_b
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         """
         Forward pass using shared LoRA weights.
         """
         # Get the required slices from shared matrices
-        weight_a = self.shared_weight_a[:self.lora_rank, :self.in_features].to(self._get_lora_dtype())
-        weight_b = self.shared_weight_b[:self.out_features, :self.lora_rank].to(self._get_lora_dtype())
+        weight_a = self.weight_a[:self.lora_rank, :self.in_features].to(self._get_lora_dtype())
+        weight_b = self.weight_b[:self.out_features, :self.lora_rank].to(self._get_lora_dtype())
 
         # Apply shared transformation
         lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b)
@@ -58,8 +71,8 @@ class LinearWithSharedLoRA(LinearWithLoRA):
         Compute the effective LoRA weight for this layer.
         """
         if self.has_lora_weights:
-            weight_a = self.shared_weight_a[:self.lora_rank, :self.in_features].to(self._get_lora_dtype())
-            weight_b = self.shared_weight_b[:self.out_features, :self.lora_rank].to(self._get_lora_dtype())
+            weight_a = self.weight_a[:self.lora_rank, :self.in_features].to(self._get_lora_dtype())
+            weight_b = self.weight_b[:self.out_features, :self.lora_rank].to(self._get_lora_dtype())
 
             lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
             return lora_weight.to(self.weight.dtype)
@@ -79,13 +92,6 @@ class LinearWithSharedLoRA(LinearWithLoRA):
             super()._del_lora()
         except AttributeError:
             pass
-
-    @property
-    def has_lora_weights(self):
-        has_attr = hasattr(self, 'shared_weight_a') and hasattr(self, 'shared_weight_b')
-        if has_attr:
-            is_not_None = self.weight_a is not None and self.weight_b is not None
-        return has_attr and is_not_None
 
     def print_details(self) -> None:
         """
@@ -122,24 +128,32 @@ def prepare_shared_lora_weights(model: nn.Module, args) -> tuple[nn.Parameter, n
     device = next(model.parameters()).device
     
     # Initialize A matrix
-    shared_weight_a = nn.Parameter(
-        torch.empty((args.lora_rank, max_in_features), dtype=dtype, device=device))
+    if 'A' in args.sharelora_share_part:
+        shared_weight_a = nn.Parameter(
+            torch.empty((args.lora_rank, max_in_features), dtype=dtype, device=device))
+    else:
+        shared_weight_a = None
     
     # Initialize B matrix  
-    shared_weight_b = nn.Parameter(
-        torch.zeros((max_out_features, args.lora_rank), dtype=dtype, device=device))
+    if 'B' in args.sharelora_share_part:
+        shared_weight_b = nn.Parameter(
+            torch.zeros((max_out_features, args.lora_rank), dtype=dtype, device=device))
+    else:
+        shared_weight_b = None
     
     # Initialize weights
     with torch.no_grad():
-        if args.weight_a_init_method == 'kaiming':
-            nn.init.kaiming_uniform_(shared_weight_a, a=5**0.5, mode='fan_in')
-        else:
-            nn.init.normal_(shared_weight_a, mean=0.0, std=1 / (max_in_features ** 0.5))
+        if shared_weight_a is not None:
+            if args.weight_a_init_method == 'kaiming':
+                nn.init.kaiming_uniform_(shared_weight_a, a=5**0.5, mode='fan_in')
+            else:
+                nn.init.normal_(shared_weight_a, mean=0.0, std=1 / (max_in_features ** 0.5))
         
-        if args.weight_b_init_method == 'kaiming':
-            nn.init.kaiming_uniform_(shared_weight_b, a=5**0.5, mode='fan_in')
-        elif args.weight_b_init_method == 'normal':
-            nn.init.normal_(shared_weight_b, mean=0.0, std=0.02)
+        if shared_weight_b is not None:
+            if args.weight_b_init_method == 'kaiming':
+                nn.init.kaiming_uniform_(shared_weight_b, a=5**0.5, mode='fan_in')
+            elif args.weight_b_init_method == 'normal':
+                nn.init.normal_(shared_weight_b, mean=0.0, std=0.02)
 
     return shared_weight_a, shared_weight_b
 

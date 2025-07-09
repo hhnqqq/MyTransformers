@@ -15,7 +15,7 @@ from common.lora_modules.rslora import LinearWithRSLoRA
 from common.lora_modules.pissa import LinearWithPiSSA
 from common.lora_modules.olora import LinearWithOLoRA
 from common.lora_modules.vera import LinearWithVeRA
-from common.lora_modules.lora_share import LinearWithSharedLoRA
+from common.lora_modules.share_lora import LinearWithShareLoRA
 from common.lora_modules.lora_moe import LinearWithLoRAMoE
 from common.lora_modules.milora import LinearWithMILoRA
 from common.lora_modules.delta_lora import LinearWithDeltaLoRA
@@ -115,9 +115,9 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 "VeRA shares A and B across layers if not args.vera_init_unique_weights, and keeps A and B frozen during training process. "
                 "Only vector weights are tuned during training. Enabling a larger rank compared to LoRA under same resource constraints."
     ),
-    "use_lora_share": LoRAVariant(
-                LinearWithSharedLoRA,
-                lambda a: {},
+    "use_sharelora": LoRAVariant(
+                LinearWithShareLoRA,
+                lambda a: {"share_part": a.sharelora_share_part},
                 "Shared LoRA shares A and B matrices across all layers. Both A and B matrices are trainable. "
                 "This significantly reduces parameters while maintaining expressiveness."
     ),
