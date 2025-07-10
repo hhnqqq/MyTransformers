@@ -127,10 +127,6 @@ class AnnealingLR(_LRScheduler):
         return sd
 
     def _get_cosine_schedule_with_multiple_warmups(self):
-        if self.end_iter % self.restart_every != 0:
-            raise ValueError(
-                f"end_iter ({self.end_iter}) must be divisible by restart_every ({self.restart_every})")
-
 
         restart_step = self.num_iters % self.restart_every
         restart_number = self.num_iters // self.restart_every
