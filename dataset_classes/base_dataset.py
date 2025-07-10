@@ -197,17 +197,17 @@ class BaseDataset(Dataset):
             output_len = len(output_ids)
             
         input_ids += output_ids
-        totoal_len = len(input_ids)
+        total_len = len(input_ids)
 
         cal_metric_pos = self._calculate_metric_position(input_len, output_len)
         if self.mode == 'sft':
             labels = [self.label_pad_id] * input_len + output_ids
         elif self.mode == 'pretrain':
             labels = input_ids
-        attention_masks = [1] * totoal_len
+        attention_masks = [1] * total_len
         if self.padding:
             # Do not need to pad when stretegy is packing.
-            pad_len = self.max_len - totoal_len
+            pad_len = self.max_len - total_len
             input_ids = input_ids + [self.pad_id] * pad_len
             labels = labels + [self.label_pad_id] * pad_len
             attention_masks += [0] * pad_len

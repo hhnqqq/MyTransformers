@@ -3,14 +3,14 @@ import math
 import bisect
 import itertools
 import numpy as np
-from typing import Optional, Union, List
+from typing import Optional, List
 
 from collections.abc import Iterable
 from model.tokenizer import BaseTokenizer
 from common.utils import print_rank_0
 from common.registry import registry
 from common.utils import print_rank_0
-from dataset_classes.base_dataset import BaseDataset, DatasetConfig
+from dataset_classes.base_dataset import BaseDataset, DatasetConfig, EmptyOutputError
 from dataset_classes.iterable_dataset import BaseIterableDataset
 from dataset_classes.dataset_tools import get_line_count, MmapDataset
 
@@ -117,9 +117,12 @@ class ConcatDataset(BaseDataset):
                         if i == 0:
                             print_rank_0('--->Failed to load jsonl file, check if you use the correct format.', self.global_rank)
                     
-                    sample = {"sample":sample, "dataset_index":dataset_index}
-                    self.all_data.append(self.process_sample(sample))
-                    count += 1
+                    try:
+                        sample = {"sample":sample, "dataset_index":dataset_index}
+                        self.all_data.append(self.process_sample(sample))
+                        count += 1
+                    except EmptyOutputError:
+                        continue
                     if count >= self.read_nums:
                         stop = True
                         break
@@ -139,11 +142,11 @@ class ConcatDataset(BaseDataset):
             else:
                 input_ids = sample["input_ids"]
             self.train_token_count += len(input_ids)
-            return '', '', input_ids, []
+            return '', '', input_ids
         else:
             input_text, output_text = self._extract_texts(sample)
             input_ids = self._process_text(input_text, dataset_index)
-            return input_text, output_text, input_ids, []
+            return input_text, output_text, input_ids
     
     def _process_text(self, input_text, dataset_index):
         encoded_ids = self._encode_text(input_text)
@@ -242,9 +245,12 @@ class IterableConcatDataset(BaseIterableDataset, ConcatDataset):
             line = dataset[adjusted_read_idx]
             step+=1
             if line:
-                sample = BaseIterableDataset._load_sample(self, read_idx, line)
-                sample = {"sample":sample, "dataset_index":dataset_index}
-                yield ConcatDataset.process_sample(self, sample)
+                try:
+                    sample = BaseIterableDataset._load_sample(self, read_idx, line)
+                    sample = {"sample":sample, "dataset_index":dataset_index}
+                    yield ConcatDataset.process_sample(self, sample)
+                except EmptyOutputError:
+                    continue
 
 
     def __len__(self):       
