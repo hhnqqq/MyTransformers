@@ -1,4 +1,5 @@
 import logging
+import traceback
 import torch.optim as optim
 import deepspeed.ops as ds_optim
 
@@ -110,12 +111,36 @@ def register_per_layer_optim(optimizer_class,args,model):
 
 def get_regular_optimizer(optim_type, args, model):
     try:
+        lr_group_patterns = set(args.lr_group_patterns) if args.lr_group_patterns else set()
+        lr_group_scales = set(args.lr_group_scales) if args.lr_group_scales else set()
+
         if args.use_lora_plus:
-            weight_b_group = [p for n, p in model.named_parameters() if p.requires_grad and 'weight_b' in n]
-            base_group = [p for n, p in model.named_parameters() if p.requires_grad and 'weight_b' not in n]
-            params = [{'params': weight_b_group, 'lr': args.lora_plus_scaler},
-                        {'params': base_group, 'lr': 1}]
+            lr_group_patterns.add('weight_b')
+            lr_group_scales.add(args.lora_plus_scaler)
             print_rank_0(F'--->lora+ is enabled and the lr of weight b is set to {args.lr * args.lora_plus_scaler}', args.global_rank)
+
+        if lr_group_patterns and lr_group_scales:
+            param_groups = {}
+            param_groups["default"] = {"params": [], "lr": args.lr}
+            
+            for pattern, lr_scale in zip(args.lr_group_patterns, args.lr_group_scales):
+                param_groups[pattern] = {"params": [], "lr": args.lr * lr_scale}
+            
+            for name, param in model.named_parameters():
+                if not param.requires_grad:
+                    continue
+                
+                matched = False
+                for pattern in args.lr_group_patterns:
+                    if pattern in name:
+                        param_groups[pattern]["params"].append(param)
+                        matched = True
+                        break
+                
+                if not matched:
+                    param_groups["default"]["params"].append(param)
+            
+            params = [group for group in param_groups.values() if group["params"]]
         else:
             params = [{'params':[p for p in model.parameters() if p.requires_grad], 'lr': 1}]
 
@@ -139,8 +164,8 @@ def get_regular_optimizer(optim_type, args, model):
                                     eps=args.eps,
                                     betas=tuple(args.betas))
         isSuccess = True
-    except Exception as e:
-        print_rank_0(f'--->Load local optimizer error as e: {e}', args.global_rank)
+    except Exception:
+        print_rank_0(f'--->Load local optimizer error as: {traceback.format_exc()}', args.global_rank)
         isSuccess = False
         optimizer = None
     return isSuccess, optimizer
@@ -171,19 +196,13 @@ def get_increlora_optimizer(optim_type, args, model):
     try:
         params = [{'params':[p for p in model.parameters() if p.requires_grad], 'lr': 1}]
 
-        # optimizer_class = {
-        #     'adamw': optim.AdamW,
-        #     'adam': optim.Adam,
-        # }.get(optim_type)
-
-
         optimizer_class = {
             'adamw': partial(ds_optim.adam.FusedAdam, adam_w_mode=True),
             'adam': partial(ds_optim.adam.FusedAdam, adam_w_mode=False),
         }.get(optim_type)
 
         if optimizer_class is None:
-            raise NotImplementedError('only support adam and its variants for now')
+            raise NotImplementedError('`get_increlora_optimizer` only support adam and its variants for now')
         
         optimizer = optimizer_class(params,
                                     lr=args.lr,
@@ -191,8 +210,8 @@ def get_increlora_optimizer(optim_type, args, model):
                                     eps=args.eps,
                                     betas=tuple(args.betas))
         isSuccess = True
-    except Exception as e:
-        print_rank_0(f'--->Load local optimizer error as e: {e}', args.global_rank)
+    except Exception:
+        print_rank_0(f'--->Load local optimizer error as: {traceback.format_exc()}', args.global_rank)
         isSuccess = False
         optimizer = None
     return isSuccess, optimizer

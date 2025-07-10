@@ -58,7 +58,7 @@ def base_parser():
 
     return parser
 
-def train_parser(parser):
+def train_parser(parser: argparse.ArgumentParser):
     group = parser.add_argument_group('train', 'training configurations')
 
     # --------------- Core hyper-parameters --------------- 
@@ -89,6 +89,10 @@ def train_parser(parser):
     group.add_argument('--batch-size-per-gpu', type=int, default=4, 
                        help='Batch size on a single GPU. batch-size * world_size = total batch_size.')
     
+    # --------------------------- for GLUE ----------------------------
+    parser.add_argument('--task-name', type=str, default=None,
+                        help='The name of the GLUE task to train on.')
+    
     # --------------------------- parameters ----------------------------
     group.add_argument('--enable-list', nargs='+', type=str, default=None,
                        help='List of enabled parameters')
@@ -116,7 +120,7 @@ def train_parser(parser):
 
     return parser
 
-def optimizer_parser(parser):
+def optimizer_parser(parser: argparse.ArgumentParser):
     group = parser.add_argument_group('optimizer', 'optimizer configurations')
 
     # --------------------- optimizer -----------------------
@@ -156,10 +160,14 @@ def optimizer_parser(parser):
                        help='Type of the optimizer, this arg will be useful when diy-optimizer is true')
     group.add_argument('--clip-grad-max-norm', type=float, default=1.0,
                        help='Threshold norm value for gradient')
+    parser.add_argument("--lr-group-patterns", type=str, nargs="+", default=None,
+                       help="Patterns to match parameter names (e.g., 'lambda weight_b')")
+    parser.add_argument("--lr-group-scales", type=float, nargs="+", default=None,
+                       help="LR multipliers for matched parameters (e.g., '50.0 3.0')")
     
     return parser
 
-def dataset_parser(parser):
+def dataset_parser(parser: argparse.ArgumentParser):
     group = parser.add_argument_group('dataset', 'dataset configurations')
 
     # ---------------------------- dataset ------------------------------
@@ -195,7 +203,7 @@ def dataset_parser(parser):
     
     return parser
 
-def peft_parser(parser):
+def peft_parser(parser: argparse.ArgumentParser):
     group = parser.add_argument_group('peft', 'parameter efficient training configurations')
 
     # --------------------------- lora ----------------------------------
@@ -248,8 +256,9 @@ def peft_parser(parser):
     group.add_argument('--use-dense-lora', action='store_true',
                        help='Whether to use denselora.')
     
-    group.add_argument('--use-lora-share', action='store_true', default=None,
+    group.add_argument('--use-sharelora', action='store_true', default=None,
                        help='Whether to use shared LoRA (shares A and B matrices across layers)')
+    group.add_argument('--sharelora-share-part', type=str, choices=['A', 'B', 'AB'], default='AB')
     
     group.add_argument('--use-tied-lora', action='store_true', default=None,
                        help='Whether to use tied lora')
@@ -446,7 +455,7 @@ def peft_parser(parser):
 
     return parser
 
-def multimodal_parser(parser):
+def multimodal_parser(parser: argparse.ArgumentParser):
     group = parser.add_argument_group('multimodal', 'Multimodal encoder-decoder architecture training configurations')
 
     # ----------------------- multimodal -----------------------------
@@ -466,7 +475,7 @@ def multimodal_parser(parser):
 
     return parser
 
-def ds_parser(parser):
+def ds_parser(parser: argparse.ArgumentParser):
     group = parser.add_argument_group('ds', 'ds configurations')
     group.add_argument('--ds-config-path',type=str,
                       help='path of ds configuration file',)
@@ -531,6 +540,9 @@ def get_args():
         if args.multimodal_projector_type == 'mlp':
             if not args.multimodal_projector_layers > 1:
                 raise ValueError('Mlp module layer count must greater than 1')
+    if args.lr_group_patterns and args.lr_group_scales:
+        if len(args.lr_group_patterns) != len(args.lr_group_scales):
+            raise ValueError("--lr_group_patterns and --lr_group_scales must have the same length!")
     
     if args.fp16:
         args.default_dtype = 'fp16'
