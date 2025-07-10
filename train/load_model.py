@@ -92,7 +92,7 @@ def load_local_model(args):
             multimodal_tokenizer = registry.get_tokenizer_class(args.multimodal_tokenizer_name)(args.multimodal_tokenizer_path)
             return_dataset_kwargs['multimodal_tokenizer'] = multimodal_tokenizer
     else:
-        print_rank_0('--->Not using pretrained checkpoint to start traning.', args.global_rank)
+        print_rank_0('--->Not using pretrained checkpoint to start training.', args.global_rank)
 
     # Load config from model config to argument parser namespace.
     args.head_dim = model_config.head_dim
