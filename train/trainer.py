@@ -27,8 +27,8 @@ class Trainer:
         self.best_eval_index = 0.0
         self.wait = 0
         self.save_folder = os.path.join(args.output_path, args.experiment_name)
-        self.save_config = True
         self.lr = args.lr
+        self.epochs = 0
         ensure_directory_exists(self.save_folder, self.args.global_rank)
 
     def train(
@@ -215,37 +215,39 @@ class Trainer:
             lr_scheduler (torch.optim.lr_scheduler._LRScheduler): The learning rate scheduler to be saved.
             step (int): The current training step.
         """
-        config_path = os.path.join(self.save_folder, 'config.json')
-        
 
         # Save the training configuration if required
-        if self.save_config and isinstance(self.args, Namespace) and self.args.global_rank == 0:
+        if step == 1 and isinstance(self.args, Namespace) and self.args.global_rank == 0:
+            config_path = os.path.join(self.save_folder, 'config.json')
             with open(config_path, 'w', encoding='utf-8') as f:
-                print_rank_0(f'--->Saving training config at step {step+1} in {config_path}.', self.args.global_rank)
+                print_rank_0(f'--->Saving training config at step {step} in {config_path}.', self.args.global_rank)
                 save_dict = {k: v for k, v in self.args.__dict__.items() if k != 'device'}
                 json.dump(save_dict, f)
-                self.save_config = False
 
-        # Handle saving for pipeline parallel training
+        should_save = self.end or (not self.end and step % self.args.save_interval == 0)
+        if not should_save: # Not required to save in this step.
+            return
+
+        # Determine save name
+        if self.end: # Save on the last step of training.
+            save_name = 'final'
+        elif self.args.save_epoch: # Save on the every training epoch.
+            self.epochs += 1
+            save_name = f'epoch_{self.epochs}'
+        else: # Save on the every save_interval.
+            save_name = f'step_{step}'
+
+        # Prepare save message and path
+        print_rank_0(f'--->Start saving model at {step}th step in {self.save_folder}.', self.args.global_rank)
+
+        # Perform the save operation
         if self.args.num_pp_stages is not None:
-            should_save = (not self.end and (step + 1) % self.args.save_interval == 0) or (self.end and (step + 1) % self.args.save_interval != 0)
-            if should_save:
-                tag = f'step_{step+1}' if not self.end else 'final'
-                print_rank_0(f'--->Start saving model at {step+1}th step in {self.save_folder}.', self.args.global_rank)
-                model.save_checkpoint(self.save_folder, tag=tag)
-                print_rank_0('--->Saved the model.', self.args.global_rank)
+            model.save_checkpoint(self.save_folder, tag=save_name)
         else:
-            # Handle saving for other cases
-            if not self.end and (step + 1) % self.args.save_interval == 0:
-                save_path = os.path.join(self.save_folder, f'step_{step+1}.ckpt')
-                print_rank_0(f'--->Start saving model at step {step+1} in {save_path}.', self.args.global_rank)
-                self.torch_save(model, optimizer, lr_scheduler, dataloader, save_path)
-                print_rank_0('--->Saved the model.', self.args.global_rank)
-            elif self.end:
-                save_path = os.path.join(self.save_folder, 'final.ckpt')
-                print_rank_0(f'--->Start saving model at final step in {save_path}.', self.args.global_rank)
-                self.torch_save(model, optimizer, lr_scheduler, dataloader, save_path)
-                print_rank_0('--->Saved the model.', self.args.global_rank)
+            save_path = os.path.join(self.save_folder, f'{save_name}.ckpt')
+            self.torch_save(model, optimizer, lr_scheduler, dataloader, save_path)
+
+        print_rank_0('--->Saved the model.', self.args.global_rank)
 
     def torch_save(self, 
                 model:torch.nn.Module, 
