@@ -16,10 +16,9 @@ class LinearWithDELoRA(LinearWithLoRA):
     def init_lora_weights(self):
         super().init_lora_weights()
         self.delora_lambda = nn.Parameter(torch.full((1,), self.delora_lambda))
+        # Compute this before manipulate the pre-trained weight.
         self.Wnorm = self.weight.data.norm(dim=0).unsqueeze(0)
         self.weight.data = self.weight.data - self._compute_lora_weight()
-        # Should we reset the wnorm here?
-        self.Wnorm = self.weight.data.norm(dim=0).unsqueeze(0)
 
     def _compute_lora_weight(self):
         # Get weights
@@ -36,9 +35,9 @@ class LinearWithDELoRA(LinearWithLoRA):
         # Compute diagonal scaling factors (avoid constructing full diag matrix)
         diag_values = delora_lambda / (self.lora_rank * weight_a_norm * weight_b_norm)  # shape: [rank]
 
-        # Optimized computation: (weight_b * diag_values) @ weight_a
+        # Optimized computation: (weight_b @ diag_values) @ weight_a
         lora_weight = torch.matmul(weight_b * diag_values, weight_a)  # equivalent to weight_b @ diag @ weight_a
-        lora_weight.mul_(self.Wnorm)
+        lora_weight.mul_(self.Wnorm.to(device))
 
         return lora_weight.to(self.weight.dtype)
     
