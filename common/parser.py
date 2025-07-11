@@ -52,9 +52,11 @@ def base_parser():
                         help='Cache dir of wandb')
     parser.add_argument('--wandb-dir', type=str, default=None,
                         help='Dir of wandb')
-    parser.add_argument('--test-code', action='store_true', help='add this argument to avoid creating log file.')
+    parser.add_argument('--test-code', action='store_true', 
+                        help='add this argument to avoid creating log file.')
     parser.add_argument('--profile-log-dir', type=str, default=None,   
                         help='Path of profiler log dir')
+    parser.add_argument('--tqdm', action='store_true')
 
     return parser
 
@@ -164,6 +166,8 @@ def optimizer_parser(parser: argparse.ArgumentParser):
                        help="Patterns to match parameter names (e.g., 'lambda weight_b')")
     parser.add_argument("--lr-group-scales", type=float, nargs="+", default=None,
                        help="LR multipliers for matched parameters (e.g., '50.0 3.0')")
+    parser.add_argument("--lr-group-values", type=float, nargs="+", default=None,
+                       help="LR values for matched parameters (e.g., '5e-5 3e-5')")
     
     return parser
 
@@ -526,24 +530,71 @@ def get_args():
     else:
         transformers_logging.set_verbosity_info()
         
+    # Validate tensorboard logging configuration
     if args.tensorboard and args.tb_log_dir is None:
-        raise ValueError("`tb-log-dir` need to be set if tensorboard logging is needed")
+        raise ValueError(
+            "TensorBoard logging requires '--tb-log-dir' to be specified. "
+            "Please provide a valid log directory path."
+        )
+
+    # Validate wandb logging configuration
     if args.wandb and (args.wandb_dir is None or args.wandb_cache_dir is None):
-        raise ValueError("`wandb-dir` and `wandb-cache_dir` need to be set if wandb logging is needed")
+        raise ValueError(
+            "Weights & Biases logging requires both '--wandb-dir' and '--wandb-cache-dir' "
+            "to be specified. Please provide valid directory paths."
+        )
+
+    # Validate model saving configuration
     if (args.save_interval or args.save_epoch) and args.output_path is None:
-        raise ValueError("Output path can not be None when model saving is required.")
+        raise ValueError(
+            "Model saving requires an output path. "
+            "Please specify '--output-path' when using '--save-interval' or '--save-epoch'."
+        )
+
+    # Validate precision configuration
     if args.fp16 and args.bf16:
-        raise ValueError("Cannot specify both fp16 and bf16.")
+        raise ValueError(
+            "Mixed precision training: '--fp16' and '--bf16' are mutually exclusive. "
+            "Please choose only one precision mode."
+        )
+
+    # Validate training duration configuration
     if args.train_iters is not None and args.epochs is not None:
-        raise ValueError('Only one of train_iters and epochs should be set.')
-    if args.multimodal:
-        if args.multimodal_projector_type == 'mlp':
-            if not args.multimodal_projector_layers > 1:
-                raise ValueError('Mlp module layer count must greater than 1')
-    if args.lr_group_patterns and args.lr_group_scales:
-        if len(args.lr_group_patterns) != len(args.lr_group_scales):
-            raise ValueError("--lr_group_patterns and --lr_group_scales must have the same length!")
-    
+        raise ValueError(
+            "Training duration conflict: '--train-iters' and '--epochs' cannot be set simultaneously. "
+            "Please specify only one training duration metric."
+        )
+
+    # Validate multimodal projector configuration
+    if args.multimodal and args.multimodal_projector_type == 'mlp':
+        if not args.multimodal_projector_layers > 1:
+            raise ValueError(
+                "Multimodal MLP projector configuration invalid: "
+                "'--multimodal-projector-layers' must be greater than 1. "
+                f"Current value: {args.multimodal_projector_layers}"
+            )
+    if args.lr_group_patterns:
+        if args.lr_group_scales and args.lr_group_values:
+            raise ValueError(
+                "Conflicting arguments: '--lr-group-scales' and '--lr-group-values' "
+                "cannot be set simultaneously. Please specify only one of them."
+            )
+        
+        # Determine which parameter (scales or values) is provided
+        lr_param = args.lr_group_scales or args.lr_group_values
+        if not lr_param:
+            raise ValueError(
+                "When '--lr-group-patterns' is specified, you must also provide "
+                "either '--lr-group-scales' or '--lr-group-values'."
+            )
+        
+        # Validate lengths match
+        if len(args.lr_group_patterns) != len(lr_param):
+            raise ValueError(
+                f"Length mismatch: '--lr-group-patterns' (length {len(args.lr_group_patterns)}) "
+                f"must match the length of provided parameters (length {len(lr_param)})."
+            )
+        
     if args.fp16:
         args.default_dtype = 'fp16'
     elif args.bf16:
