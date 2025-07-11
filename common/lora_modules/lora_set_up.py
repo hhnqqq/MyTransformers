@@ -36,7 +36,7 @@ from common.lora_modules.goat import LinearWithGOAT
 from common.lora_modules.rasa import LinearWithRASA
 from common.lora_modules.dense_lora import LinearWithDenseLoRA
 from common.lora_modules.eva import LinearWithEVA
-from common.lora_modules.delora import LinearWithDELoRA
+from common.lora_modules.delora import LinearWithDeLoRA
 from common.lora_modules.nzlora import LinearWithNZLoRA
 from common.lora_modules.rasa_moe import LinearWithRASAMOE
 from common.lora_modules.lora_sb import LinearWithLoRASB
@@ -82,14 +82,14 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: {}, 
                 lambda a: "LoRA-GA utilizes SVD to extract singular features of gradient of pre-trained weight "
                 "to initialize low-rank weights, accelerate the convergence. The initialization of LoRA-GA requires some time, "
-                f"which depends on the number of gradient computing steps: {a.lora_ga_n_steps}"
+                f"which depends on the number of gradient computing steps: {a.gradient_est_n_steps}"
     ),
     "use_lora_one": LoRAVariant(
                 LinearWithLoRAOne, 
                 lambda a: {}, 
                 lambda a: "LoRA-One utilizes SVD to extract singular features of gradient of pre-trained weight "
                 "to initialize low-rank weights, accelerate the convergence. The initialization of LoRA-One requires some time, "
-                f"which depends on the number of gradient computing steps: {a.lora_one_n_steps}"
+                f"which depends on the number of gradient computing steps: {a.gradient_est_n_steps}"
     ),
     "use_rslora": LoRAVariant(
                 LinearWithRSLoRA, 
@@ -167,7 +167,7 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 "gora_dynamic_scaling": a.gora_dynamic_scaling}, 
                 lambda a: "GoRA utilize gradient of pre-trained weight to allocate rank and intialize weights for low-rank adapters. "
                 "accelerate the convergence. The initialization of GoRA requires some time, "
-                f"which depends on the number of gradient computing steps: {a.gora_n_steps}"
+                f"which depends on the number of gradient computing steps: {a.gradient_est_n_steps}"
     ),
     "use_increlora": LoRAVariant(
                 LinearWithIncreLoRA, 
@@ -237,7 +237,7 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 "EVA is a variant of LoRA, which uses the SVD decomposition result of the activation values to initialize the A matrix weights of LoRA."
     ),
     "use_delora": LoRAVariant(
-                LinearWithDELoRA,
+                LinearWithDeLoRA,
                 lambda a: {"delora_lambda": a.delora_lambda},
                 "DeLoRA bounding the distance of the transformation, effectively decouples the angular learning from the adaptation strength,"
                 "enhancing robustness without compromising performance."
