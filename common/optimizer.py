@@ -121,17 +121,17 @@ def get_regular_optimizer(optim_type, args, model):
 
         if lr_group_patterns and lr_group_scales:
             param_groups = {}
-            param_groups["default"] = {"params": [], "lr": args.lr}
+            param_groups["default"] = {"params": [], "lr": 1}
             
-            for pattern, lr_scale in zip(args.lr_group_patterns, args.lr_group_scales):
-                param_groups[pattern] = {"params": [], "lr": args.lr * lr_scale}
+            for pattern, lr_scale in zip(lr_group_patterns, lr_group_scales):
+                param_groups[pattern] = {"params": [], "lr": lr_scale}
             
             for name, param in model.named_parameters():
                 if not param.requires_grad:
                     continue
                 
                 matched = False
-                for pattern in args.lr_group_patterns:
+                for pattern in lr_group_patterns:
                     if pattern in name:
                         param_groups[pattern]["params"].append(param)
                         matched = True
