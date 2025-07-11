@@ -7,6 +7,7 @@ import contextlib
 from common.lora_modules.lora import *
 from common.lora_modules.melora import *
 from common.lora_modules.lora_ga import *
+from common.lora_modules.lora_sb import *
 from common.lora_modules.lora_set_up import *
 from common.lora_modules.mos_lora import *
 from common.lora_modules.dora import *
@@ -131,34 +132,35 @@ def prepare_lora(model, train_dataloader, args):
     For example, if LoRA-GA is utilized, then we need to pre-compute gradients before training.
     For VeRA and Shared LoRA, we need to prepare shared weights.
     """
-    if args.use_lora_ga:
-        lora_ga_reinit(model=model,
-                    dataloader=train_dataloader,
-                    args=args,
-                    iters=args.lora_ga_n_steps)
-    if args.use_lora_one:
-        lora_one_reinit(model=model,
-                    dataloader=train_dataloader,
-                    args=args,
-                    iters=args.lora_one_n_steps)
-    if args.use_gora:
-        gora_reinit(model=model,
-                    dataloader=train_dataloader,
-                    args=args,
-                    iters=args.gora_n_steps)
-    if args.use_adalora:
-        rank_allocator = RankAllocator(model, args)
-        model.rankallocator = rank_allocator
-    if args.use_increlora:
-        rank_allocator = IncreRankAllocator(model, args)
-        model.rankallocator = rank_allocator
+    reinit_functions = {
+        'use_lora_ga': lora_ga_reinit,
+        'use_lora_one': lora_one_reinit,
+        'use_lora_sb': lora_sb_reinit,
+        'use_gora': gora_reinit,
+        'lora_ga_pro': lora_ga_pro_reinit
+    }
+
+    rank_allocator_classes = {
+        "use_adalora": RankAllocator,
+        "use_increlora": IncreRankAllocator
+    }
+
+    for arg_name, reinit_func in reinit_functions.items():
+        if getattr(args, arg_name, False):
+            reinit_func(
+                model=model,
+                dataloader=train_dataloader,
+                args=args,
+                iters=args.gradient_est_n_steps
+            )
+
+    for arg_name, rank_allocator_cls in rank_allocator_classes.items():
+        if getattr(args, arg_name, False):
+            rank_allocator = rank_allocator_cls(model, args)
+            model.rankallocator = rank_allocator
+            
     if args.use_mola:
         init_mola_experts_by_shape(model=model, args=args)
-    if args.use_lora_ga_pro:
-        lora_ga_pro_reinit(model=model,
-                    dataloader=train_dataloader,
-                    args=args,
-                    iters=args.lora_ga_n_steps)
     if args.use_eva:
         eva_reinit(
             model=model,

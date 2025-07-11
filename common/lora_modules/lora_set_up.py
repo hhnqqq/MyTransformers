@@ -39,6 +39,7 @@ from common.lora_modules.eva import LinearWithEVA
 from common.lora_modules.delora import LinearWithDELoRA
 from common.lora_modules.nzlora import LinearWithNZLoRA
 from common.lora_modules.rasa_moe import LinearWithRASAMOE
+from common.lora_modules.lora_sb import LinearWithLoRASB
 
 @dataclass
 class LoRAVariant:
@@ -253,6 +254,11 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 "shared_lora_rank":a.rasa_shared_lora_rank},
                 "Rasamoe is divided into fixed experts and shared experts."
     ),
+    "use_lora_sb": LoRAVariant(
+                LinearWithLoRASB,
+                lambda a: {},
+                "LoRA-SB is similar to LoRA-GA and MoSlLoRA, during training only weight_ab_mixer reamins trainable."
+    )
 }
 
 class LoRAManager:
@@ -429,12 +435,13 @@ def switch_to_lora(model: nn.Module, args: Namespace, transposition: bool = Fals
     Raises:
         AssertionError: If replace_modules is None
     """
-    assert args.replace_modules is not None, 'Replace modules cannot be None'
+    if args.replace_modules is None:
+        raise ValueError('Replace modules cannot be None')
     
     lora_layer_class, variant_config = LoRAManager.get_lora_layer_class(args)
     LoRAManager.check_lora_settings(args, lora_layer_class)
     if args.run_lora_in_fp32:
-        print_rank_0('--->Will keep lora weights in float32', args.global_rank)
+        print_rank_0('--->The low-rank weights will be cast into FP32 during forward computation.', args.global_rank)
 
     for name, module in model.named_modules():
         try:
@@ -505,6 +512,7 @@ def get_lora_weight_names(args):
         (args.use_adalora or args.use_rasa, ['weight_a', 'weight_b', 'weight_e']),
         (args.use_mos_lora or args.use_dense_lora or args.use_nlora, ['weight_a', 'weight_b', 'weight_ab_mixer']),
         (args.use_goat or args.use_lora_moe or args.use_rasamoe, ['weight_a', 'weight_b', 'gate']),
+        (args.use_lora_sb, ['weight_ab_mixer']),
         (True, ['weight_a', 'weight_b'])
     ]
 

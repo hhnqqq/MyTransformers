@@ -311,8 +311,6 @@ def peft_parser(parser: argparse.ArgumentParser):
     group.add_argument('--use-gora', action='store_true',
                        help='Whether to use gora')
     group.add_argument('--gora-init-method', type=str, default='weight_svd')
-    group.add_argument('--gora-n-steps', type=int, default=8,
-                       help='N steps for gora to estimate full-rank gradient.')
     group.add_argument('--gora-max-rank', type=int, default=9999)
     group.add_argument('--gora-min-rank', type=int, default=1)
     group.add_argument('--gora-softmax-importance', action='store_true')
@@ -365,14 +363,15 @@ def peft_parser(parser: argparse.ArgumentParser):
     
     group.add_argument('--use-lora-ga', action='store_true',
                        help='Wheather to use lora ga')
-    group.add_argument('--lora-ga-n-steps', type=int, default=8,
-                       help='N steps for lora-ga to estimate full-rank gradient.')
+    group.add_argument('--gradient-est-n-steps', type=int, default=8,
+                       help='N steps for estimating full-rank gradient.')
     group.add_argument('--lora-ga-scale-method', type=str, default='gd')
+
+    group.add_argument('--use-lora-sb', action='store_true',
+                       help='Wheather to use lora sb')
     
     group.add_argument('--use-lora-one', action='store_true',
                        help='Wheather to use lora ga')
-    group.add_argument('--lora-one-n-steps', type=int, default=8,
-                       help='N steps for lora-one to estimate full-rank gradient.')
     
     group.add_argument('--use-lora-ga-pro', action='store_true')
     group.add_argument('--lora-ga-pro-rank-stablize', action='store_true')

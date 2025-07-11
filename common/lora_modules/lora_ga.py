@@ -1,12 +1,10 @@
 """Implementation of LoRA-GA
 Code reference: https://github.com/Outsider565/LoRA-GA/blob/main/peft/src/peft/tuners/lora/layer.py
 """
-import os
 import random
 
-from common.utils import print_rank_0, reduce_tensor, Timer
-from common.utils import to_device
 from common.lora_modules.lora import *
+from common.utils import print_rank_0, reduce_tensor, to_device, Timer
 
 class LinearWithLoRAGA(LinearWithLoRA):
     def gradient_reinit(self, 
