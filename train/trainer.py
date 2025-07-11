@@ -6,6 +6,7 @@ import logging
 
 import wandb
 import deepspeed
+from tqdm import tqdm
 from typing import Callable
 from argparse import Namespace
 from torch.utils.data import DataLoader
@@ -26,10 +27,11 @@ class Trainer:
         self.eval_metric = []
         self.best_eval_index = 0.0
         self.wait = 0
-        self.save_folder = os.path.join(args.output_path, args.experiment_name)
         self.lr = args.lr
         self.epochs = 0
-        ensure_directory_exists(self.save_folder, self.args.global_rank)
+        self.save_folder = os.path.join(args.output_path, args.experiment_name) if args.output_path else None
+        if self.save_folder:
+            ensure_directory_exists(self.save_folder, self.args.global_rank)
 
     def train(
         self,
@@ -59,7 +61,7 @@ class Trainer:
             profiler (Callable, optional): Profiler function. Defaults to None.
             log_loss (bool, optional): Flag to log loss values. Defaults to False.
         """
-        print_rank_0('--->loaded the model, start training', self.args.global_rank)
+        print_rank_0('--->Loaded the model, start training', self.args.global_rank)
 
         total_print_steps = self.args.num_global_update_steps // self.args.show_avg_loss_step
 
@@ -68,12 +70,27 @@ class Trainer:
             self.args.save_interval = (updates_per_epoch / self.args.gradient_accumulation_steps) * self.args.save_epoch
 
         if self.args.save_interval is None:
+            # Set a very large number to effectively disable intermediate saving
             self.args.save_interval = int(1e30)
-            print_rank_0(f'--->Checkpoint will only be saved on the last step of training as `args.save_interval` is None', self.args.global_rank)
+            
+            # Prepare appropriate warning message based on configuration
+            if self.save_folder:
+                warning_msg = (
+                    "Warning: Checkpoints will only be saved at the end of training "
+                    "since 'args.save_interval' is not specified."
+                )
+            else:
+                warning_msg = (
+                    "Warning: No checkpoints will be saved during training "
+                    "as no output path ('args.output_path') has been configured."
+                )
+            
+            # Print the warning message only on the main process (rank 0)
+            print_rank_0(warning_msg, self.args.global_rank)
 
         with Timer(iterations=total_print_steps) as timer:
             model.train()
-            for step in range(1, self.args.num_micro_update_steps+1):
+            for step in tqdm(range(1, self.args.num_micro_update_steps+1), disable=(not self.args.tqdm), desc='Training Process'):
                 # Timer start
                 timer.average_time(entry='start')
                 
@@ -215,7 +232,9 @@ class Trainer:
             lr_scheduler (torch.optim.lr_scheduler._LRScheduler): The learning rate scheduler to be saved.
             step (int): The current training step.
         """
-
+        if not self.save_folder:
+            return 
+        
         # Save the training configuration if required
         if step == 1 and isinstance(self.args, Namespace) and self.args.global_rank == 0:
             config_path = os.path.join(self.save_folder, 'config.json')
