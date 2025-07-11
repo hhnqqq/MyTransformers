@@ -1,3 +1,16 @@
+# @author: haonan he
+"""
+Implementation of DenseLoRA: Dense Low-Rank Adaptation of Large Language Models [ACL 2025]
+Paper link: https://arxiv.org/abs/2505.23808
+Code reference: https://github.com/mulin-ahu/DenseLoRA/blob/main/commonsense_reasoning/peft/src/peft/tuners/lora.py
+
+DenseLoRA enhances parameter efficiency while achieving superior performance
+compared to LoRA. DenseLoRA builds upon the concept of representation fine-tuning, 
+incorporating a single Encoder-Decoder to refine and compress hidden representations 
+across all adaptation layers before applying adaptation. Instead of relying on two redundant
+low-rank matrices as in LoRA, DenseLoRA adapts LLMs through a dense low-rank matrix, 
+improving parameter utilization and adaptation efficiency. 
+"""
 from common.lora_modules.lora import *
 from common.lora_modules.share_lora import get_module_groups
 

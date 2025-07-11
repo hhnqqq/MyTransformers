@@ -1,3 +1,14 @@
+# @author: jingqi ye (modified by haonan he)
+"""
+Implementation of EVA(Parameter Efficient Fine-tuning via Explained Variance Adaptation) [arxiv preprint]
+Paper link: https://arxiv.org/abs/2410.07170
+Code reference: https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/layer.py
+
+EVA uses the directions capturing the most activation variance, 
+provably maximizing the expected gradient signal and accelerating fine-tuning. 
+EVA performs incremental SVD on minibatches of activation vectors and 
+selects the right-singular vectors for initialization once they converged.
+"""
 import os
 import json
 import time

@@ -1,7 +1,18 @@
+# @author: haonan he
+# @date: 2025-07-11
+"""
+Implementaion of DeLoRA: Decoupling Angles and Strength in Low-rank Adaptation [ICLR 2025]
+Paper link: https://arxiv.org/abs/2503.18225
+Code reference: https://github.com/ExplainableML/DeLoRA/blob/main/peft/src/peft/tuners/delora.py
+
+DeLoRA normalizes and scales learnable low-rank matrices. By bounding the distance of the transformation, 
+DeLoRA effectively decouples the angular learning from the adaptation strength, 
+enhancing robustness without compromising performance.
+"""
 from common.lora_modules.lora import *
 from common.lora_modules.lora import LoRAConfig
 
-class LinearWithDELoRA(LinearWithLoRA):
+class LinearWithDeLoRA(LinearWithLoRA):
     def __init__(self, lora_config: LoRAConfig, delora_lambda):
         """
         Initialize the LinearWithDELoRA layer.
@@ -43,8 +54,13 @@ class LinearWithDELoRA(LinearWithLoRA):
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         weight = self._quantize_weight(self.weight, self.weight_quantizer)
-        if not self.disable_lora:
+        if not self.disable_lora and self.has_lora_weights:
             # merge the weight and low-rank weight.
             # skip a individual forward pass for low-rank weight.
             weight = weight + self._compute_lora_weight()
         return F.linear(x, weight, self.bias)
+    
+    @property
+    def has_lora_weights(self):
+        has_lambda = getattr(self, "delora_lambda", None) is not None
+        return has_lambda and super().has_lora_weights

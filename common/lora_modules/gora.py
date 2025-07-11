@@ -1,3 +1,13 @@
+# @author: haonan he
+"""
+Official implementation for GoRA: Gradient-driven Adaptive Low Rank Adaptation [arxiv preprint]
+Paper link: https://arxiv.org/abs/2502.12171
+Code reference: this is the offical implementaion
+
+GoRA simultaneously adapts both the rank and initialization strategy within a unified framework. 
+GoRA leverages gradient information during training to dynamically assign optimal ranks and 
+initialize low-rank adapter weights in an adaptive manner. 
+"""
 import os
 import math
 import json

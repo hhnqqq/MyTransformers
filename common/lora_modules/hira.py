@@ -1,3 +1,9 @@
+# @author: haonan he
+"""
+Implementation for HiRA: Parameter-Efficient Hadamard High-Rank Adaptation for LLMs [ICLR 2025]
+Paper link: https://openreview.net/forum?id=TwJrTz9cRS
+Code reference: https://github.com/hqsiswiliam/hira/blob/master/hira/tuners/lora.py
+"""
 from common.lora_modules.lora import *
 
 class LinearWithHiRA(LinearWithLoRA):

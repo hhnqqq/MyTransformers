@@ -1,6 +1,15 @@
-# @author: mengqi li
+# @author: mengqi li (modified by: haonan he)
 # @date: 2024-11-03
-"""Un-official implements AdaLoRA(https://arxiv.org/pdf/2303.10512)."""
+"""
+Implementation of AdaLoRA: Adaptive Budget Allocation for Parameter-Efficient Fine-Tuning [ICLR 2023]
+Paper link: https://arxiv.org/pdf/2303.10512
+Code reference: https://github.com/huggingface/peft/tree/main/src/peft/tuners/adalora
+
+AdaLoRA adaptively allocates the parameter budget among weight matrices according to their importance score. 
+In particular, AdaLoRA parameterizes the incremental updates in the form of singular value decomposition. 
+Such a novel approach allows us to effectively prune the singular values of unimportant updates, 
+which is essentially to reduce their parameter budget but circumvent intensive exact SVD computations.
+"""
 
 from common.lora_modules.lora import *
 
@@ -265,16 +274,6 @@ def update_and_allocate(model, global_step, saved_gradients):
 
     Args:
         global_step (`int`): The current training step, it is used to calculate adalora budget.
-
-    Example:
-
-    ```python
-    >>> loss = model(**input).loss
-    >>> loss.backward()
-    >>> optimizer.step()
-    >>> model.base_model.update_and_allocate(i_step)
-    >>> optimizer.zero_grad()
-    ```
     """
     lora_config = model.rankallocator.args
     # Update the importance score and allocate the budget

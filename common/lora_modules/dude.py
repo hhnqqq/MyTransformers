@@ -1,3 +1,12 @@
+# @author: haonan he
+"""
+Implementaion of DuDe(Dual Decomposition of Weights and Singular Value Low Rank Adaptation) [arxiv preprint]
+Paper link: https://arxiv.org/abs/2505.14367
+Code reference: None
+
+DuDe decomposes weight matrices into magnitude and direction components, 
+employing Singular Value Decomposition (SVD) for principled initialization.
+"""
 from common.lora_modules.dora import *
 from common.lora_modules.pissa import LinearWithPiSSA
 

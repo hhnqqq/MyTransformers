@@ -1,22 +1,16 @@
+# @author: haonan he
 """
- Algorithm : Delta-LoRA
- Input: Learning rate η; weight decay β; total training iterations T; low rank r; scale factor α; start
- steps K; update ratio λ.
- Ais initialized by Kaiming Initialization, B = 0 and W is initialized with pre-trained weights.
- for t = 0,...,T -1 do
-    Sample a mini-batch and compute gradients for {A,B} in each Delta-LoRA module.
-    Update the first and second moments maintained by the optimizer with the computed gradients,
-and get the normalized gradients gA and gB.
-    A(t+1) ← A(t) -ηgA -ηβA(t)
-    B(t+1) ← B(t) -ηgB -ηβB(t)
-    if t > K do
-        W(t+1) ← W(t) +λ· α
-        r ·(A(t+1)B(t+1) -A(t)B(t))
-    end if
- end for
- Output: the fine-tuned parameters {W(T),A(T),B(T)}
+Implementation of Delta-LoRA: Fine-Tuning High-Rank Parameters with the Delta of Low-Rank Matrices [arxiv preprint]
+Paper Link: https://arxiv.org/abs/2309.02411
+Code reference: None
 
-We use update ratio λ=2 and set start steps K=500 for Delta-LoRA.
+Delta-LoRA not only updates the low-rank matrices $\bA$ and $\bB$, 
+but also propagate the learning to the pre-trained weights $\bW$ via updates 
+utilizing the delta of the product of two low-rank matrices ($\bA^{(t+1)}\bB^{(t+1)} - \bA^{(t)}\bB^{(t)}$). 
+Such a strategy effectively addresses the limitation that the incremental update of low-rank matrices 
+is inadequate for learning representations capable for downstream tasks. 
+Moreover, as the update of $\bW$ does not need to compute the gradients of $\bW$ and store their momentums, 
+Delta-LoRA shares comparable memory requirements and computational costs with LoRA. 
 """
 from common.lora_modules.lora import *
 

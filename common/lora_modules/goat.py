@@ -1,5 +1,10 @@
-# @author: Jingqi Ye
+# @author: Jingqi Ye (modified by: haonan he)
 # @date: 2025-06-05
+"""
+Implementation of GOAT [ICML 2025]
+(Make LoRA Great Again: Boosting LoRA with Adaptive Singular Values and Mixture-of-Experts Optimization Alignment)
+Paper link: https://arxiv.org/abs/2502.16894
+"""
 from common.lora_modules.lora import *
 import torch
 import math

@@ -1,5 +1,8 @@
+# @author: haonan he 
 """
-Implementation of DoRA
+Implementation of DoRA: Weight-Decomposed Low-Rank Adaptation [ICML 2024]
+Paper link: https://arxiv.org/abs/2402.09353
+Code reference: https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/dora.py
 
 Below is the specific method from the dora paper:
 This analysis examines the updates in
@@ -34,6 +37,8 @@ class LinearWithDoRA(LinearWithLoRA):
         super().init_lora_weights()
         dtype = self._get_lora_dtype()
         requires_grad = not self.quant
+        # Whether origin_magnitude is trainable has minimal impact on results
+        # (see Appendix C in https://arxiv.org/abs/2503.18225v2 (delora) for details)
         self.origin_magnitude = nn.Parameter(
             torch.linalg.norm(self.weight.detach(), dim=1).to(dtype=dtype),
             requires_grad=requires_grad
@@ -48,7 +53,7 @@ class LinearWithDoRA(LinearWithLoRA):
         weight = weight.to(lora_weight.dtype)
         weight = weight + lora_weight
         new_magnitude: torch.Tensor = torch.linalg.norm(weight.detach(), dim=1).to(lora_weight.dtype)
-        # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
+        # see section 4.3 of the paper.
         # "[...] we suggest treating ||V +∆V ||_c in
         # Eq. (5) as a constant, thereby detaching it from the gradient
         # graph. This means that while ||V + ∆V ||_c dynamically
