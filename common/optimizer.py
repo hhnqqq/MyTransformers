@@ -113,6 +113,9 @@ def get_regular_optimizer(optim_type, args, model):
     try:
         lr_group_patterns = set(args.lr_group_patterns) if args.lr_group_patterns else set()
         lr_group_scales = set(args.lr_group_scales) if args.lr_group_scales else set()
+        lr_group_values = set(args.lr_group_values) if args.lr_group_values else set()
+        if lr_group_values:
+            lr_group_scales = {i/args.lr for i in lr_group_values}
 
         if args.use_lora_plus:
             lr_group_patterns.add('weight_b')
@@ -156,7 +159,7 @@ def get_regular_optimizer(optim_type, args, model):
         }.get(optim_type)
         
         if optimizer_class is None:
-            raise NotImplementedError('only support adam and its variants for now')
+            raise NotImplementedError('Only support adam and its variants for now')
         
         optimizer = optimizer_class(params,
                                     lr=args.lr,
