@@ -3,16 +3,17 @@ import json
 import argparse
 
 import torch
+import numpy as np
 import pandas as pd
 
 from functools import partial
 
 from model import *
-from common.registry import registry
 from common.lora_modules import *
-from common.utils import set_random_seed, load_ckpt
+from common.registry import registry
 from common.utils.utils import set_default_tensor_type
-from common.utils import parallel_states as parallel_states
+from common.utils import set_random_seed, load_ckpt, Timer
+
 
 from tqdm import tqdm
 from argparse import Namespace
@@ -100,7 +101,7 @@ def main(args):
     device = torch.device(args.device)
     print("Start loading model")
     with set_default_tensor_type(model_config.get_dtype()):
-        model = model(model_config)
+        model = model(model_config).to(device)
         print("load checkpoint")
         if args.pretrained_ckpt is not None:
             load_ckpt(model=model.model, ckpt_path=args.pretrained_ckpt)
@@ -111,7 +112,7 @@ def main(args):
         if args.ckpt is not None:
             load_ckpt(model=model.model, partial_ckpt_path=args.ckpt)
             print(f"loaded weight at{args.ckpt}")
-            if check_shared_lora_weights_required:
+            if check_shared_lora_weights_required(training_args):
                 create_shared_weight_references(model)
         model = model.to(device).eval()
     print("Model loading done")
@@ -134,84 +135,88 @@ def main(args):
         print(f'RESULT: {result}')
         print('======================================')
 
-    if args.dataset_path is not None:   
+    # log the inference time
 
-        # Initialize result path
-        args.result_path = args.result_path or floder_path
+    if args.dataset_path is not None:   
         
-        # Read and prepare dataset
-        file_format = args.dataset_path.split('.')[-1]
-        df = format_dict[file_format](args.dataset_path)
-        
-        if args.read_num:
-            df = stratified_sample(df, strata_col='task', total_sample_size=args.read_num)
-        
-        df['result'] = ''
-        acc_count = w_count = 0
-        disable_tqdm = not args.tqdm
-        total_samples = df.shape[0]
-        
-        # Process in batches
-        with tqdm(range(0, total_samples, args.batch_size), 
-                desc='Processing dataset', 
-                disable=disable_tqdm) as tbar:
+        with Timer() as timer:
+            # Initialize result path
+            args.result_path = args.result_path or floder_path
             
-            for batch_start in tbar:
-                batch_end = min(batch_start + args.batch_size - 1, total_samples - 1)
-                batch_indices = range(batch_start, batch_end + 1)
+            # Read and prepare dataset
+            file_format = args.dataset_path.split('.')[-1]
+            df = format_dict[file_format](args.dataset_path)
+            
+            if args.read_num:
+                df = stratified_sample(df, strata_col='task', total_sample_size=args.read_num)
+            
+            if args.repeat_time > 1:
+                df = df.loc[np.repeat(df.index, args.repeat_time)].reset_index(drop=True)
+
+            df['result'] = ''
+            acc_count = w_count = 0
+            disable_tqdm = not args.tqdm
+            total_samples = df.shape[0]
+            
+            # Process in batches
+            with tqdm(range(0, total_samples, args.batch_size), 
+                    desc='Processing dataset', 
+                    disable=disable_tqdm) as tbar:
                 
-                # Prepare inputs
-                inputs = [
-                    args.meta_prompt + args.prefix + x + args.postfix
-                    for x in df.loc[batch_indices, 'input']
-                ]
-                
-                # Generate results
-                results = model.generate(
-                    inputs, 
-                    device, 
-                    output_len=args.output_len, 
-                    eos=False, 
-                    temperature=args.temperature,
-                    top_p=args.top_p
-                )[0]
-                
-                # Process results
-                results = [r.strip("<|begin_of_text|>") for r in results]
-                
-                for idx, (result, true_output) in enumerate(zip(
-                    results, 
-                    df.loc[batch_indices, 'output']
-                )):
-                    current_idx = batch_start + idx
-                    if result == true_output:
-                        acc_count += 1
-                    else:
-                        w_count += 1
+                for batch_start in tbar:
+                    batch_end = min(batch_start + args.batch_size - 1, total_samples - 1)
+                    batch_indices = range(batch_start, batch_end + 1)
                     
-                    df.loc[current_idx, 'result'] = result
+                    # Prepare inputs
+                    inputs = [
+                        args.meta_prompt + args.prefix + x + args.postfix
+                        for x in df.loc[batch_indices, 'input']
+                    ]
+                    
+                    # Generate results
+                    results = model.generate(
+                        inputs, 
+                        device, 
+                        output_len=args.output_len, 
+                        eos=False, 
+                        temperature=args.temperature,
+                        top_p=args.top_p
+                    )[0]
+                    
+                    for idx, (result, true_output) in enumerate(zip(
+                        results, 
+                        df.loc[batch_indices, 'output']
+                    )):
+                        current_idx = batch_start + idx
+                        if result == true_output:
+                            acc_count += 1
+                        else:
+                            w_count += 1
+                        
+                        df.loc[current_idx, 'result'] = result
+                        
+                        if disable_tqdm:
+                            print(f"Index: {current_idx}, Result: {result}")
+                    
+                    # Update progress
+                    accuracy = round(acc_count/(batch_end + 1), 4) * 100
+                    wrong_rate = round(w_count/(batch_end + 1), 4) * 100
+                    tbar.set_postfix({
+                        "accuracy": f"{accuracy}%", 
+                        "wrong": f"{wrong_rate}%"
+                    })
                     
                     if disable_tqdm:
-                        print(f"Index: {current_idx}, Result: {result}")
-                
-                # Update progress
-                accuracy = round(acc_count/(batch_end + 1), 4) * 100
-                wrong_rate = round(w_count/(batch_end + 1), 4) * 100
-                tbar.set_postfix({
-                    "accuracy": f"{accuracy}%", 
-                    "wrong": f"{wrong_rate}%"
-                })
-                
-                if disable_tqdm:
-                    print(df.loc[batch_indices, ['output', 'result']])
-                    print(f"Accuracy: {accuracy}%, Wrong: {wrong_rate}%")
-                
-                # Periodic save
-                if batch_start % 1000 == 0:
-                    save_results(df, args.result_path)
-        
-        # Final save
-        save_results(df, args.result_path)
+                        print(df.loc[batch_indices, ['output', 'result']])
+                        print(f"Accuracy: {accuracy}%, Wrong: {wrong_rate}%")
+                    
+                    # Periodic save
+                    if batch_start % 1000 == 0:
+                        save_results(df, args.result_path)
+            
+            # Final save
+            save_results(df, args.result_path)
+        print(f"total inference time: {timer.time_cost}")
                 
     if args.run_loop:
         while True:
@@ -273,6 +278,7 @@ if __name__ == "__main__":
     parser.add_argument("--local_rank", type=int, default=0)
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--top_p", type=float, default=0.95)
+    parser.add_argument("--repeat_time", type=int, default=1)
 
     args = parser.parse_args()
 
