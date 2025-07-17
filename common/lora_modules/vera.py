@@ -70,7 +70,7 @@ class LinearWithVeRA(LinearWithLoRA):
         self.shared_weight_b = shared_weight_b
         # For unified computation.
         self.weight_a = shared_weight_a
-        self.weight_B = shared_weight_b
+        self.weight_b = shared_weight_b
 
     def _init_lambdas(self, b_init_method: str, d_init_method: str):
         """
