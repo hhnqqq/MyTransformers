@@ -80,6 +80,8 @@ class LinearWithVeRA(LinearWithLoRA):
             d_init_method: The method to initialize lambda d.
         """
         # Initialize vector b
+        # The per-layer number of trainable paramters of vera is (d + r)
+        # To make the number similar to 2rd, r1 = r(d+D) - d
         dtype = self._get_lora_dtype()
         requires_grad = True  # Always make lambda parameters trainable
         
