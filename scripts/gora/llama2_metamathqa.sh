@@ -25,6 +25,7 @@ lora_options="--use-lora \
     --gora-lr 5e-2 \
     --gora-rank-stablize \
     --gora-dynamic-scaling \
+    --gora-importance-type union_mean \
     --lora-rank 8 \
     --lora-scaler 16 \
     --replace-modules $replace_modules \
