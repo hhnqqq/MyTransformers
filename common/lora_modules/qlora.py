@@ -1,85 +1,109 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import bitsandbytes as bnb
+
 from common.lora_modules.lora import *
 
-class DoubleQuantizer(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.quant_level1 = lambda x: self.quantize(x, bits=4)
-        self.quant_level2 = lambda x: self.quantize(x, bits=8)
-
-    def quantize(self, x, bits=8):
-        qmax = 2**(bits-1) - 1
-        abs_max = x.abs().max()
-        abs_max = abs_max.clamp(min=1e-8)  # Prevent division by zero
-        scale = abs_max / qmax
-        quantized = torch.clamp(torch.round(x / scale), -qmax, qmax)
-        return quantized.to(torch.int8), scale
-
-    def dequantize(self, quantized, scale):
-        return quantized.to(torch.bfloat16) * scale
-
-    def forward(self, x):
-        quant_weight, scale1 = self.quant_level1(x)
-        quant_scale, scale2 = self.quant_level2(scale1)
-        return quant_weight, quant_scale, scale2
-
-    def reconstruct(self, quant_weight, quant_scale, scale2):
-        scale1 = self.dequantize(quant_scale, scale2)
-        return self.dequantize(quant_weight, scale1)
-
 class LinearWithQLoRA(LinearWithLoRA):
-    def __init__(self, lora_config: LoRAConfig):
+    def __init__(
+        self,
+        lora_config: LoRAConfig,
+        compute_dtype = torch.bfloat16,
+        quant_type: str = "nf4"
+    ):
         super().__init__(lora_config)
-        self.quantizer = DoubleQuantizer()
-        self.register_buffer("quant_weight", None)
-        self.register_buffer("quant_scale", None)
-        self.register_buffer("scale2", None)
-        self._orig_weight = None
-        self._register_load_state_dict_pre_hook(self._pre_load_hook)
 
-    def _quantize_weights(self):
-        if self.quant_weight is None and self.weight is not None:
-            self.quant_weight, self.quant_scale, self.scale2 = self.quantizer.forward(
-                self.weight.data
-            )
-            self._orig_weight = self.weight.data
-            # Keep weight tensor but set to zero to reduce memory usage
-            self.weight.data = torch.zeros_like(self.weight.data)
+        self.qlora_config = lora_config
+        self.compute_dtype = compute_dtype
+        self.quant_type = quant_type
 
-    def _pre_load_hook(self, state_dict, prefix, *args, **kwargs):
-        # Check if quantized weights are present in state dict
-        if f"{prefix}quant_weight" in state_dict:
-            # Load quantized weights and scales
-            self.quant_weight = state_dict.pop(f"{prefix}quant_weight")
-            self.quant_scale = state_dict.pop(f"{prefix}quant_scale")
-            self.scale2 = state_dict.pop(f"{prefix}scale2")
-            # Ensure weight tensor is zeroed
-            if f"{prefix}weight" in state_dict:
-                state_dict[f"{prefix}weight"] = torch.zeros_like(
-                    state_dict[f"{prefix}weight"]
-                )
+        self.is_quantized = False
+        self.quantized_linear = None
+
+    def quantize_base_layer(self):
+        if self.is_quantized:
+            return
+
+        if self.weight is None or self.weight.data.numel() == 0:
+            raise RuntimeError("Cannot quantize layer because self.weight has not been loaded.")
+
+        device = self.weight.device
+
+        self.quantized_linear = bnb.nn.Linear4bit(
+            self.in_features,
+            self.out_features,
+            bias=(self.bias is not None),
+            compute_dtype=self.compute_dtype,
+            quant_type=self.quant_type,
+            device=device,
+        )
+
+        self.quantized_linear.weight = bnb.nn.Params4bit(
+            data=self.weight.data.detach().clone(),
+            requires_grad=False
+        )
+        
+        if self.bias is not None:
+            self.quantized_linear.bias = self.bias
+
+        self.is_quantized = True
+
+        del self.weight
+        self.weight = None
+        if hasattr(self, 'bias') and self.bias is not None:
+            del self.bias
+            self.bias = None
+
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        self._quantize_weights()
-        
-        # Reconstruct weights only when needed
-        if self.quant_weight is not None:
-            weight = self.quantizer.reconstruct(
-                self.quant_weight,
-                self.quant_scale,
-                self.scale2
-            ).to(x.dtype)
-        else:
-            weight = self._orig_weight.to(x.dtype)
+        self.quantize_base_layer()
+        self.quantized_linear = self.quantized_linear.to(x.device)
+        result = self.quantized_linear(x)
 
-        # Perform linear transformation
-        result = F.linear(x, weight, self.bias)
-        
-        # Apply LoRA if enabled and weights exist
-        if not self.disable_lora and self.has_lora_weights:
-            x_lora = x.to(self._get_lora_dtype())
-            result = self._lora_forward(x_lora, result)
+        if self.disable_lora or not self.has_lora_weights:
+            return result
+        else:
+            return self._lora_forward(x, result)
+
+    def _get_lora_dtype(self):
+        if self.is_quantized:
+            return self.compute_dtype
+        else:
+            return super()._get_lora_dtype()
+
+    def _merge_lora(self) -> bool:
+        if not self.has_lora_weights or self.merged:
+            return False
+
+        if self.is_quantized:
+            if self.quantized_linear is None: return False
             
-        return result
+            base_weight = self.quantized_linear.weight.dequantize()
+            lora_weight = self._compute_lora_weight()
+            
+            self.weight = nn.Parameter(base_weight + lora_weight)
+            if self.quantized_linear.bias is not None:
+                self.bias = nn.Parameter(self.quantized_linear.bias.data)
+            
+            delattr(self, 'quantized_linear')
+            self.is_quantized = False
+            return True
+        else:
+            return super()._merge_lora()
+            
+    def _compute_lora_weight(self):
+        # 确保在任何状态下都能正确计算lora增量
+        if not self.has_lora_weights:
+            return None
+        
+        dtype = self._get_lora_dtype()
+        device = self.weight_a.device
+        
+        lora_weight = self.lora_scaler * torch.matmul(
+            self.weight_b.to(device=device, dtype=dtype),
+            self.weight_a.to(device=device, dtype=dtype)
+        )
+        return lora_weight
