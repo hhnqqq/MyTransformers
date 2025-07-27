@@ -32,7 +32,6 @@ class LinearWithPiSSA(LinearWithLoRA):
         # PiSSA share same functions with vinalla lora only with a different initialize method.
         dtype = self._get_lora_dtype()
         weight_dtype = self.weight.dtype
-        requires_grad = not self.quant
 
         weight = self.weight.to(torch.float32)
         if self.fast_svd:
@@ -48,17 +47,15 @@ class LinearWithPiSSA(LinearWithLoRA):
         sqrt_Sr = Sr.sqrt_()
         
         weight_a_data = torch.diag(sqrt_Sr) @ Uhr
-        self.weight_a = nn.Parameter(weight_a_data.to(dtype), requires_grad=requires_grad)
+        self.weight_a = nn.Parameter(weight_a_data.to(dtype), requires_grad=True)
+
         weight_b_data = Vr @ torch.diag(sqrt_Sr)
-        self.weight_b = nn.Parameter(weight_b_data.to(dtype), requires_grad=requires_grad)
+        self.weight_b = nn.Parameter(weight_b_data.to(dtype), requires_grad=True)
 
         if self.keep_init_weights:
-            self.init_weight_a = nn.Parameter(weight_a_data.clone().to(dtype), requires_grad=requires_grad)
-            self.init_weight_b = nn.Parameter(weight_b_data.clone().to(dtype), requires_grad=requires_grad)
+            self.init_weight_a = nn.Parameter(weight_a_data.clone().to(dtype))
+            self.init_weight_b = nn.Parameter(weight_b_data.clone().to(dtype))
 
-        if self.quant:
-            self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
-            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
 
         self.weight.data = (weight - self._compute_lora_weight()).to(weight_dtype)
 

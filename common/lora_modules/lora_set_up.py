@@ -40,6 +40,7 @@ from common.lora_modules.delora import LinearWithDeLoRA
 from common.lora_modules.nzlora import LinearWithNZLoRA
 from common.lora_modules.rasa_moe import LinearWithRASAMOE
 from common.lora_modules.lora_sb import LinearWithLoRASB
+from common.lora_modules.lora_da import LinearWithLoRADA
 
 @dataclass
 class LoRAVariant:
@@ -258,7 +259,13 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 LinearWithLoRASB,
                 lambda a: {},
                 "LoRA-SB is similar to LoRA-GA and MoSlLoRA, during training only weight_ab_mixer reamins trainable."
-    )
+    ),
+    "use_lora_da":LoRAVariant(
+                LinearWithLoRADA,
+                lambda a: {},
+                ""
+    ),
+
 }
 
 class LoRAManager:
@@ -320,8 +327,7 @@ class LoRAManager:
             weight_b_init_method=args.weight_b_init_method,
             in_features=module.in_features,
             out_features=module.out_features,
-            bias=(getattr(module, "bias", None) is not None),
-            quant=getattr(module, "quant", False)
+            bias=(getattr(module, "bias", None) is not None)
         )
     
     @staticmethod
@@ -400,8 +406,6 @@ class LoRAManager:
             lora_layer.weight.data = module.weight.data
 
         # Copy additional attributes
-        if getattr(module, "quant", False):
-            lora_layer.weight_scaler = module.weight_scaler
         lora_layer.bias = getattr(module, "bias", None)
         
         lora_layer.init_lora_weights()
@@ -482,24 +486,29 @@ def setup_lora(model: nn.Module, args: Namespace, model_config: Optional[Any] = 
         args.replace_modules = args.replace_modules.split('_')
 
     if args.replace_modules:
-        print_rank_0(f'--->LoRA targeting modules: {args.replace_modules}', args.global_rank)
+        print_rank_0(f'--->LoRA target modules identified: {args.replace_modules}', 
+                    args.global_rank)
     else:
-        print_rank_0('--->The replace modules is not provided, LoRA is targeting all linear modules.', 
+        print_rank_0('--->No specific LoRA target modules provided - defaulting to all linear layers', 
                     args.global_rank)
         args.replace_modules = ['all-linear']
 
     # Apply LoRA
+    print_rank_0('--->Converting target modules to LoRA layers', args.global_rank)
     switch_to_lora(model, args)
+    
     if not check_applied_lora(model):
-        print_rank_0(f'--->Cannot find replace modules: {args.replace_modules} in the model, '
-                    'LoRA adapters are targeting all-linear now.')
+        print_rank_0(f'--->Specified modules {args.replace_modules} not found - '
+                    'falling back to all linear layers', args.global_rank)
         args.replace_modules = ['all-linear']
         switch_to_lora(model, args)
 
-    # Set enable_list
+    # Configure enabled parameters
     lora_weight_names = get_lora_weight_names(args)
     args.enable_list = lora_weight_names if args.enable_list is None else list(set(args.enable_list + lora_weight_names))
     
+    print_rank_0(f'--->Successfully initialized the model with LoRA modules.',
+                args.global_rank)
     model.to(args.device)
 
 def get_lora_weight_names(args):
