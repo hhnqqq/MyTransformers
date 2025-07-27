@@ -9,6 +9,7 @@ import random
 import logging
 import deepspeed
 import contextlib
+import subprocess
 import configparser
 from typing import Optional, Dict, Union
 from datetime import datetime
@@ -82,7 +83,7 @@ def modify_hf_forward(model):
 class Timer(object):
     def __init__(self, start=None, n_round=2, iterations: Optional[int] = None):
         """
-        A timer environment for loop programs.
+        A timer environment for loop programs with GPU memory usage tracking.
 
         Args:
             start (time): Start time for the timer. If None, the current time is used.
@@ -93,6 +94,9 @@ class Timer(object):
         self.start = round(start if start is not None else time.time(), self.round)  # Start time of the timer
         self.loop_start = None  # Start time of the current loop iteration
         self.iterations_left = iterations  # Number of iterations left
+        self.peak_memory = 0  # Peak GPU memory usage in MB
+        self.last_sample_time = self.start  # Last time GPU memory was sampled
+        self.sample_interval = 5  # Sampling interval in seconds
 
     def __enter__(self):
         return self
@@ -109,7 +113,7 @@ class Timer(object):
 
     def average_time(self, entry):
         """
-        Records the start or end time of a loop iteration.
+        Records the start or end time of a loop iteration and samples GPU memory if 5 seconds have passed.
 
         Args:
             entry (str): Either 'start' to record the start time or 'end' to record the end time.
@@ -119,6 +123,11 @@ class Timer(object):
             AssertionError: If 'end' is called before 'start'.
         """
         current_time = round(time.time(), self.round)  # Current time
+        # Sample GPU memory if 5 seconds have passed since the last sample
+        if current_time - self.last_sample_time >= self.sample_interval:
+            self._sample_gpu_memory()
+            self.last_sample_time = current_time
+
         if entry == 'start':
             if self.loop_start is None:
                 self.loop_start = current_time  # Record the start time of the loop iteration
@@ -131,6 +140,34 @@ class Timer(object):
             self.loop_start = None  # Reset the loop start time
         else:
             raise ValueError("Invalid entry value. Expected 'start' or 'end'.")
+
+    def _sample_gpu_memory(self):
+        """
+        Samples the current GPU memory usage using nvidia-smi and updates the peak memory if necessary.
+        """
+        try:
+            # Run nvidia-smi command to get GPU memory usage
+            result = subprocess.run(
+                ['nvidia-smi', '--query-gpu=memory.used', '--format=csv,nounits'],
+                capture_output=True, text=True, check=True
+            )
+            # Parse the output to get memory usage in MB
+            memory_lines = result.stdout.strip().split('\n')[1:]  # Skip header
+            for line in memory_lines:
+                memory_used = int(line.strip())
+                self.peak_memory = max(self.peak_memory, memory_used)
+        except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
+            # Handle cases where nvidia-smi is not available or fails
+            pass
+
+    def get_peak_memory(self):
+        """
+        Returns the peak GPU memory usage recorded.
+
+        Returns:
+            int: Peak GPU memory usage in MB.
+        """
+        return self.peak_memory
 
     def calculate_remaining_time(self):
         """
