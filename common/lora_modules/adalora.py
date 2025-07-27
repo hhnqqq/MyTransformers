@@ -31,12 +31,8 @@ class LinearWithAdaLoRA(LinearWithLoRA):
         self.lora_rank = init_r
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
-        weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer).to(
-            self._get_lora_dtype()
-        )
-        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer).to(
-            self._get_lora_dtype()
-        )
+        weight_a = self.weight_a.to(self._get_lora_dtype())
+        weight_b = self.weight_b.to(self._get_lora_dtype())
         weight_e = self.weight_e.to(self._get_lora_dtype())
         ranknum = self.ranknum + 1 if self.ranknum == 0 else self.ranknum
 
@@ -50,9 +46,9 @@ class LinearWithAdaLoRA(LinearWithLoRA):
     def _compute_lora(self):
         if self.has_lora_weights:
             # Compute lora weight.
-            weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
-            weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
-            weight_e = self.weight_quantizer
+            weight_a = self.weight_ato(self._get_lora_dtype())
+            weight_b = self.self.weight_bto(self._get_lora_dtype())
+            weight_e = self.weight_e.to(self._get_lora_dtype())
             # When using vanilla lora, the ab mixer is a identical matrix
 
         ranknum = self.ranknum + 1 if self.ranknum == 0 else self.ranknum
@@ -63,24 +59,18 @@ class LinearWithAdaLoRA(LinearWithLoRA):
     def init_lora_weights(self):
         # called by __init__ in LinearWithLoRA
         dtype = self._get_lora_dtype()
-        requires_grad = not self.quant
 
-        self.weight_a = nn.Parameter(torch.randn((self.lora_rank, self.in_features), dtype=dtype), requires_grad=requires_grad)
-        self.weight_b = nn.Parameter(torch.randn((self.out_features, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
-
-        if self.quant:
-            self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
-            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
+        self.weight_a = nn.Parameter(torch.randn((self.lora_rank, self.in_features), dtype=dtype), requires_grad=True)
+        self.weight_b = nn.Parameter(torch.randn((self.out_features, self.lora_rank), dtype=dtype), requires_grad=True)
 
         nn.init.normal_(self.weight_a, mean=0.0, std=0.02)
         nn.init.normal_(self.weight_b, mean=0.0, std=0.02)
 
-        requires_grad = not self.quant
 
         # In adalora, we have a diagonal matrix, but stored in singular values vector
         # Here we have no need to specify a weight init method, just using zeros is fine
         self.weight_e = nn.Parameter(
-            torch.zeros((self.lora_rank, 1), dtype=dtype), requires_grad=requires_grad
+            torch.zeros((self.lora_rank, 1), dtype=dtype), requires_grad=True
         )
         # The current rank
         self.ranknum = nn.Parameter(torch.randn(1), requires_grad=False)

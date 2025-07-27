@@ -17,7 +17,7 @@ class LinearWithMELoRA(LinearWithLoRA):
 
         Note:
             For detailed explanations of in_features, out_features, lora_rank, lora_scaler, 
-            lora_dropout, quant, weight_a_init_method, and weight_b_init_method, 
+            lora_dropout, weight_a_init_method, and weight_b_init_method, 
             please refer to the parent class LinearWithLoRA.
         """
         self._prepare_melora_attrs(me_lora_n_split, 
@@ -32,8 +32,6 @@ class LinearWithMELoRA(LinearWithLoRA):
         elif forward_method == "einsum":
             self.init_lora_weights = self.init_lora_weights_einsum
             self._lora_forward = self._lora_forward_einsum
-        if lora_config.quant:
-            print(f'Currently MELoRA is incompatible with quant, skipped quant')
 
     def _prepare_melora_attrs(self, me_lora_n_split, lora_rank, in_features, out_features):
         self.melora_n_split = me_lora_n_split
@@ -55,24 +53,19 @@ class LinearWithMELoRA(LinearWithLoRA):
             raise ValueError(f"out_features ({self.out_features}) must be divisible by melora_n_split ({self.melora_n_split})")
 
     def init_lora_weights_for(self):
-        dtype = torch.int8 if self.quant else None
-        requires_grad = not self.quant
 
         self.weight_a, self.weight_b =nn.ParameterList(), nn.ParameterList()  
         for _ in range(self.melora_n_split):
-            mini_weight_a = nn.Parameter(torch.empty((self.mini_lora_rank, self.mini_in_features), dtype=dtype), requires_grad=requires_grad)
-            mini_weight_b = nn.Parameter(torch.zeros((self.mini_out_features, self.mini_lora_rank), dtype=dtype), requires_grad=requires_grad)
+            mini_weight_a = nn.Parameter(torch.empty((self.mini_lora_rank, self.mini_in_features)), requires_grad=True)
+            mini_weight_b = nn.Parameter(torch.zeros((self.mini_out_features, self.mini_lora_rank)), requires_grad=True)
             self.weight_a.append(mini_weight_a)
             self.weight_b.append(mini_weight_b)
         self._init_weight('weight_a')
         self._init_weight('weight_b')
 
     def init_lora_weights_einsum(self):
-        dtype = torch.int8 if self.quant else None
-        requires_grad = not self.quant
-
-        self.weight_a = nn.Parameter(torch.empty((self.melora_n_split, self.mini_lora_rank, self.mini_in_features), dtype=dtype), requires_grad=requires_grad)
-        self.weight_b = nn.Parameter(torch.zeros((self.melora_n_split, self.mini_out_features, self.mini_lora_rank), dtype=dtype), requires_grad=requires_grad)
+        self.weight_a = nn.Parameter(torch.empty((self.melora_n_split, self.mini_lora_rank, self.mini_in_features)), requires_grad=True)
+        self.weight_b = nn.Parameter(torch.zeros((self.melora_n_split, self.mini_out_features, self.mini_lora_rank)), requires_grad=True)
         super()._init_weight('weight_a')
         super()._init_weight('weight_b')
 
@@ -155,8 +148,7 @@ if __name__ == "__main__":
     lora_config = LoRAConfig(in_features=in_features, 
                         out_features=out_features, 
                         lora_rank=lora_rank, 
-                        lora_scaler=lora_alpha, 
-                        quant=False)
+                        lora_scaler=lora_alpha)
 
     # --- Instantiate Layers ---
     # Use torch.manual_seed for reproducible initializations if needed *before* layer creation

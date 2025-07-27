@@ -21,7 +21,6 @@ class LoRAConfig:
     bias (bool): If there is a bias term in the origin layer.
     lora_rank (int, optional): Rank of LoRA decomposition. Default is 4.
     lora_scaler (float, optional): Scaler for LoRA weights. Default is 32.0.
-    quant (bool, optional): Whether to apply weight quantization. Default is False.
     weight_a_init_method (str, optional): The init method for weight_a.
     weight_b_init_method (str, optional): The init method for weight_b.
     run_lora_in_fp32 (bool): Whether to keep lora weight in fp32 regardless of dtype of forzen weight. (Defualt setting in peft's lora implementation.)    
@@ -32,7 +31,6 @@ class LoRAConfig:
     lora_rank: int = 4
     lora_scaler: float = 32.0
     lora_dropout: Optional[float] = None
-    quant: bool = False
     weight_a_init_method: Optional[str] = None
     weight_b_init_method: Optional[str] = None
     run_lora_in_fp32: bool = False
@@ -51,7 +49,6 @@ class LinearWithLoRA(nn.Linear):
         super().__init__(lora_config.in_features, lora_config.out_features, bias=lora_config.bias)
         self.lora_rank = lora_config.lora_rank
         self.lora_scaler = lora_config.lora_scaler / lora_config.lora_rank
-        self.quant = lora_config.quant
         self.weight_a_init_method = lora_config.weight_a_init_method
         self.weight_b_init_method = lora_config.weight_b_init_method
         self.run_lora_in_fp32 = lora_config.run_lora_in_fp32
@@ -65,7 +62,7 @@ class LinearWithLoRA(nn.Linear):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # The origin weight of Linear layer.
-        weight = self._quantize_weight(self.weight, self.weight_quantizer)
+        weight = self.weight
         result = F.linear(x, weight, self.bias)
         if self.disable_lora or not self.has_lora_weights:
             return result
@@ -76,34 +73,21 @@ class LinearWithLoRA(nn.Linear):
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         # If self.run_lora_in_fp32, then the dtype of lora_result will be fp32.
-        weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer).to(self._get_lora_dtype())
-        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer).to(self._get_lora_dtype())
+        weight_a = self.weight_a.to(self._get_lora_dtype())
+        weight_b = self.weight_b.to(self._get_lora_dtype())
         
         lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b).to(result.dtype)
         return result + self.lora_scaler * lora_result
     
-    def _quantize_weight(self, weight: torch.Tensor, quantizer: Optional[torch.Tensor]) -> torch.Tensor:
-        if self.quant and quantizer is not None:
-            return weight * quantizer.unsqueeze(-1)
-        return weight
-    
     def _get_lora_dtype(self):
-        dtype = torch.int8 if self.quant else self.weight.dtype
-        if self.run_lora_in_fp32:
-            dtype = torch.float32
-        return dtype
+        return torch.float32 if self.run_lora_in_fp32 else self.weight.dtype
     
     def init_lora_weights(self):
         # Defualt is fp32 when LinearWithLora init.
         dtype = self._get_lora_dtype()
-        requires_grad = not self.quant
 
-        self.weight_a = nn.Parameter(torch.empty((self.lora_rank, self.in_features), dtype=dtype), requires_grad=requires_grad)
-        self.weight_b = nn.Parameter(torch.zeros((self.out_features, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
-
-        if self.quant:
-            self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
-            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
+        self.weight_a = nn.Parameter(torch.empty((self.lora_rank, self.in_features), dtype=dtype), requires_grad=True)
+        self.weight_b = nn.Parameter(torch.zeros((self.out_features, self.lora_rank), dtype=dtype), requires_grad=True)
 
         self._init_weight('weight_a')
         self._init_weight('weight_b')
@@ -117,8 +101,8 @@ class LinearWithLoRA(nn.Linear):
     def _compute_lora_weight(self): 
         if self.has_lora_weights:
             # Compute lora weight.
-            weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer).to(self._get_lora_dtype())
-            weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer).to(self._get_lora_dtype())
+            weight_a = self.weight_a.to(self._get_lora_dtype())
+            weight_b = self.weight_b.to(self._get_lora_dtype())
             lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
             return lora_weight.to(self.weight.dtype)
         
@@ -148,9 +132,6 @@ class LinearWithLoRA(nn.Linear):
             if self._merge_lora():
                 self._init_weight('weight_a')
                 self._init_weight('weight_b')
-                if self.quant:
-                    self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
-                    self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
 
     def _del_lora(self):
         delattr(self, "weight_a")
@@ -161,25 +142,10 @@ class LinearWithLoRA(nn.Linear):
         if self._merge_lora():
             # delattr can not completly delete the weight, which can cause error when model.parameters() be called.
             self._del_lora()
-            if self.quant:
-                self.weight_a_scaler = None
-                self.weight_b_scaler = None
 
     def reset(self):
         if not self.has_lora_weights:
             self.init_lora_weights()
-
-    @property
-    def weight_quantizer(self) -> Optional[torch.Tensor]:
-        return getattr(self, "weight_scaler", None)
-
-    @property
-    def weight_a_quantizer(self) -> Optional[torch.Tensor]:
-        return getattr(self, "weight_a_scaler", None)
-
-    @property
-    def weight_b_quantizer(self) -> Optional[torch.Tensor]:
-        return getattr(self, "weight_b_scaler", None)
     
     
     @property
@@ -244,7 +210,7 @@ class LinearWithLoRA(nn.Linear):
     
     def print_details(self) -> None:
         print(f"{self.__class__.__name__} Layer: in_features={self.in_features}, out_features={self.out_features}")
-        print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, Quantized: {self.quant}")
+        print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}")
             
 
 def find_lora_names(n):

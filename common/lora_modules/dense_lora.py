@@ -50,9 +50,9 @@ class LinearWithDenseLoRA(LinearWithLoRA):
             self.first_update = False
         
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
-        weight_a = self._quantize_weight(self.shared_weight_a[self.module_name], self.weight_a_quantizer).to(self._get_lora_dtype())
-        weight_b = self._quantize_weight(self.shared_weight_b[self.module_name], self.weight_b_quantizer).to(self._get_lora_dtype())
-        weight_ab_mixer = self._quantize_weight(self.weight_ab_mixer, self.weight_ab_quantizer).to(self._get_lora_dtype())
+        weight_a = self.shared_weight_a[self.module_name].to(self._get_lora_dtype())
+        weight_b = self.shared_weight_b[self.module_name].to(self._get_lora_dtype())
+        weight_ab_mixer = self.weight_ab_mixer.to(self._get_lora_dtype())
         lora_result = F.gelu(F.linear(F.linear(F.gelu(F.linear(self.lora_dropout(x), weight_a)), weight_ab_mixer), weight_b)).to(result.dtype)
         return result + self.lora_scaler * lora_result
         
@@ -61,10 +61,6 @@ class LinearWithDenseLoRA(LinearWithLoRA):
 
     def _merge_lora(self):
         raise NotImplementedError('Weights of DenseLoRA can not be merged!')
-    
-    @property
-    def weight_ab_quantizer(self) -> Optional[torch.Tensor]:
-        return getattr(self, "weight_ab_scaler", None)
     
     def _del_lora(self):
         delattr(self, "weight_ab_mixer")

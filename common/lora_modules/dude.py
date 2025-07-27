@@ -18,12 +18,7 @@ class LinearWithDude(LinearWithPiSSA, LinearWithDoRA):
 
     def init_lora_weights(self):
         # PiSSA share same functions with vinalla lora only with a different initialize method.
-        dtype = self._get_lora_dtype()
-        requires_grad = not self.quant
-        self.origin_magnitude = nn.Parameter(
-            torch.linalg.norm(self.weight.detach(), dim=1).to(dtype=dtype),
-            requires_grad=requires_grad
-        )
+        LinearWithDoRA.init_origin_magnitude(self)
         LinearWithPiSSA.init_lora_weights(self)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

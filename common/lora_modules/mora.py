@@ -14,17 +14,14 @@ class LinearWithMoRA(LinearWithLoRA):
 
     def init_lora_weights(self):
         dtype = self._get_lora_dtype()
-        requires_grad = not self.quant
 
-        self.weight_b = nn.Parameter(torch.empty((self.lora_rank, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
-        if self.quant:
-            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
+        self.weight_b = nn.Parameter(torch.empty((self.lora_rank, self.lora_rank), dtype=dtype), requires_grad=True)
 
         self._init_weight('weight_b')
 
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         x = self.lora_dropout(x)
-        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer).to(self._get_lora_dtype())
+        weight_b = self.weight_b.to(self._get_lora_dtype())
 
         compressed_input = self.compress_input(x)
         mora_result = torch.matmul(compressed_input, weight_b)

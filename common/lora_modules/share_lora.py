@@ -24,13 +24,12 @@ class LinearWithShareLoRA(LinearWithLoRA):
         """
         # Defualt is fp32 when LinearWithLora init.
         dtype = self._get_lora_dtype()
-        requires_grad = not self.quant
 
         if self.share_part == 'A':
-            self.weight_b = nn.Parameter(torch.zeros((self.out_features, self.lora_rank), dtype=dtype), requires_grad=requires_grad)
+            self.weight_b = nn.Parameter(torch.zeros((self.out_features, self.lora_rank), dtype=dtype), requires_grad=True)
             self._init_weight('weight_b')
         elif self.share_part == 'B':
-            self.weight_a = nn.Parameter(torch.empty((self.lora_rank, self.in_features), dtype=dtype), requires_grad=requires_grad)
+            self.weight_a = nn.Parameter(torch.empty((self.lora_rank, self.in_features), dtype=dtype), requires_grad=True)
             self._init_weight('weight_a')
 
     def update_shared_weights(
@@ -98,7 +97,7 @@ class LinearWithShareLoRA(LinearWithLoRA):
         Print details about this shared LoRA layer.
         """
         print(f"{self.__class__.__name__} Layer: in_features={self.in_features}, out_features={self.out_features}")
-        print(f"Shared LoRA Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, Quantized: {self.quant}")
+        print(f"Shared LoRA Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}")
 
 def prepare_shared_lora_weights(model: nn.Module, args) -> tuple[nn.Parameter, nn.Parameter]:
     """

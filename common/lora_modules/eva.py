@@ -42,7 +42,6 @@ class LinearWithEVA(LinearWithLoRA):
         super().init_lora_weights()
 
     def EVA_reinit(self, lora_rank: int, weight_a: Tensor):
-
         # Reinitialize the EVA weights.
         # This method is used to set the LoRA weights based on the SVD components.
         if lora_rank != weight_a.shape[0]:

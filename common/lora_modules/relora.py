@@ -1,10 +1,16 @@
 # @author: haonan he
 # @date: 2024-08-21
-""" Implements RELORA"""
+""" Implements ReLORA
+ReLoRA shares same structure with vanilla LoRA.
+However, ReLoRA merge and re-initialize the low-rank weights every n steps.
+By doing this, a higher overall rank can be reached.
+To ensure the updates happen in different low-rank subspaces,
+we should clear the optimizer states of low-rank weights,
+and we should start a re warm-up process for the lr scheduler.
+"""
 
 from common.lora_modules.lora import *
 from common.utils.utils import print_rank_0
-from deepspeed.runtime.zero.stage_1_and_2 import DeepSpeedZeroOptimizer
 
 @torch.no_grad()
 def random_pruning_(tensor, prune_ratio):
@@ -38,6 +44,12 @@ def optimizer_reset(
     optimizer_state_keys: list[str] = ["exp_avg", "exp_avg_sq"]
 ):
     """
+    Reset the optimizer states when the lora weights are merged and re-initialized.
+
+    Args:
+        reset_optimizer_on_relora: Reset all optimizer states.
+        optimizer_random_pruning: Reset part of optimizer states randomly.
+        optimizer_random_pruning: Reset part of optimizer states based on magnitude pruning.
         optimizer_state_keys: e.g., ["exp_avg", "exp_avg_sq"]
     """
     n_reset_types = (
@@ -71,7 +83,7 @@ def optimizer_reset(
     n_total = 0
 
     optimizer_state = optimizer.state
-    # As ZeroOptimizer flatten all states into one dict, hence we must prune all optimizer states.
+    # As ZeroOptimizer flatten all states into one dict, we must prune all optimizer states.
     for param_state in optimizer_state.values():
         if len(param_state) == 0: # no state for this param, happens for ZeRo optimizer
             continue

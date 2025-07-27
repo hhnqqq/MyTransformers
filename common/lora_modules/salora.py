@@ -128,10 +128,10 @@ class LinearWithSALoRA(LinearWithLoRA):
         self.target_rank = target_r
         
     def _lora_forward(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
-        weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer).to(
+        weight_a = self.weight_a.to(
             self._get_lora_dtype()
         )
-        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer).to(
+        weight_b = self.weight_b.to(
             self._get_lora_dtype()
         )
 
@@ -150,8 +150,12 @@ class LinearWithSALoRA(LinearWithLoRA):
     
     def _compute_lora(self):
         if self.has_lora_weights:
-            weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
-            weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
+            weight_a = self.weight_a.to(
+                self._get_lora_dtype()
+            )
+            weight_b = self.weight_b.to(
+                self._get_lora_dtype()
+            )
             
             gate = self.hc_gate.get_expected_gates()
             
@@ -165,7 +169,6 @@ class LinearWithSALoRA(LinearWithLoRA):
     def init_lora_weights(self):
         # called by __init__ in LinearWithLoRA
         dtype = self._get_lora_dtype()
-        requires_grad = not self.quant
         
         # Initialize A and B matrices with structural awareness
         self.weight_a = nn.Parameter(torch.randn((self.lora_rank, self.in_features), dtype=dtype), requires_grad=requires_grad)
@@ -173,9 +176,6 @@ class LinearWithSALoRA(LinearWithLoRA):
         self.hc_gate = HardConcreteGate(size=(self.lora_rank, 1))
         self.last_u = None
         self.last_gate = None
-        if self.quant:
-            self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
-            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
         
         nn.init.orthogonal_(self.weight_a)
         nn.init.orthogonal_(self.weight_b)

@@ -28,22 +28,22 @@ class LinearWithDoRA(LinearWithLoRA):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # The origin weight of Linear layer.
-        weight = self._quantize_weight(self.weight, self.weight_quantizer)
+        weight = self.weight
         if not self.disable_lora:
             weight = self._apply_dora(weight)
         return F.linear(x, weight, self.bias)
     
     def init_lora_weights(self):
         super().init_lora_weights()
-        dtype = self._get_lora_dtype()
-        requires_grad = not self.quant
+        self.init_origin_magnitude()
         # Whether origin_magnitude is trainable has minimal impact on results
         # (see Appendix C in https://arxiv.org/abs/2503.18225v2 (delora) for details)
-        self.origin_magnitude = nn.Parameter(
-            torch.linalg.norm(self.weight.detach(), dim=1).to(dtype=dtype),
-            requires_grad=requires_grad
-        )
 
+    def init_origin_magnitude(self):
+        self.origin_magnitude = nn.Parameter(
+            torch.linalg.norm(self.weight.detach(), dim=1).to(dtype=self._get_lora_dtype()),
+            requires_grad=True
+        )
 
     def _apply_dora(self, weight: torch.Tensor) -> torch.Tensor:
         # Make sure that the dtype of weight same as dtype of lora weights.

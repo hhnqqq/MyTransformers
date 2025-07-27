@@ -21,7 +21,6 @@ class LinearWithMILoRA(LinearWithLoRA):
         # MILoRA share same functions with vinalla lora only with a different initialize method.
         dtype = self._get_lora_dtype()
         weight_dtype = self.weight.dtype
-        requires_grad = not self.quant
 
         weight = self.weight.to(torch.float32)
         if self.fast_svd:
@@ -37,12 +36,8 @@ class LinearWithMILoRA(LinearWithLoRA):
         sqrt_Sr = Sr.sqrt_()
         
         weight_a_data = torch.diag(sqrt_Sr) @ Vhr
-        self.weight_a = nn.Parameter(weight_a_data.to(dtype), requires_grad=requires_grad)
+        self.weight_a = nn.Parameter(weight_a_data.to(dtype), requires_grad=True)
         weight_b_data = Ur @ torch.diag(sqrt_Sr)
-        self.weight_b = nn.Parameter(weight_b_data.to(dtype), requires_grad=requires_grad)
-
-        if self.quant:
-            self.weight_a_scaler = nn.Parameter(torch.Tensor(self.lora_rank))
-            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
+        self.weight_b = nn.Parameter(weight_b_data.to(dtype), requires_grad=True)
 
         self.weight.data = (weight - self._compute_lora_weight()).to(weight_dtype)

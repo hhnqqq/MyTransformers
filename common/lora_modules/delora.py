@@ -35,8 +35,8 @@ class LinearWithDeLoRA(LinearWithLoRA):
         # Get weights
         dtype = self._get_lora_dtype()
         device = self.weight.device
-        weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer).to(dtype).to(device)
-        weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer).to(dtype).to(device)
+        weight_a = self.weight_a.to(dtype).to(device)
+        weight_b = self.weight_b.to(dtype).to(device)
         delora_lambda = self.delora_lambda.to(dtype).to(device)
 
         # Get norms
@@ -53,7 +53,7 @@ class LinearWithDeLoRA(LinearWithLoRA):
         return lora_weight.to(self.weight.dtype)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        weight = self._quantize_weight(self.weight, self.weight_quantizer)
+        weight = self.weight
         if not self.disable_lora and self.has_lora_weights:
             # merge the weight and low-rank weight.
             # skip a individual forward pass for low-rank weight.

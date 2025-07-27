@@ -31,8 +31,6 @@ class LinearWithRandLoRA(LinearWithLoRA):
         super().__init__(lora_config)
         self.share_lora_weights = True
         self.first_update = True
-        if lora_config.quant:
-            print(f'Currently RandLoRA is incompatible with quant, skipped quant')
 
     def update_shared_weights(
         self,

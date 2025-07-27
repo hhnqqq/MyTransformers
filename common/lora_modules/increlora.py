@@ -36,22 +36,21 @@ class LinearWithIncreLoRA(LinearWithLoRA):
     def _compute_lora(self):
         if self.has_lora_weights:
             # Compute lora weight.
-            weight_a = self._quantize_weight(self.weight_a, self.weight_a_quantizer)
-            weight_b = self._quantize_weight(self.weight_b, self.weight_b_quantizer)
-            weight_e = self.weight_quantizer
+            weight_a = self.weight_a.to(self._get_lora_dtype())
+            weight_b = self.weight_b.to(self._get_lora_dtype())
+            weight_e = self.weight_e.to(self._get_lora_dtype())
 
         return self.W(weight_a, weight_e, weight_b, self.lora_scaler, self.ranknum).T
 
     def init_lora_weights(self):
         # called by __init__ in LinearWithLoRA
         dtype = self._get_lora_dtype()
-        requires_grad = not self.quant
 
         self.weight_a = nn.ParameterList(
             [
                 nn.Parameter(
                     torch.randn((self.lora_rank, self.in_features), dtype=dtype),
-                    requires_grad=requires_grad,
+                    requires_grad=True
                 )
             ]
         )
@@ -59,7 +58,7 @@ class LinearWithIncreLoRA(LinearWithLoRA):
             [
                 nn.Parameter(
                     torch.zeros((self.lora_rank, 1), dtype=dtype),
-                    requires_grad=requires_grad,
+                    requires_grad=True
                 )
             ]
         )
@@ -67,7 +66,7 @@ class LinearWithIncreLoRA(LinearWithLoRA):
             [
                 nn.Parameter(
                     torch.randn((self.out_features, self.lora_rank), dtype=dtype),
-                    requires_grad=requires_grad,
+                    requires_grad=True
                 )
             ]
         )

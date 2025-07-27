@@ -17,22 +17,20 @@ class LinearWithLoRAMoE(LinearWithLoRA):
 
         Note:
             For detailed explanations of in_features, out_features, lora_rank, lora_scaler, 
-            lora_dropout, quant, weight_a_init_method, and weight_b_init_method, 
+            lora_dropout, weight_a_init_method, and weight_b_init_method, 
             please refer to the parent class LinearWithLoRA.
         """
         super().__init__(lora_config)
         self.lora_moe_n_experts = lora_moe_n_experts
         self.moe_top_k = lora_moe_top_k
 
+        # the lora_scaler will be correctly set by super().init(lora_config)
         self.lora_rank = math.ceil(self.lora_rank / lora_moe_n_experts)
         # Different droupout should be used for different lora expert.
         if lora_config.lora_dropout:
             self.lora_dropout = nn.ModuleList([nn.Dropout(lora_config.lora_dropout) for _ in range(lora_moe_n_experts)])
         else:
             self.lora_dropout = nn.ModuleList([nn.Identity() for _ in range(lora_moe_n_experts)])
-
-        if lora_config.quant:
-            print(f'Currently LoRAMoE is incompatible with quant, skipped quant')
 
     @property
     def requires_gate(self):
@@ -98,5 +96,5 @@ class LinearWithLoRAMoE(LinearWithLoRA):
         
     def print_details(self) -> None:
         print(f"{self.__class__.__name__} Layer: in_features={self.in_features}, out_features={self.out_features}")
-        print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, MoE number of experts: {self.lora_moe_n_experts}, MoE top k: {self.moe_top_k}, Quantized: {self.quant}")
+        print(f"Lora Enabled: {self.has_lora_weights}, LoRA Rank: {self.lora_rank}, MoE number of experts: {self.lora_moe_n_experts}, MoE top k: {self.moe_top_k}")
             
