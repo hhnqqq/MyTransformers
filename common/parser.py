@@ -108,6 +108,8 @@ def train_parser(parser: argparse.ArgumentParser):
     # -------------------------- others ----------------------------
     group.add_argument('--seed', type=int, default=None,
                        help='Random seed')
+    group.add_argument('--dataset-seed', type=int, default=42,
+                       help='Random seed for dataset')
     group.add_argument('--show-loss-step', type=int, default=1)
     group.add_argument('--show-avg-loss-step', type=int, default=10)
     group.add_argument('--rope-theta', default=None,
@@ -176,6 +178,7 @@ def dataset_parser(parser: argparse.ArgumentParser):
 
     # ---------------------------- dataset ------------------------------
     group.add_argument('--skip-eval', action='store_true')
+    group.add_argument('--apply-chat-template', action='store_true')
     group.add_argument('--dataset-input-field', type=str, default='input',
                        help='Input column of the dataset.')
     group.add_argument('--dataset-output-field', type=str, default='output',
@@ -213,6 +216,8 @@ def peft_parser(parser: argparse.ArgumentParser):
     # --------------------------- lora ----------------------------------
     group.add_argument('--use-lora', action='store_true',
                        help='Whether to use LoRA')
+    group.add_argument('--use-qlora', action='store_true',
+                       help='Whether to use QLoRA')
     group.add_argument('--std-normalize-lora', action='store_true',
                        help='Whether to apply std normalization to LoRA weights.')
     group.add_argument('--lora-rank', type=int, default=8,
@@ -300,9 +305,9 @@ def peft_parser(parser: argparse.ArgumentParser):
                        help='Whether to use me lora')
     group.add_argument('--me-lora-n-split', type=int, default=2)
     group.add_argument('--me-lora-usage',type=str, default='compress', choices=['compress','higher_rank'])
-    group.add_argument('--me-lora-forward-method', type=str, default='for', choices=['for','einsum'])
+    group.add_argument('--me-lora-forward-method', type=str, default='for', choices=['for','einsum', 'concat'])
 
-    group.add_argument('--lora-fa', action='store_true',
+    group.add_argument('--use-lora-fa', action='store_true',
                        help='Whether to use LoRA FA')
     
     group.add_argument('--use-rslora', action='store_true',
@@ -324,6 +329,27 @@ def peft_parser(parser: argparse.ArgumentParser):
     group.add_argument('--gora-scale-importance', action='store_true')
     group.add_argument('--gora-importance-type', type=str, default='union_frobenius_norm')
     group.add_argument('--gora-stable-gemma', type=float, default=0.02)
+    group.add_argument('--gora-adaptive-lr-selection', action='store_true')
+    group.add_argument('--gora-adaptive-n-selection', action='store_true')
+    group.add_argument('--gora-convergence-threshold', type=float, default=0.1)
+    group.add_argument('--gora-min-steps', type=float, default=3)
+    group.add_argument('--gora-n-step-gradient', action='store_true')
+
+    group.add_argument('--use-ralora', action='store_true')
+    group.add_argument('--use-dralora', action='store_true')
+    group.add_argument('--ralora-dynamic-scaling', action='store_true')
+    group.add_argument('--ralora-rank-stablize', action='store_true')
+    group.add_argument('--ralora-importance-type', type=str, default='union_frobenius_norm')
+    group.add_argument('--ralora-features-func', type=str, default=None)
+    group.add_argument('--ralora-max-rank', type=int, default=9999)
+    group.add_argument('--ralora-min-rank', type=int, default=1)
+    group.add_argument('--ralora-erank-max-power', type=int, default=None,
+                       help='2 to the power of n')
+    group.add_argument('--ralora-forward-method', type=str, default='concat', choices=['for','einsum', 'concat'])
+    group.add_argument('--ralora-svd-threshold', type=float, default=0)
+    group.add_argument('--ralora-cumulative-variance-threshold', type=float, default=0)
+    group.add_argument('--ralora-allocate-by-erank', action='store_true')
+    group.add_argument('--ralora-disable-n-split', action='store_true')
 
     group.add_argument('--use-pissa', action='store_true',
                        help='Whether to use pissa')
@@ -365,8 +391,12 @@ def peft_parser(parser: argparse.ArgumentParser):
                        help='Wheather to use lora ga')
     group.add_argument('--gradient-est-n-steps', type=int, default=8,
                        help='N steps for estimating full-rank gradient.')
-    group.add_argument('--lora-ga-scale-method', type=str, default='gd')
+    group.add_argument('--lora-ga-scale-method', type=str, default='stable')
 
+    group.add_argument('--use-lora-da', action='store_true',
+                       help='Wheather to use lora da')
+    group.add_argument('--adalomo-lr', type=float, default=1e-5)
+    
     group.add_argument('--use-lora-sb', action='store_true',
                        help='Wheather to use lora sb')
     
@@ -455,6 +485,11 @@ def peft_parser(parser: argparse.ArgumentParser):
                        help='Whether to use increlora')
     group.add_argument('--top-h', type=int, default=2,
                        help='The number of selected modules per allocation.')
+    
+    group.add_argument('--use-prolora', action='store_true',
+                       help='Whether to use prolora')
+    group.add_argument('--prolora-shared-rank', type=int, default=1)
+    group.add_argument('--prolora-repeat-times', type=int, default=2)
 
     return parser
 
@@ -605,10 +640,10 @@ def get_args():
         args.train_iters = 10000 # default 10k iters
         print_rank_0('No train_iters (recommended) or epochs specified, use default 10k iters.', level='WARNING', rank=args.global_rank)
 
-    if args.zero_stage > 0 and not args.fp16 and not args.bf16:
-        print_rank_0('Automatically set fp16=True to use ZeRO.', args.global_rank)     
-        args.fp16 = True
-        args.bf16 = False
+    # if args.zero_stage > 0 and not args.fp16 and not args.bf16:
+    #     print_rank_0('Automatically set fp16=True to use ZeRO.', args.global_rank)     
+    #     args.fp16 = True
+    #     args.bf16 = False
     
     mt_dir = os.path.dirname(os.path.dirname(os.path.abspath(inspect.getfile(lambda: None))))
     if args.ds_config_path is None and args.zero_stage > 0:

@@ -12,9 +12,9 @@ is inadequate for learning representations capable for downstream tasks.
 Moreover, as the update of $\bW$ does not need to compute the gradients of $\bW$ and store their momentums, 
 Delta-LoRA shares comparable memory requirements and computational costs with LoRA. 
 """
-from common.lora_modules.lora import *
+from common.lora_modules.qlora import *
 
-class LinearWithDeltaLoRA(LinearWithLoRA):
+class LinearWithDeltaLoRA(LinearWithQLoRA):
     def __init__(self,
                  lora_config: LoRAConfig,
                  update_ratio: float = 2):

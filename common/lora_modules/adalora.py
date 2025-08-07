@@ -11,10 +11,10 @@ Such a novel approach allows us to effectively prune the singular values of unim
 which is essentially to reduce their parameter budget but circumvent intensive exact SVD computations.
 """
 
-from common.lora_modules.lora import *
+from common.lora_modules.qlora import *
 
 
-class LinearWithAdaLoRA(LinearWithLoRA):
+class LinearWithAdaLoRA(LinearWithQLoRA):
     def __init__(self, lora_config: LoRAConfig, init_r):
         """
         Initialize the LinearWithAdaLoRA layer.

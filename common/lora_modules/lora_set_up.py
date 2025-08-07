@@ -41,6 +41,9 @@ from common.lora_modules.nzlora import LinearWithNZLoRA
 from common.lora_modules.rasa_moe import LinearWithRASAMOE
 from common.lora_modules.lora_sb import LinearWithLoRASB
 from common.lora_modules.lora_da import LinearWithLoRADA
+from common.lora_modules.qlora import LinearWithQLoRA
+from common.lora_modules.ralora import LinearWithRaLoRA
+from common.lora_modules.prolora import LinearWithPROLoRA
 
 @dataclass
 class LoRAVariant:
@@ -265,7 +268,29 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: {},
                 ""
     ),
-
+    "use_ralora":LoRAVariant(
+                LinearWithRaLoRA,
+                lambda a: {"ralora_dynamic_scaling":a.ralora_dynamic_scaling,
+                "forward_method":a.ralora_forward_method},
+                ""
+    ),
+    "use_dralora":LoRAVariant(
+                LinearWithRaLoRA,
+                lambda a: {"ralora_dynamic_scaling":a.ralora_dynamic_scaling,
+                "forward_method":a.ralora_forward_method},
+                ""
+    ),
+    "use_prolora":LoRAVariant(
+                LinearWithPROLoRA,
+                lambda a: {"shared_lora_rank":a.prolora_shared_rank,
+                "repeat_times":a.prolora_repeat_times},
+                lambda a: (
+                    "ProLoRA is An intra-layer parameter sharing method that enhances efficiency by broadcasting and rotating shared low-rank chunks.\n"
+                    "--->Configuration Summary:\n"
+                    f"--->Total Rank: {a.lora_rank} (Unshared: {a.lora_rank - a.prolora_shared_rank}, Shared Base: {a.prolora_shared_rank})\n"
+                    f"--->Chunk repeat times: {a.prolora_repeat_times}x\n"
+                    f"--->Effective Rank: {(a.lora_rank - a.prolora_shared_rank) + a.prolora_shared_rank * a.prolora_repeat_times}"
+                )),
 }
 
 class LoRAManager:
@@ -288,7 +313,7 @@ class LoRAManager:
                 - Configuration dictionary for the layer
                 - Initialization message
         """
-        lora_layer_class = LinearWithLoRA
+        lora_layer_class = LinearWithQLoRA
         variant_config = {}
         variant_message = ""
         
@@ -327,7 +352,8 @@ class LoRAManager:
             weight_b_init_method=args.weight_b_init_method,
             in_features=module.in_features,
             out_features=module.out_features,
-            bias=(getattr(module, "bias", None) is not None)
+            bias=(getattr(module, "bias", None) is not None),
+            quant=getattr(args, "use_qlora", False),
         )
     
     @staticmethod
@@ -409,6 +435,7 @@ class LoRAManager:
         lora_layer.bias = getattr(module, "bias", None)
         
         lora_layer.init_lora_weights()
+
         return lora_layer
 
     @staticmethod
@@ -515,7 +542,7 @@ def get_lora_weight_names(args):
     conditions = [
         (args.use_randlora, ['lambda', 'gemma']),
         (args.use_vera, ['lambda']),
-        (args.lora_fa, ['weight_b']),
+        (args.use_lora_fa, ['weight_b']),
         (args.use_tied_lora or args.use_delora, ['weight_a', 'weight_b', 'lambda']),
         (args.use_dora or args.use_dude, ['weight_a', 'weight_b', 'origin_magnitude']),
         (args.use_adalora or args.use_rasa, ['weight_a', 'weight_b', 'weight_e']),

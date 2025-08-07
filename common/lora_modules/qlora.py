@@ -7,15 +7,13 @@ from common.lora_modules.lora import *
 class LinearWithQLoRA(LinearWithLoRA):
     def __init__(
         self,
-        lora_config: LoRAConfig,
-        compute_dtype = torch.bfloat16,
-        quant_type: str = "nf4"
+        lora_config: LoRAConfig
     ):
         super().__init__(lora_config)
 
+        self.quant = lora_config.quant
         self.qlora_config = lora_config
-        self.compute_dtype = compute_dtype
-        self.quant_type = quant_type
+        self.quant_type = lora_config.quant_type
 
         self.is_quantized = False
         self.quantized_linear = None
@@ -28,12 +26,13 @@ class LinearWithQLoRA(LinearWithLoRA):
             raise RuntimeError("Cannot quantize layer because self.weight has not been loaded.")
 
         device = self.weight.device
-
+        self.weight_dtype = self.weight.dtype
+        
         self.quantized_linear = bnb.nn.Linear4bit(
             self.in_features,
             self.out_features,
             bias=(self.bias is not None),
-            compute_dtype=self.compute_dtype,
+            compute_dtype=self.weight_dtype,
             quant_type=self.quant_type,
             device=device,
         )
@@ -59,26 +58,23 @@ class LinearWithQLoRA(LinearWithLoRA):
         torch.cuda.empty_cache()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.quant:
+            return super().forward(x)
+        
         self.quantize_base_layer()
-        self.quantized_linear = self.quantized_linear.to(x.device)
+        self.quantized_linear.to(x.device)
         result = self.quantized_linear(x)
 
         if self.disable_lora or not self.has_lora_weights:
             return result
         else:
-            return self._lora_forward(x, result)
-
-    def _get_lora_dtype(self):
-        if self.is_quantized:
-            return self.compute_dtype
-        else:
-            return super()._get_lora_dtype()
+            return self._lora_forward(x.to(self._get_lora_dtype()), result)
 
     def _merge_lora(self) -> bool:
-        if not self.has_lora_weights or self.merged:
+        if not self.has_lora_weights:
             return False
 
-        if self.is_quantized:
+        if self.quant and self.is_quantized:
             if self.quantized_linear is None: return False
             
             base_weight = self.quantized_linear.weight.dequantize()
@@ -93,17 +89,7 @@ class LinearWithQLoRA(LinearWithLoRA):
             return True
         else:
             return super()._merge_lora()
-            
-    def _compute_lora_weight(self):
-        # 确保在任何状态下都能正确计算lora增量
-        if not self.has_lora_weights:
-            return None
-        
-        dtype = self._get_lora_dtype()
-        device = self.weight_a.device
-        
-        lora_weight = self.lora_scaler * torch.matmul(
-            self.weight_b.to(device=device, dtype=dtype),
-            self.weight_a.to(device=device, dtype=dtype)
-        )
-        return lora_weight
+    
+    def _get_lora_dtype(self):
+        weight_dtype = self.weight.dtype if getattr(self, "weight", None) is not None else self.weight_dtype
+        return torch.float32 if self.run_lora_in_fp32 else weight_dtype

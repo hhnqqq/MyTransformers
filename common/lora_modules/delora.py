@@ -10,7 +10,6 @@ DeLoRA effectively decouples the angular learning from the adaptation strength,
 enhancing robustness without compromising performance.
 """
 from common.lora_modules.lora import *
-from common.lora_modules.lora import LoRAConfig
 
 class LinearWithDeLoRA(LinearWithLoRA):
     def __init__(self, lora_config: LoRAConfig, delora_lambda):
@@ -21,6 +20,8 @@ class LinearWithDeLoRA(LinearWithLoRA):
             lora_config: General configuration of LoRA and its variants
             delora_lambda: The hyperparameter of delora that controlling the magnitude of lora weights.
         """
+        if lora_config.quant:
+            raise ValueError("DeLoRA is currently not compatible with quant.")
         super().__init__(lora_config)
         self.delora_lambda = delora_lambda
 
@@ -59,6 +60,7 @@ class LinearWithDeLoRA(LinearWithLoRA):
             # skip a individual forward pass for low-rank weight.
             weight = weight + self._compute_lora_weight()
         return F.linear(x, weight, self.bias)
+
     
     @property
     def has_lora_weights(self):

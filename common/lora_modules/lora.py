@@ -34,6 +34,8 @@ class LoRAConfig:
     weight_a_init_method: Optional[str] = None
     weight_b_init_method: Optional[str] = None
     run_lora_in_fp32: bool = False
+    quant: bool = False
+    quant_type: str = "NF4"
 
 class LinearWithLoRA(nn.Linear):
     def __init__(
@@ -180,10 +182,7 @@ class LinearWithLoRA(nn.Linear):
             }
         }
 
-        if weight_name in init_configs:
-            return init_configs[weight_name].get(method, init_configs[weight_name][None])
-        
-        raise ValueError(f"Unknown weight name: {weight_name}")
+        return init_configs[weight_name].get(method, init_configs[weight_name][None])
 
     def get_weight_init_method(self, **init_kwargs) -> Any:
         method = init_kwargs.get('method', None)
@@ -203,10 +202,7 @@ class LinearWithLoRA(nn.Linear):
             "uniform": partial(nn.init.uniform_, a=init_kwargs.get('a', 0), b=init_kwargs.get('b', 1))
         }
 
-        if method in init_methods:
-            return init_methods[method]
-        
-        raise ValueError(f"Unknown initialization method: {method}")
+        return init_methods.get(method, init_methods[None])
     
     def print_details(self) -> None:
         print(f"{self.__class__.__name__} Layer: in_features={self.in_features}, out_features={self.out_features}")

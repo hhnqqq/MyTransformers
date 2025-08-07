@@ -33,8 +33,6 @@ class LinearWithGOAT(LinearWithLoRA):
             init_cof (float): Hyperparameter of GOAT controlling the strength of manipulation of pre-trained weight. 
         """
         super().__init__(lora_config)
-        if self.quant:
-            print(f'Currently GOAT is incompatible with quant, skipped quant')
         self.n_experts = n_experts
         self.top_k = top_k
         self.init_type = init_type

@@ -1,7 +1,53 @@
 import math
 
+from collections import defaultdict
+
 import torch
+from torch import svd_lowrank as fast_svd
 from torch.optim import Optimizer
+
+def compute_effective_rank(gradient_matrix, dtype=torch.float32, eps=1e-10):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    gradient_matrix = gradient_matrix.to(dtype=dtype, device=device)
+    # Ensure the input is a 2D tensor
+    if gradient_matrix.dim() != 2:
+        raise ValueError("Input gradient_matrix must be a 2D tensor")
+
+    try:
+        U, S, Vh = fast_svd(gradient_matrix, q=1000)
+    except RuntimeError as e:
+        print(f"SVD computation failed: {e}")
+        return 1.0  # Return minimal effective rank in case of failure
+    if S.numel() == 0:
+        print('Some thing wrong, because the number of S=0')
+        return 1.0
+
+    l1_norm = torch.sum(S)
+
+    p = S / l1_norm
+
+    entropy = -torch.sum(p * torch.log(p + eps))
+    effective_rank = torch.exp(entropy).item()
+    
+    del U, S, Vh, gradient_matrix
+    return max(1.0, effective_rank)
+
+# def compute_importance(param, grad_stored):
+#     param = param.float()
+#     grad_stored = grad_stored.float().to(param.device)
+#     importance = torch.mean(torch.abs(param * grad_stored)).item()
+#     return importance
+    
+def compute_importance(param, grad_store: torch.Tensor) -> torch.Tensor:
+    """Calculate entropy of a matrix assuming Gaussian distribution of flattened values.
+    Follows formula from paper: H(F) = log(σ) + (1/2)log(2π) + (1/2)
+    """
+    flat = grad_store.flatten()
+    sigma = torch.std(flat)
+    eps = 1e-8  # Prevent log(0)
+    sigma = torch.clamp(sigma, min=eps)
+    return (torch.log(sigma) + 0.5 * (torch.log(torch.tensor(2 * torch.pi)) + 1)).item()
 
 class AdaLomo(Optimizer):
 
@@ -16,6 +62,7 @@ class AdaLomo(Optimizer):
         clip_grad_norm=None,
         clip_grad_value=None,
         weight_decay=0.0,
+        global_rank=0
     ):
         self.model = model
         self.lr = lr
@@ -31,6 +78,7 @@ class AdaLomo(Optimizer):
         self.step_num = 0
         self.decay_rate = decay_rate
         self.clip_threshold = clip_threshold
+        self.global_rank = global_rank
 
         # for grad norm
         if self.clip_grad_norm is not None and self.clip_grad_norm <= 0:
@@ -45,6 +93,11 @@ class AdaLomo(Optimizer):
         self.exp_avg_sq = {}
         self.exp_avg_sq_row = {}
         self.exp_avg_sq_col = {}
+        self.erank_dict = defaultdict(dict)
+        self.importance_dict = defaultdict(dict)
+        self.cal_erank_step = None
+        self.cal_importance_step = None
+        self.save_gradient_to_cpu = False
 
         for n, p in self.model.named_parameters():
             if len(p.data.shape) == 1:
@@ -89,6 +142,22 @@ class AdaLomo(Optimizer):
                             p.grad, op=torch.distributed.ReduceOp.AVG, async_op=False
                         )
                         grad_fp32 = p.grad.to(torch.float32)
+
+                        if self.global_rank == 0:
+                            if self.cal_erank_step and (self.step_num % self.cal_erank_step) == 0:
+                                erank = math.ceil(compute_effective_rank(grad_fp32))
+                                self.erank_dict[n][self.step_num] = erank
+                            if self.cal_importance_step and (self.step_num % self.cal_importance_step) == 0:
+                                importance = compute_importance(p, p.grad)
+                                self.importance_dict[n][self.step_num] = importance
+                            if self.save_gradient_to_cpu:
+                                if hasattr(p, "grad_stored"):
+                                    p.grad_stored += p.grad.detach().clone().cpu()
+                                    p.iters += 1
+                                else:
+                                    p.grad_stored = p.grad.detach().clone().cpu()
+                                    p.iters = 1
+
                         p.grad = None
                         if self.loss_scale:
                             grad_fp32.div_(self.loss_scale)

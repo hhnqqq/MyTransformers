@@ -2,9 +2,10 @@
 # @date: 2024-08-21
 """ Implements MELORA"""
 
-from common.lora_modules.lora import *
+from torch import block_diag
+from common.lora_modules.qlora import *
 
-class LinearWithMELoRA(LinearWithLoRA):
+class LinearWithMELoRA(LinearWithQLoRA):
     def __init__(self,
         lora_config: LoRAConfig,
         me_lora_n_split: int = 2,
@@ -32,30 +33,32 @@ class LinearWithMELoRA(LinearWithLoRA):
         elif forward_method == "einsum":
             self.init_lora_weights = self.init_lora_weights_einsum
             self._lora_forward = self._lora_forward_einsum
+        elif forward_method == "concat":
+            self.init_lora_weights = self.init_lora_weights_for
+            self._lora_forward = self._lora_forward_concat
 
     def _prepare_melora_attrs(self, me_lora_n_split, lora_rank, in_features, out_features):
-        self.melora_n_split = me_lora_n_split
+        self.n_split = me_lora_n_split
         self.lora_rank = lora_rank
         self.in_features = in_features
         self.out_features = out_features
 
         self._check_exact_division()
-        self.mini_lora_rank = int(self.lora_rank / self.melora_n_split)
-        self.mini_in_features = int(self.in_features / self.melora_n_split)
-        self.mini_out_features = int(self.out_features / self.melora_n_split)
+        self.mini_lora_rank = int(self.lora_rank / self.n_split)
+        self.mini_in_features = int(self.in_features / self.n_split)
+        self.mini_out_features = int(self.out_features / self.n_split)
 
     def _check_exact_division(self):
-        if self.lora_rank % self.melora_n_split != 0:
-            raise ValueError(f"lora_rank ({self.lora_rank}) must be divisible by melora_n_split ({self.melora_n_split})")
-        if self.in_features % self.melora_n_split != 0:
-            raise ValueError(f"in_features ({self.in_features}) must be divisible by melora_n_split ({self.melora_n_split})")
-        if self.out_features % self.melora_n_split != 0:
-            raise ValueError(f"out_features ({self.out_features}) must be divisible by melora_n_split ({self.melora_n_split})")
+        if self.lora_rank % self.n_split != 0:
+            raise ValueError(f"lora_rank ({self.lora_rank}) must be divisible by melora_n_split ({self.n_split})")
+        if self.in_features % self.n_split != 0:
+            raise ValueError(f"in_features ({self.in_features}) must be divisible by melora_n_split ({self.n_split})")
+        if self.out_features % self.n_split != 0:
+            raise ValueError(f"out_features ({self.out_features}) must be divisible by melora_n_split ({self.n_split})")
 
     def init_lora_weights_for(self):
-
         self.weight_a, self.weight_b =nn.ParameterList(), nn.ParameterList()  
-        for _ in range(self.melora_n_split):
+        for _ in range(self.n_split):
             mini_weight_a = nn.Parameter(torch.empty((self.mini_lora_rank, self.mini_in_features)), requires_grad=True)
             mini_weight_b = nn.Parameter(torch.zeros((self.mini_out_features, self.mini_lora_rank)), requires_grad=True)
             self.weight_a.append(mini_weight_a)
@@ -64,8 +67,8 @@ class LinearWithMELoRA(LinearWithLoRA):
         self._init_weight('weight_b')
 
     def init_lora_weights_einsum(self):
-        self.weight_a = nn.Parameter(torch.empty((self.melora_n_split, self.mini_lora_rank, self.mini_in_features)), requires_grad=True)
-        self.weight_b = nn.Parameter(torch.zeros((self.melora_n_split, self.mini_out_features, self.mini_lora_rank)), requires_grad=True)
+        self.weight_a = nn.Parameter(torch.empty((self.n_split, self.mini_lora_rank, self.mini_in_features)), requires_grad=True)
+        self.weight_b = nn.Parameter(torch.zeros((self.n_split, self.mini_out_features, self.mini_lora_rank)), requires_grad=True)
         super()._init_weight('weight_a')
         super()._init_weight('weight_b')
 
@@ -76,9 +79,17 @@ class LinearWithMELoRA(LinearWithLoRA):
         for weight in weight_list:
             self.get_weight_init_method(**init_kwargs)(weight)
 
+    def _lora_forward_concat(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
+        device = x.device
+        dtype = self._get_lora_dtype()
+        weight_a = self._diagonal_concat_weight_a().to(dtype=dtype, device=device)
+        weight_b = self._diagonal_concat_weight_b().to(dtype=dtype, device=device)
+        lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b).to(result.dtype)
+        return result + self.lora_scaler * lora_result
+        
     def _lora_forward_for(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         lora_result = []
-        for i in range(self.melora_n_split):
+        for i in range(self.n_split):
             mini_x = x[..., i*self.mini_in_features:(i+1)*self.mini_in_features]
             mini_weight_a = self.weight_a[i].to(self._get_lora_dtype())
             mini_weight_b = self.weight_b[i].to(self._get_lora_dtype())
@@ -90,7 +101,7 @@ class LinearWithMELoRA(LinearWithLoRA):
     
     def _lora_forward_einsum(self, x: torch.Tensor, result: torch.Tensor) -> torch.Tensor:
         bsz_seq_len = x.shape[:-1]
-        x = x.view(*bsz_seq_len, self.melora_n_split, self.mini_in_features)
+        x = x.view(*bsz_seq_len, self.n_split, self.mini_in_features)
         xa = torch.einsum("...si,sri->...sr", self.lora_dropout(x), self.weight_a.to(self._get_lora_dtype()))
         lora_result = torch.einsum("...sr,sor->...so", xa, self.weight_b.to(self._get_lora_dtype())).reshape(*bsz_seq_len, self.out_features)
         return result + self.lora_scaler * lora_result
@@ -104,24 +115,10 @@ class LinearWithMELoRA(LinearWithLoRA):
             return lora_weight.to(self.weight.dtype)
         
     def _diagonal_concat_weight_a(self):
-        weight_a = torch.zeros(self.lora_rank, self.in_features)
-        
-        for i in range(self.melora_n_split):
-            start_row = i * self.mini_lora_rank
-            start_col = i * self.mini_in_features
-            weight_a[start_row:start_row+self.mini_lora_rank, start_col:start_col+self.mini_in_features] = self.weight_a[i]
+        return block_diag(*self.weight_a)
 
-        return weight_a
-    
     def _diagonal_concat_weight_b(self):
-        weight_b = torch.zeros(self.out_features, self.lora_rank)
-        
-        for i in range(self.melora_n_split):
-            start_row = i * self.mini_out_features
-            start_col = i * self.mini_lora_rank
-            weight_b[start_row:start_row+self.mini_out_features, start_col:start_col+self.mini_lora_rank] = self.weight_b[i]
-        
-        return weight_b
+        return block_diag(*self.weight_b)
 
 
 if __name__ == "__main__":

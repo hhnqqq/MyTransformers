@@ -11,14 +11,18 @@ initialize low-rank adapter weights in an adaptive manner.
 import os
 import math
 import json
-import random
+import pickle
 import numpy as np
+import torch.distributed as dist
+
 from typing import Callable
 from collections import OrderedDict
 from torch import Tensor, svd_lowrank as fast_svd
 from torch.linalg import svd as standard_svd
+from deepspeed.utils import safe_get_full_grad
 
-from common.lora_modules.lora import *
+from common.lora_modules.qlora import *
+from common.lora_modules.adalomo import AdaLomo
 from common.utils.utils import Timer, reduce_tensor, to_device, print_rank_0, ensure_directory_exists
 
 def z_score_normalize(tensor):
@@ -30,6 +34,16 @@ def z_score_normalize(tensor):
 def get_est_nuc_norm(tensor, rank):
     _, Sr, _ = fast_svd(tensor, rank, niter=8)
     return torch.sum(torch.log1p(Sr))
+
+def get_entropy(tensor: torch.Tensor) -> torch.Tensor:
+    """Calculate entropy of a matrix assuming Gaussian distribution of flattened values.
+    Follows formula from paper: H(F) = log(σ) + (1/2)log(2π) + (1/2)
+    """
+    flat = tensor.flatten()
+    sigma = torch.std(flat)
+    eps = 1e-8  # Prevent log(0)
+    sigma = torch.clamp(sigma, min=eps)
+    return (torch.log(sigma) + 0.5 * (torch.log(torch.tensor(2 * torch.pi)) + 1)).item()
 
 def solve_L1(A, G, max_iter=1000, rho=1.0, tol=1e-5):
     A = A.cpu().numpy()
@@ -60,7 +74,7 @@ def solve_L1(A, G, max_iter=1000, rho=1.0, tol=1e-5):
     
     return torch.from_numpy(B).cuda()
 
-class LinearWithGoRA(LinearWithLoRA):
+class LinearWithGoRA(LinearWithQLoRA):
     def __init__(
         self,
         lora_config: LoRAConfig,
@@ -75,10 +89,12 @@ class LinearWithGoRA(LinearWithLoRA):
         self.dynamic_scaling = gora_dynamic_scaling
         self.rank_stablize = gora_rank_stablize
         self.scaling_alpha = lora_config.lora_scaler
-        super().__init__(lora_config,)
+        super().__init__(lora_config)
+        self.quant_after_init = self.quant
+        self.quant = False
 
     def init_lora_weights(self):
-        self.lora_rank = 0
+        pass
 
     def _get_scaling(self, avg_rank, real_rank):
         if self.dynamic_scaling:
@@ -120,14 +136,14 @@ class LinearWithGoRA(LinearWithLoRA):
                 del self.weight.grad_stored
             if hasattr(self.weight, "iters"):
                 del self.weight.iters
+            if self.quant_after_init:
+                self.quant = True
 
     def grad_compress_init(self, 
                       lr: float, 
                       scaling_by_lr: bool = False, 
                       stable_gemma: int = None, 
                       reinit_weight: bool = False,
-                      weight_init_a: bool = False,
-                      grad_init_a: bool = False,
                       l1=False):
         if not hasattr(self.weight, 'grad_stored'):
             return
@@ -139,14 +155,14 @@ class LinearWithGoRA(LinearWithLoRA):
         weight_device = weight.device
         grad_stored = self.weight.grad_stored.to(weight_dtype).to(weight_device)
         self.weight_a = nn.Parameter(torch.empty((self.lora_rank, self.in_features), dtype=weight_dtype, device=weight_device))
-        if weight_init_a:
-            Ur = fast_svd(weight.data, self.lora_rank, niter=16)[-1]
+        if self.weight_a_init_method == 'weight_svd':
+            _, Sr, Ur = fast_svd(weight.data, self.lora_rank, niter=16)
             Uhr = Ur.t()
-            self.weight_a.data = Uhr.to(weight_dtype)
-        elif grad_init_a:
-            Ur = fast_svd(grad_stored, self.lora_rank, niter=16)[-1]
+            self.weight_a.data = (torch.diag(Sr) @ Uhr).to(weight_dtype)
+        elif self.weight_a_init_method == 'grad_svd':
+            _, Sr, Ur = fast_svd(grad_stored, self.lora_rank, niter=16)
             Uhr = Ur.t()
-            self.weight_a.data = Uhr.to(weight_dtype) * self.out_features**0.25 / 4
+            self.weight_a.data = (torch.diag(Sr) @ Uhr).to(weight_dtype)
         else:
             self._init_weight('weight_a')
         if l1:
@@ -165,74 +181,49 @@ class LinearWithGoRA(LinearWithLoRA):
             stable_gemma = (lr / math.sqrt(self.lora_rank/self.in_features)) * (self.scale_rank)
         weight_b_data *= (stable_gemma / self.scaling_alpha)
 
-        self.weight_b = nn.Parameter(-weight_b_data.contiguous())
-
+        self.weight_b = nn.Parameter(weight_b_data.contiguous())
+        reconstruction_error = torch.norm(-grad_stored*lr - self._compute_lora_weight(), p='fro')
+        relative_error = reconstruction_error / torch.norm(grad_stored, p='fro')
+        self.register_buffer("error", reconstruction_error)
+        self.register_buffer("relative_error", relative_error)
         # Final weight update with proper dtype conversion
         if reinit_weight:
             updated_weight = weight - self._compute_lora_weight()
             self.weight.data = updated_weight.to(origin_weight_dtype)
 
+
         
     def grad_svd_init(self, 
-                     direction: str = 'ArB2r', 
-                     scale: str = 'stable', 
-                     stable_gamma: int = 16, 
-                     scaling_factor: int = 16):
+                     stable_gamma: int = 16):
         if not hasattr(self.weight, 'grad_stored'):
             return
         
+        # Perform SVD on the weight gradient
+        # Weight stored gradient shape [out_feature, in_feature]
+        if not hasattr(self.weight, 'grad_stored'):
+            return
         # Perform SVD on the weight gradient
         # Weight stored gradient shape [out_feature, in_feature]
         U, S, V = torch.svd_lowrank(self.weight.grad_stored.float().cuda(), q=4 * self.lora_rank, niter=4)
         # U shape [out_feature, 4r] S shape [4r, 4r] V shape [in_feature, 4r]
         V = V.T
 
-        # Determine A and B based on the direction parameter
-        if direction == "ArBr":
-            # B shape [out_feature, r/2]
-            B = U[:, 0:2 * self.lora_rank:2]
-            A = V[1:2 * self.lora_rank:2, :]
-        elif direction == "A2rBr":
-            # B shape [out_feature, r]
-            B = U[:, :self.lora_rank]
-            # A shape [r, in_feature]
-            A = V[self.lora_rank:2 * self.lora_rank, :]
-        elif direction == "ArB2r":
-            B = U[:, self.lora_rank:2 * self.lora_rank]
-            A = V[:self.lora_rank, :]
-        elif direction == "random":
-            random_list = random.sample(range(2 * self.lora_rank), 2 * self.lora_rank)
-            indexes_A = random_list[0:self.lora_rank]
-            indexes_B = random_list[self.lora_rank:2 * self.lora_rank]
-            B = U[:, indexes_B]
-            A = V[indexes_A, :]
-        else:
-            raise ValueError(f"Unknown direction: {direction}")
+        # B shape [out_feature, r]
+        B = U[:, :self.lora_rank]
+        # A shape [r, in_feature]
+        A = V[self.lora_rank:2 * self.lora_rank, :]
 
-        # Apply scaling to A and B based on the scale parameter
-        if scale == "gd":
-            A /= scaling_factor
-            B /= scaling_factor
-        elif scale == "stable":
-            m, n = self.weight.grad_stored.shape 
-            A = A * m**0.25 / stable_gamma**0.5
-            B = B * m**0.25 / stable_gamma**0.5
-        elif scale == "weightS":
-            _, S, _ = fast_svd(self.weight.float(), q=4 * self.lora_rank, niter=4)
-            S /= scaling_factor
-            avg_s = torch.sqrt(S[:self.lora_rank]).mean().to(A.device)
-            A *= avg_s
-            B *= avg_s
-        elif scale != "unit":
-            raise ValueError(f"Unknown scale: {scale}")
+        m, n = self.weight.grad_stored.shape 
+        A = A * m**0.25 / stable_gamma**0.5
+        B = B * m**0.25 / stable_gamma**0.5
 
         # Update the LoRA weights
-        self.weight_a = nn.Parameter(A.contiguous().cuda())
-        self.weight_b = nn.Parameter(B.contiguous().cuda())
-        
+        self.weight_a = nn.Parameter(A.contiguous().cuda(), requires_grad=True)
+        self.weight_b = nn.Parameter(B.contiguous().cuda(), requires_grad=True)
+        weight = self.weight.to()
         weight_dtype = self.weight.dtype
-        weight = self.weight.to(torch.float32)
-        self.weight.data = (weight - self._compute_lora_weight()).to(weight_dtype)
+        weight = self.weight
+        self.weight.data = (weight - self._compute_lora_weight().to(weight_dtype))
 
     def weight_svd_init(self):
         if self.lora_rank > 0:
@@ -259,18 +250,23 @@ class LinearWithGoRA(LinearWithLoRA):
 
             self.weight.data = (weight - self._compute_lora_weight()).to(weight_dtype)
 
-def get_record_gradient_hook(model):
+def get_record_gradient_hook(model, world_size=1, rank=0):
     def record_gradient_hook(grad):
         torch.cuda.synchronize()
         for p in model.parameters():
-            if p.requires_grad and p.grad is not None:
-                if not hasattr(p, 'grad_stored'):
-                    p.grad_stored = p.grad.detach().cpu()
-                    p.iters = 1
-                else:
-                    p.grad_stored += p.grad.detach().cpu()
-                    p.iters += 1
-                p.grad = None
+            grad = safe_get_full_grad(p)
+            if p.requires_grad and grad is not None:
+                if world_size > 1:
+                    grad = reduce_tensor(grad, world_size)
+                if rank == 0:
+                    if not hasattr(p, 'grad_stored'):
+                        p.grad_stored = grad.detach().cpu()
+                        p.iters = 1
+                    else:
+                        p.grad_stored += grad.detach().cpu()
+                        p.iters += 1
+                p.grad = None  # Clear GPU gradient immediately
+                del grad
         return grad
     return record_gradient_hook
 
@@ -299,6 +295,8 @@ def compute_importance(param, grad_stored, features, scale_features, type, lora_
         importance = torch.linalg.matrix_norm(grad_stored).item()
     elif type == 'grad_mean':
         importance = torch.mean(torch.abs(grad_stored)).item()
+    elif type == 'grad_entropy':
+        importance = get_entropy(grad_stored)
     elif type == 'union_mean_grad_nuc_norm':
         importance = (torch.mean(torch.abs(param * grad_stored)).item(),
                       get_est_nuc_norm(grad_stored, rank).item())
@@ -346,77 +344,108 @@ def get_allocated_rank(model, args, prev_importances=None):
         None: lambda x: x
     }.get(args.gora_features_func, lambda x: x)
 
-    with torch.no_grad():
-        for name, module in model.named_modules():
-            if isinstance(module, LinearWithGoRA):
-                if not hasattr(module.weight, 'grad_stored'):
-                    print_rank_0(f'--->Module: {name} do not have stored gradients', args.global_rank)
-                    continue
-                features = module.in_features + module.out_features
-                # Normalize gradients by iters and average across GPUs
-                grad_stored = module.weight.grad_stored / module.weight.iters
-                if args.world_size > 1:
-                    grad_stored = reduce_tensor(grad_stored.to(args.device), args.world_size)
-                is_tuple, importance = compute_importance(
-                    module.weight.data,
-                    grad_stored,
-                    features,
-                    args.gora_scale_importance,
-                    args.gora_importance_type,
-                    args.lora_rank,
-                    args.gora_max_rank
-                )
-                named_importances[name] = importance
-                adjusted_features = feature_adjust_func(features)
-                named_smooth_features[name] = adjusted_features
-                named_features[name] = features
-                smooth_total_budget += adjusted_features * args.lora_rank
-                total_budget += features * args.lora_rank
+    if args.global_rank == 0:
+        with torch.no_grad():
+            for name, module in model.named_modules():
+                if isinstance(module, LinearWithGoRA):
+                    if not hasattr(module.weight, 'grad_stored'):
+                        print_rank_0(f'--->Module: {name} do not have stored gradients', args.global_rank)
+                        continue
+                    features = module.in_features + module.out_features
+                    # Move gradient to GPU one at a time
+                    grad_stored = module.weight.grad_stored.to(args.device) / module.weight.iters
+                    is_tuple, importance = compute_importance(
+                        module.weight.data,
+                        grad_stored,
+                        features,
+                        args.gora_scale_importance,
+                        args.gora_importance_type,
+                        args.lora_rank,
+                        args.gora_max_rank
+                    )
+                    named_importances[name] = importance
+                    adjusted_features = feature_adjust_func(features)
+                    named_smooth_features[name] = adjusted_features
+                    named_features[name] = features
+                    smooth_total_budget += adjusted_features * args.lora_rank
+                    total_budget += features * args.lora_rank
+                    # Clear GPU gradient after use
+                    grad_stored = None
+                    torch.cuda.empty_cache()
 
-        if not named_importances:
-            raise ValueError("No gradients were stored. Check if backward pass was performed correctly.")
+            if not named_importances:
+                raise ValueError("No gradients were stored. Check if backward pass was performed correctly.")
 
-        if is_tuple:
-            first_importances_tensor = torch.tensor([i[0] for i in list(named_importances.values())])
-            second_importances_tensor = torch.tensor([i[1] for i in list(named_importances.values())])
-            first_normalized_importances = get_normalized_importances(args, first_importances_tensor)
-            second_normalized_importances = get_normalized_importances(args, second_importances_tensor)
-            normalized_importances = torch.tensor([0.5 * a + 0.5 * b for a, b in zip(first_normalized_importances,
-                                                                                     second_normalized_importances)])
-        else:
-            importances_tensor = torch.tensor(list(named_importances.values()))
-            normalized_importances = get_normalized_importances(args, importances_tensor)
-
-        for name, normalized_importance in zip(named_importances.keys(), normalized_importances):
-            smooth_trainable = allocate_func(smooth_total_budget * normalized_importance.item())
-            rank = smooth_trainable // named_smooth_features[name]
-            if args.gora_max_rank and args.gora_min_rank:
-                named_ranks[name] = min(max(allocate_func(rank), args.gora_min_rank), args.gora_max_rank)
+            if is_tuple:
+                first_importances_tensor = torch.tensor([i[0] for i in list(named_importances.values())])
+                second_importances_tensor = torch.tensor([i[1] for i in list(named_importances.values())])
+                first_normalized_importances = get_normalized_importances(args, first_importances_tensor)
+                second_normalized_importances = get_normalized_importances(args, second_importances_tensor)
+                normalized_importances = torch.tensor([0.5 * a + 0.5 * b for a, b in zip(first_normalized_importances,
+                                                                                        second_normalized_importances)])
             else:
-                named_ranks[name] = rank
-            actual_trainable += named_ranks[name] * named_features[name]
+                importances_tensor = torch.tensor(list(named_importances.values()))
+                normalized_importances = get_normalized_importances(args, importances_tensor)
 
-        # Check for convergence
-        has_converged = False
-        if prev_importances is not None:
-            all_converged = True
-            for name in named_importances:
-                if name not in prev_importances:
-                    all_converged = False
-                    break
-                curr_imp = named_importances[name]
-                prev_imp = prev_importances[name]
-                if isinstance(curr_imp, tuple):
-                    for c, p in zip(curr_imp, prev_imp):
-                        if abs(c - p) / (p + 1e-8) > args.gora_convergence_threshold:
-                            all_converged = False
-                            break
+            for name, normalized_importance in zip(named_importances.keys(), normalized_importances):
+                smooth_trainable = allocate_func(smooth_total_budget * normalized_importance.item())
+                rank = smooth_trainable // named_smooth_features[name]
+                if args.gora_max_rank and args.gora_min_rank:
+                    named_ranks[name] = min(max(allocate_func(rank), args.gora_min_rank), args.gora_max_rank)
                 else:
-                    if abs(curr_imp - prev_imp) / (prev_imp + 1e-8) > args.gora_convergence_threshold:
+                    named_ranks[name] = rank
+                actual_trainable += named_ranks[name] * named_features[name]
+
+            has_converged = False
+            if prev_importances is not None:
+                all_converged = True
+                for name in named_importances:
+                    if name not in prev_importances:
                         all_converged = False
                         break
-            has_converged = all_converged
+                    curr_imp = named_importances[name]
+                    prev_imp = prev_importances[name]
+                    if isinstance(curr_imp, tuple):
+                        for c, p in zip(curr_imp, prev_imp):
+                            if abs(c - p) / (p + 1e-8) > args.gora_convergence_threshold:
+                                all_converged = False
+                                break
+                    else:
+                        if abs(curr_imp - prev_imp) / (prev_imp + 1e-8) > args.gora_convergence_threshold:
+                            all_converged = False
+                            break
+                has_converged = all_converged
+    else:
+        total_budget, actual_trainable, named_importances, has_converged = 0, 0, OrderedDict(), False
+        named_ranks = {}
 
+    # Broadcast named_ranks and has_converged to all ranks
+    if args.world_size > 1:
+        dist.barrier()
+        
+        if args.global_rank == 0:
+            broadcast_data = {
+                'named_ranks': named_ranks,
+                'has_converged': has_converged
+            }
+            serialized = pickle.dumps(broadcast_data)
+            data = torch.ByteTensor(list(serialized)).to(args.device)
+            length = torch.tensor([len(serialized)], dtype=torch.long, device=args.device)
+        else:
+            length = torch.tensor([0], dtype=torch.long, device=args.device)
+            data = torch.empty(1024*1024, dtype=torch.uint8, device=args.device)  # Allocate sufficient space
+            
+        dist.broadcast(length, src=0)
+        
+        if args.global_rank != 0:
+            data = torch.empty(length.item(), dtype=torch.uint8, device=args.device)
+        dist.broadcast(data, src=0)
+        
+        if args.global_rank != 0:
+            serialized = bytes(data.cpu().tolist())
+            broadcast_data = pickle.loads(serialized)
+            named_ranks = broadcast_data['named_ranks']
+            has_converged = broadcast_data['has_converged']
     return total_budget, actual_trainable, named_ranks, named_importances, has_converged
 
 def gora_dynamic_init(model, args, named_ranks, batch):
@@ -428,11 +457,23 @@ def gora_dynamic_init(model, args, named_ranks, batch):
         
         gora_stable_gemma = args.gora_stable_gemma if not args.gora_adaptive_lr_selection else 1
         gora_scale_by_lr = args.gora_scale_by_lr if not args.gora_adaptive_lr_selection else False
+
         with Timer() as init_timer:
             for name, module in target_modules:
                 print_rank_0(f'--->Module {name} is initiating lora weight, rank is: {named_ranks[name]}', args.global_rank)
+                # Broadcast grad_stored from rank 0 to all ranks for this layer
+
+                if args.world_size > 1:
+                    torch.distributed.barrier()
+                    grad_stored = module.weight.grad_stored.to(args.device) if args.global_rank == 0 else torch.zeros_like(module.weight).to(args.device)
+                    torch.distributed.broadcast(grad_stored, src=0)
+                    module.weight.grad_stored = grad_stored
                 module.dynamic_init(args.lora_rank, named_ranks[name], gora_stable_gemma, gora_scale_by_lr, lr=args.gora_lr)
-        print_rank_0(f"--->Total time cost for gora dynamic init: {init_timer.time_cost}")
+                # Clear grad_stored for this layer
+                module.weight.grad_stored = None
+                torch.cuda.empty_cache()
+
+        print_rank_0(f"--->Total time cost for gora dynamic init: {init_timer.time_cost}", args.global_rank)
 
         if args.gora_scale_by_lr and args.gora_adaptive_lr_selection:
             best_loss = float("inf")
@@ -488,17 +529,28 @@ def gora_reinit(
         model.to(args.device)
         model.train()
 
-        hooks = [
-            module.weight.register_hook(get_record_gradient_hook(model))
-            for module in model.modules()
-            if isinstance(module, LinearWithGoRA)
-        ]
+        if args.gora_n_step_gradient:
+            optimizer = AdaLomo(
+                model,
+                lr=args.adalomo_lr,
+                global_rank=args.global_rank
+            )
+            optimizer.save_gradient_to_cpu = True
+        else:
+            hooks = [
+                module.weight.register_hook(get_record_gradient_hook(model, args.world_size, args.global_rank))
+                for module in model.modules()
+                if isinstance(module, LinearWithGoRA)
+            ]
 
         for module in model.modules():
+            for param in module.parameters():
+                param.requires_grad = False
             if isinstance(module, LinearWithGoRA):
                 module.weight.requires_grad = True
-            elif isinstance(module, torch.nn.Linear):
-                module.weight.requires_grad = False
+                if args.gora_n_step_gradient:
+                    # offload the cpu_weight by rank-0 process only.
+                    module.weight.cpu_weight = module.weight.data.detach().clone().cpu()
 
         prev_importances = None
         for idx, batch in enumerate(dataloader):
@@ -510,7 +562,10 @@ def gora_reinit(
                 loss = forward_backward_func(model, batch)
             else:
                 loss = model(**batch)[0]
-            loss.backward()
+            if args.gora_n_step_gradient:
+                optimizer.fused_backward(loss, args.adalomo_lr)
+            else:
+                loss.backward()
 
             if args.gora_adaptive_n_selection:
                 if idx + 1 >= args.gora_min_steps:
@@ -525,8 +580,20 @@ def gora_reinit(
             timer.average_time("end")
             print_rank_0(f'--->GoRA gradient computing step: {idx+1}, loss: {loss.item()}, remaining steps: {iters - (idx+1)}, time_cost: {timer.loop_time:.2f}s', args.global_rank)
 
-        for hook in hooks:
-            hook.remove()
+        if args.gora_n_step_gradient:
+            for param in model.parameters():
+                if hasattr(param, "cpu_weight"):
+                    torch.distributed.barrier()
+                    param.data.copy_(param.cpu_weight.to(args.device))
+                    del param.cpu_weight
+            torch.cuda.empty_cache()
+
+            for hook in optimizer.hooks:
+                hook.remove()
+            del optimizer
+        else:
+            for hook in hooks:
+                hook.remove()
 
         for p in model.parameters():
             p.grad = None
@@ -534,14 +601,12 @@ def gora_reinit(
         if args.world_size > 1:
             torch.distributed.barrier()
 
-        print_rank_0('--->All reduce GoRA stored gradients if needed.', args.global_rank)
-        for p in model.parameters():
-            if hasattr(p, 'grad_stored'):
-                p.grad_stored = p.grad_stored / p.iters
-                if args.world_size > 1:
-                    p.grad_stored = reduce_tensor(p.grad_stored.to(args.device), args.world_size).to("cpu")
-
         total_budget, actual_trainable, named_ranks, named_importances, _ = get_allocated_rank(model, args)
+
+        if args.global_rank == 0:
+            for p in model.parameters():
+                if hasattr(p, 'grad_stored'):
+                    p.grad_stored = p.grad_stored / p.iters
 
         save_floder = os.path.join(args.output_path, args.experiment_name)
         if task_name:
@@ -553,9 +618,18 @@ def gora_reinit(
                 json.dump(named_ranks, f)
             with open(os.path.join(save_floder, 'importance.json'), 'w') as f:
                 json.dump({k: (list(v) if isinstance(v, tuple) else v) for k, v in named_importances.items()}, f)
-
+                
         print_rank_0(f'--->GoRA total budget: {total_budget}, actual trainable: {actual_trainable}', args.global_rank)
         gora_dynamic_init(model, args, named_ranks, to_device(next(iter(dataloader)), args.device))
-        torch.cuda.empty_cache()
+
+        count = 0
+        error, relative_error = 0, 0
+        for module in model.modules():
+            if isinstance(module, LinearWithGoRA):
+                error += module.error
+                relative_error += module.relative_error
+                count += 1
+
+        print_rank_0(f'error: {error/count}, relative error: {relative_error/count}', args.global_rank)
 
     print_rank_0(f'--->Total time consumed for GoRA initialization: {timer.time_cost}, Peak memory used: {timer.peak_memory}MB', args.global_rank)
