@@ -19,10 +19,10 @@ from typing import Callable
 from collections import OrderedDict
 from torch import Tensor, svd_lowrank as fast_svd
 from torch.linalg import svd as standard_svd
-from deepspeed.utils import safe_get_full_grad
 
 from common.lora_modules.qlora import *
 from common.lora_modules.adalomo import AdaLomo
+from common.lora_modules.grad_utils import get_record_gradient_hook
 from common.utils.utils import Timer, reduce_tensor, to_device, print_rank_0, ensure_directory_exists
 
 def z_score_normalize(tensor):
@@ -249,26 +249,6 @@ class LinearWithGoRA(LinearWithQLoRA):
             self.weight_b = nn.Parameter(weight_b_data.to(dtype), requires_grad=True)
 
             self.weight.data = (weight - self._compute_lora_weight()).to(weight_dtype)
-
-def get_record_gradient_hook(model, world_size=1, rank=0):
-    def record_gradient_hook(grad):
-        torch.cuda.synchronize()
-        for p in model.parameters():
-            grad = safe_get_full_grad(p)
-            if p.requires_grad and grad is not None:
-                if world_size > 1:
-                    grad = reduce_tensor(grad, world_size)
-                if rank == 0:
-                    if not hasattr(p, 'grad_stored'):
-                        p.grad_stored = grad.detach().cpu()
-                        p.iters = 1
-                    else:
-                        p.grad_stored += grad.detach().cpu()
-                        p.iters += 1
-                p.grad = None  # Clear GPU gradient immediately
-                del grad
-        return grad
-    return record_gradient_hook
 
 def compute_importance(param, grad_stored, features, scale_features, type, lora_rank, max_lora_rank):
     param = param.float()
