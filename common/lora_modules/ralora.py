@@ -1,3 +1,5 @@
+# author: jingqi ye
+# Gradient Intrinsic Dimensionality Alignment：Narrowing The Gap Between Low-Rank Adaptation and Full Fine-Tuning
 import os
 import math
 import json
