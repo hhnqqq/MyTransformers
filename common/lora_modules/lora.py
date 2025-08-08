@@ -149,7 +149,6 @@ class LinearWithLoRA(nn.Linear):
         if not self.has_lora_weights:
             self.init_lora_weights()
     
-    
     @property
     def has_lora_weights(self):
         has_attr = hasattr(self, 'weight_a') and hasattr(self, 'weight_b')

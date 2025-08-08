@@ -491,6 +491,13 @@ def peft_parser(parser: argparse.ArgumentParser):
     group.add_argument('--prolora-shared-rank', type=int, default=1)
     group.add_argument('--prolora-repeat-times', type=int, default=2)
 
+    group.add_argument('--use-bslora', action='store_true',
+                       help='Whether to use BSLoRA')
+    group.add_argument('--bslora-inter-shared-rank', type=int, default=1)
+    group.add_argument('--bslora-intra-shared-rank', type=int, default=1)
+    group.add_argument('--bslora-forward-method', type=str, choices=['slice','gate','kron'])
+    group.add_argument('--bslora-share-size', type=int, default=128)
+
     return parser
 
 def multimodal_parser(parser: argparse.ArgumentParser):

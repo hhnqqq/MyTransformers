@@ -44,6 +44,7 @@ from common.lora_modules.lora_da import LinearWithLoRADA
 from common.lora_modules.qlora import LinearWithQLoRA
 from common.lora_modules.ralora import LinearWithRaLoRA
 from common.lora_modules.prolora import LinearWithPROLoRA
+from common.lora_modules.bslora import LinearWithBSLoRA
 
 @dataclass
 class LoRAVariant:
@@ -291,6 +292,11 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                     f"--->Chunk repeat times: {a.prolora_repeat_times}x\n"
                     f"--->Effective Rank: {(a.lora_rank - a.prolora_shared_rank) + a.prolora_shared_rank * a.prolora_repeat_times}"
                 )),
+    "use_bslora":LoRAVariant(
+                LinearWithBSLoRA,
+                lambda a: {"forward_method":a.bslora_forward_method},
+                ""
+    ),
 }
 
 class LoRAManager:
@@ -396,6 +402,14 @@ class LoRAManager:
                     f"Choose from {sorted(valid_gora_methods)}."
                 )
         
+        if getattr(args, 'use_rasa', False):
+            if args.rasa_shared_lora_rank > args.lora_rank:
+                raise ValueError("RASA's shared_lora_rank can not be larger than lora_rank! "
+                                "Please check your rank configuration.")
+            if args.rasa_shared_lora_rank < 1:
+                raise ValueError("RASA's shared_lora_rank must be a positive integer! "
+                                "Please remove args.use_rasa for vanilla LoRA implementation.")
+            
         # Validate VERA settings
         if any([args.use_vera, args.use_delora]) and args.weight_b_init_method is None:
             raise ValueError(f'The init method for weight b cannot be None when {lora_layer_class.__name__} is applied.')
@@ -549,6 +563,7 @@ def get_lora_weight_names(args):
         (args.use_mos_lora or args.use_dense_lora or args.use_nlora, ['weight_a', 'weight_b', 'weight_ab_mixer']),
         (args.use_goat or args.use_lora_moe or args.use_rasamoe, ['weight_a', 'weight_b', 'gate']),
         (args.use_lora_sb, ['weight_ab_mixer']),
+        (args.use_bslora, ['weight_a', 'weight_b', 'sampler', 'gate']),
         (True, ['weight_a', 'weight_b'])
     ]
 

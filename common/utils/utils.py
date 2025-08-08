@@ -22,6 +22,7 @@ import deepspeed
 import immutabledict
 import numpy as np
 import torch.distributed as dist
+import torch.nn.functional as F
 from torch.nn import Module
 from dataclasses import make_dataclass
 import torch.nn.utils.rnn as rnn_utils
@@ -95,8 +96,9 @@ class Timer(object):
         self.loop_start = None  # Start time of the current loop iteration
         self.iterations_left = iterations  # Number of iterations left
         self.peak_memory = 0  # Peak GPU memory usage in MB
+        self.current_memory = 0
         self.last_sample_time = self.start  # Last time GPU memory was sampled
-        self.sample_interval = 5  # Sampling interval in seconds
+        self.sample_interval = 1  # Sampling interval in seconds
 
     def __enter__(self):
         return self
@@ -155,6 +157,7 @@ class Timer(object):
             memory_lines = result.stdout.strip().split('\n')[1:]  # Skip header
             for line in memory_lines:
                 memory_used = int(line.strip())
+                self.current_memory = memory_used
                 self.peak_memory = max(self.peak_memory, memory_used)
         except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
             # Handle cases where nvidia-smi is not available or fails
@@ -202,6 +205,10 @@ def read_config(file_path, encoding='utf-8'):
     """
     Read config file.
     """
+    if file_path is None:
+        return None
+    if file_path is None:
+        return
     if file_path.endswith('.json'):
         with open(file_path, 'r', encoding=encoding) as f:
             config = json.load(f)
@@ -329,9 +336,9 @@ def init_distributed_model(args, model, optimizer, lr_scheduler, ds_config, para
     """
     if args.disable_zero_optimizer:
         engine, _, _, _ = deepspeed.initialize(model=model, 
-                                                config=ds_config, 
-                                                model_parameters=[p for p in model.parameters() if p.requires_grad],
-                                                mpu=None if args.num_pp_stages else parallel_states)
+                                               config=ds_config, 
+                                               model_parameters=[p for p in model.parameters() if p.requires_grad],
+                                               mpu=None if args.num_pp_stages else parallel_states)
     else:
         engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, 
                                                 optimizer=optimizer, 
@@ -576,3 +583,9 @@ def selective_log_softmax(logits, index):
             per_token_logps.append(row_per_token_logps)
         per_token_logps = torch.stack(per_token_logps)
     return per_token_logps
+
+def safe_cat(tensors, dim=0):
+    non_none_tensors = [t for t in tensors if t is not None]
+    if not non_none_tensors:
+        return None
+    return torch.cat(non_none_tensors, dim=dim)
