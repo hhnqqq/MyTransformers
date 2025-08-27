@@ -548,7 +548,7 @@ class BertModel(nn.Module):
             if self.pooler is not None:
                 pooled_output = self.pooler(
                     sequence_output)
-                sequence_output[:,0] = pooled_output
+                sequence_output = pooled_output
             else:
                 pass
         else:
