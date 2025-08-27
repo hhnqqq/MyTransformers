@@ -576,7 +576,7 @@ class Llama(LlamaGenerate):
             self.tokenizer = BaseTokenizer(model_args.tokenizer)
             model_args.vocab_size = self.tokenizer.n_words
         except Exception as e:
-            print(f'load tokenizer at generate model error: {e}')
+            pass
         super().__init__(model_args=model_args)
 
 @registry.register_model("llama3")
@@ -586,6 +586,6 @@ class Llama3(LlamaGenerate):
             self.tokenizer = Llama3Tokenizer(model_args.tokenizer)
             model_args.vocab_size = self.tokenizer.n_words
         except Exception as e:
-            print(f'load tokenizer at generate model error: {e}')
+            # print(f'load tokenizer at generate model error: {e}')
+            pass
         super().__init__(model_args=model_args)
-
