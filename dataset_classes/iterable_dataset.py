@@ -177,14 +177,12 @@ if __name__ == "__main__":
     data_collator = DataCollator(tokenizer)
 
     dataset_config = DatasetConfig(max_len=512,
-                                   max_src_len=256,
+                                   max_src_len=500,
                                    mode='sft',
                                    meta_prompt='<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n',
                                    prefix='<|im_start|>user\n',
                                    postfix='<|im_end|>\n<|im_start|>assistant\n',
-                                   apply_chat_template=False,
-                                   input_field='question',
-                                   output_field='answer')
+                                   apply_chat_template=False)
     
     iterable_dataset = BaseIterableDataset(file_path,
                                        tokenizer,
