@@ -181,7 +181,8 @@ class Trainer:
                                 f"avg_loss={avg_loss if avg_loss >= 1e-4 else f'{avg_loss:.4e}'}, "
                                 f"lr={self.lr:.4e}, "
                                 f"avg_time={avg_time:.2f}s, remaining_time={remaining_time}, "
-                                f"remaining_steps={self.args.num_global_update_steps - self.global_step}")
+                                f"remaining_steps={self.args.num_global_update_steps - self.global_step}, "
+                                f"peak_memory={timer.peak_memory}MB")
                     if self.writer is not None:
                         self.writer.add_scalar('loss', avg_loss, self.global_step)
                         self.writer.add_scalar('lr', self.lr, self.global_step)
@@ -257,16 +258,17 @@ class Trainer:
             save_name = f'step_{step}'
 
         # Prepare save message and path
-        print_rank_0(f'--->Start saving model at {step}th step in {self.save_folder}.', self.args.global_rank)
+        print_rank_0(f'--->Start saving model at {step}th step.', self.args.global_rank)
 
         # Perform the save operation
         if self.args.num_pp_stages is not None:
+            save_path = os.path.join(self.save_folder, save_name)
             model.save_checkpoint(self.save_folder, tag=save_name)
         else:
             save_path = os.path.join(self.save_folder, f'{save_name}.ckpt')
             self.torch_save(model, optimizer, lr_scheduler, dataloader, save_path)
 
-        print_rank_0('--->Saved the model.', self.args.global_rank)
+        print_rank_0(f'--->Saved the model in {save_path}.', self.args.global_rank)
 
     def torch_save(self, 
                 model:torch.nn.Module, 

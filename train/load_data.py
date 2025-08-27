@@ -34,7 +34,7 @@ def load_dataloder(args, tokenizer, dp_rank, num_dp_ranks, dataset_kwargs, is_tr
                                    postfix=args.postfix,
                                    padding=(args.batching_stretegy == 'padding'),
                                    encode_single_gene=args.encode_single_gene,
-                                   apply_chat_template=False,
+                                   apply_chat_template=args.apply_chat_template,
                                    input_field=args.dataset_input_field,
                                    output_field=args.dataset_output_field)
 
@@ -44,6 +44,7 @@ def load_dataloder(args, tokenizer, dp_rank, num_dp_ranks, dataset_kwargs, is_tr
                           dp_rank=dp_rank,
                           num_dp_ranks=num_dp_ranks,
                           shuffle=True,
+                          seed=args.dataset_seed,
                           **dataset_kwargs)
     
     dataset = dataset_class(

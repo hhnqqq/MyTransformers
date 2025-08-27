@@ -124,7 +124,8 @@ if __name__ == '__main__':
             backward_step = backward_step_deepspeed_adalora
         elif args.use_increlora:
             backward_step = backward_step_deepspeed_increlora_stage0
-        elif args.use_goat:
+        elif args.use_goat or args.use_rasamoe:
+            print_rank_0(f"Using aux_ loss for moe model, lora_moe_aux_loss_coeff={args.lora_moe_aux_loss_coeff}", args.global_rank)
             backward_step = backward_step_deepspeed_loramoe
         else:
             backward_step = backward_step_deepspeed
