@@ -5,9 +5,6 @@ from torch import Tensor
 class LinearWithRASA(LinearWithLoRA):
     def __init__(self, lora_config: LoRAConfig, shared_lora_rank):
         super().__init__(lora_config)
-        if shared_lora_rank > self.lora_rank:
-            raise ValueError("RASA's shared_lora_rank can not be larger than lora_rank!"
-                             "Please check your rank configuration.")
         self.lora_rank -= shared_lora_rank
         self.lora_scaler = lora_config.lora_scaler
         self.share_lora_weights = True

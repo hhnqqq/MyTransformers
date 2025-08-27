@@ -7,7 +7,9 @@ import contextlib
 from common.lora_modules.lora import *
 from common.lora_modules.melora import *
 from common.lora_modules.lora_ga import *
+from common.lora_modules.lora_da import *
 from common.lora_modules.lora_sb import *
+from common.lora_modules.ralora import *
 from common.lora_modules.lora_set_up import *
 from common.lora_modules.mos_lora import *
 from common.lora_modules.dora import *
@@ -25,6 +27,7 @@ from common.lora_modules.lora_one import *
 from common.lora_modules.vera import *
 from common.lora_modules.eva import *
 from common.lora_modules.rasa_moe import *
+from common.lora_modules.dralora import dralora_reinit
 
 @contextlib.contextmanager
 def DisableLoRA(model):
@@ -70,7 +73,8 @@ def check_shared_lora_weights_required(args):
         getattr(args, 'use_randlora', False),
         getattr(args, 'use_rasa', False),
         getattr(args, 'use_dense_lora', False),
-        getattr(args, 'use_rasamoe', False)
+        getattr(args, 'use_rasamoe', False),
+        getattr(args, 'use_bslora', False)
     ]
     
     # Return True if any condition is met
@@ -95,8 +99,10 @@ def insert_shared_lora_weights(model, args):
     if getattr(args, 'use_rasamoe', False):
         from common.lora_modules.rasa_moe import prepare_shared_lora_weights_rasa as prepare_shared_lora_weights
         from common.lora_modules.share_lora import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
+    if getattr(args, 'use_bslora', False):
+        from common.lora_modules.bslora import prepare_shared_lora_weights_bslora as prepare_shared_lora_weights
+        from common.lora_modules.bslora import update_shared_weights_to_layer_bslora as update_shared_weights_to_layer
 
-        
     print_rank_0("--->Preparing shared LoRA weights...", args.global_rank)
     shared_weight_a, shared_weight_b = prepare_shared_lora_weights(model, args)
     update_shared_weights_to_layer(model, shared_weight_a, shared_weight_b)
@@ -137,7 +143,10 @@ def prepare_lora(model, train_dataloader, args):
         'use_lora_one': lora_one_reinit,
         'use_lora_sb': lora_sb_reinit,
         'use_gora': gora_reinit,
-        'lora_ga_pro': lora_ga_pro_reinit
+        'lora_ga_pro': lora_ga_pro_reinit,
+        'use_lora_da': lora_da_reinit,
+        'use_ralora': ralora_reinit,
+        'use_dralora': dralora_reinit
     }
 
     rank_allocator_classes = {
@@ -176,7 +185,7 @@ def prepare_lora_for_inference(model, args):
     switch_to_lora(model, args)
     # Common variables for both conditions
     rank_config = None
-    if any(getattr(args, attr, False) for attr in ['use_gora', 'use_eva', 'use_loraga_pro']):
+    if any(getattr(args, attr, False) for attr in ['use_gora', 'use_eva', 'use_loraga_pro', 'use_ralora', 'use_dralora']):
         rank_config_file = os.path.join(args.output_path, args.experiment_name, 'rank.json')
         rank_config = json.load(open(rank_config_file, 'r'))
     
@@ -199,6 +208,17 @@ def prepare_lora_for_inference(model, args):
                 module.prepare_init(allocated_rank=rank_config[name])
                 module.init_lora_weights()
     
+    if getattr(args, 'use_ralora', False) or getattr(args, 'use_dralora', False):
+        if not getattr(args, "ralora_allocate_by_erank", False) and not getattr(args, "ralora_disable_n_split"):
+            n_splits_file = os.path.join(args.output_path, args.experiment_name, 'n_splits.json')
+            n_splits_config = json.load(open(n_splits_file, 'r'))
+        else:
+            n_splits_config = {}
+        
+        for name, module in model.model.named_modules():
+            if isinstance(module, LinearWithRaLoRA):
+                module.dynamic_init(args.lora_rank, rank_config[name], n_splits_config.get(name, 1))
+
     # Check for shared weights
     if check_shared_lora_weights_required(args):
         insert_shared_lora_weights(model, args)

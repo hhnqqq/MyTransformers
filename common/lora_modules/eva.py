@@ -45,9 +45,9 @@ class LinearWithEVA(LinearWithLoRA):
         # Reinitialize the EVA weights.
         # This method is used to set the LoRA weights based on the SVD components.
         if lora_rank != weight_a.shape[0]:
-            raise RuntimeError(f"lora_rank {lora_rank} does not match weight_a shape {weight_a.shape[0]}")
+            raise ValueError(f"lora_rank {lora_rank} does not match weight_a shape {weight_a.shape[0]}")
         if weight_a.shape[1] != self.in_features:
-            raise RuntimeError(f"weight_a shape {weight_a.shape} does not match in_features {self.in_features}")
+            raise ValueError(f"weight_a shape {weight_a.shape} does not match in_features {self.in_features}")
 
         self.EVA_init(lora_rank)
         self.weight_a.data = weight_a.contiguous().to(dtype=self._get_lora_dtype())

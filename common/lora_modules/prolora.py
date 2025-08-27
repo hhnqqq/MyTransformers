@@ -7,8 +7,17 @@ class LinearWithPROLoRA(LinearWithQLoRA):
         self.shared_lora_rank = shared_lora_rank * repeat_times
         self.lora_rank -= shared_lora_rank
         self.repeat_times = repeat_times
+
+        if shared_lora_rank >= self.lora_rank:
+            raise ValueError("shared rank must be smaller than total rank")
+        if self.in_features % self.repeat_times != 0:
+            raise ValueError(f"In features {self.in_features} must be divisible by repeat times {self.repeat_times}")
+        if self.out_features % self.repeat_times != 0:
+            raise ValueError(f"Out features {self.out_features} must be divisible by repeat times {self.repeat_times}")
+        
         self.mini_in_features = self.in_features // repeat_times
         self.mini_out_features = self.out_features // repeat_times
+
 
     def init_lora_weights(self):
         dtype = self._get_lora_dtype()
