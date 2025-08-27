@@ -13,9 +13,9 @@ from transformers.utils.versions import require_version
 def get_optimizer_type(args, ds_config):
     if args.optim_type is not None:
         return args.optim_type.lower()
-    elif 'optimizer' in ds_config:
+    elif ds_config and 'optimizer' in ds_config:
         return ds_config['optimizer'].get('type', 'adamw').lower()
-    return None
+    return 'torchadamw'
 
 def get_optimizer_instance(optim_type, args, model):
     if args.use_galore:
@@ -46,14 +46,17 @@ def get_optimizer(ds_config, args, model, optimizer_sd = None, lr_scheduler_sd =
         return None, None
 
     optim_type = get_optimizer_type(args, ds_config)
-    offload_config = ds_config["zero_optimization"].get("offload_optimizer", {})
+    if ds_config:
+        offload_config = ds_config["zero_optimization"].get("offload_optimizer", {})
+    else:
+        offload_config = {}
     offload_device = offload_config.get("device", None)
     if offload_device == 'cpu' or args.offload_optimizer:
         optim_type = 'cpu' + optim_type
     isSuccess, optimizer = get_optimizer_instance(optim_type, args, model)
 
     if isSuccess:
-        if 'optimizer' in ds_config:
+        if ds_config and 'optimizer' in ds_config:
             del ds_config['optimizer']
         print_rank_0(f'--->Deepspeed optimizer setting has been overwritten', args.global_rank)
     else:
