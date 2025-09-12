@@ -171,6 +171,51 @@ def update_shared_weights_to_layer(model: nn.Module, shared_weight_a, shared_wei
         if getattr(module, 'share_lora_weights', False):
             module.update_shared_weights(shared_weight_a, shared_weight_b)
 
+# def get_module_groups(model):
+#     """
+#     Group modules by their type across layers and verify shape consistency.
+    
+#     Args:
+#         model: The model to analyze
+        
+#     Returns:
+#         Dictionary mapping module names to their shape and layer information
+#     """
+#     module2shape = {}
+#     for key, module in model.named_modules():
+#         if isinstance(module, LinearWithLoRA):
+#             module2shape[key] = tuple(module.weight.shape)
+
+#     if not module2shape:
+#         raise ValueError("No LinearWithLoRA layer was found.")
+
+#     # Group modules across layers
+#     module_groups = defaultdict(list)
+#     pattern = re.compile(r'layers\.(\d+)\.(.+)')
+
+#     for key, value in module2shape.items():
+#         match = pattern.search(key)
+#         if match:
+#             layer_id = match.group(1)
+#             module_name = match.group(2).replace('.', '__')
+#             module_groups[module_name].append((layer_id, value))
+
+#     module_groups = dict(module_groups)
+
+#     # Assert each type of module has the same shape across layers
+#     for key, value in module_groups.items():
+#         assert all([v[1] == value[0][1] for v in value]), f"Shape mismatch for {key} layers: {value}"
+
+#     # Add the number of layers for each module type
+#     for key in module_groups.keys():
+#         module_groups[key] = {
+#             "shape": module_groups[key][0][1],
+#             "layer_ids": [int(v[0]) for v in module_groups[key]],
+#             "num_layers": len(module_groups[key]),
+#         }
+
+#     return module_groups
+
 def get_module_groups(model):
     """
     Group modules by their type across layers and verify shape consistency.
@@ -191,13 +236,13 @@ def get_module_groups(model):
 
     # Group modules across layers
     module_groups = defaultdict(list)
-    pattern = re.compile(r'layers\.(\d+)\.(.+)')
+    pattern = re.compile(r'roberta\.encoder\.layer\.(\d+)\.(.+)')
 
     for key, value in module2shape.items():
         match = pattern.search(key)
         if match:
             layer_id = match.group(1)
-            module_name = match.group(2).replace('.', '__')
+            module_name = match.group(2).replace('.', '_')
             module_groups[module_name].append((layer_id, value))
 
     module_groups = dict(module_groups)
@@ -216,17 +261,40 @@ def get_module_groups(model):
 
     return module_groups
 
+# def update_grouped_shared_weights_to_layer(model: nn.Module, shared_weight_a, shared_weight_b):
+#     """
+#     Apply shared LoRA weights to all LinearWithRASA layers in the model.
+    
+#     Args:
+#         model: The model containing LoRA layers
+#     """
+#     for name, module in model.named_modules():
+#         if getattr(module, 'share_lora_weights', False):
+#             pattern = re.compile(r'layers\.(\d+)\.(.+)')
+#             match = pattern.search(name)
+#             module_name = match.group(2).replace('.', '__')
+#             module.update_shared_weights(shared_weight_a, shared_weight_b, module_name)
+
+# For Roberta
 def update_grouped_shared_weights_to_layer(model: nn.Module, shared_weight_a, shared_weight_b):
     """
     Apply shared LoRA weights to all LinearWithRASA layers in the model.
     
     Args:
         model: The model containing LoRA layers
+        shared_weight_a: The shared weight 'A' matrix
+        shared_weight_b: The shared weight 'B' matrix
     """
     for name, module in model.named_modules():
         if getattr(module, 'share_lora_weights', False):
-            pattern = re.compile(r'layers\.(\d+)\.(.+)')
+            # The pattern now captures the part after the fourth '.'
+            # (e.g., query, key, value, output.dense, intermediate.dense, output.dense)
+            pattern = re.compile(r'roberta\.encoder\.layer\.(\d+)\.(.+)')
             match = pattern.search(name)
-            module_name = match.group(2).replace('.', '__')
-            module.update_shared_weights(shared_weight_a, shared_weight_b, module_name)
-    
+            
+            if match:
+                # Get the captured group and replace '.' with '_'
+                module_name = match.group(2).replace('.', '_')
+                print(f"Updating module: {name} with module_name: {module_name}")
+                # Update the module's weights
+                module.update_shared_weights(shared_weight_a, shared_weight_b, module_name)

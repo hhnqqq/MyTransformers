@@ -92,7 +92,7 @@ def train_parser(parser: argparse.ArgumentParser):
                        help='Batch size on a single GPU. batch-size * world_size = total batch_size.')
     
     # --------------------------- for GLUE ----------------------------
-    parser.add_argument('--task-name', type=str, default=None,
+    parser.add_argument('--task-name', nargs='+', default=None,
                         help='The name of the GLUE task to train on.')
     
     # --------------------------- parameters ----------------------------

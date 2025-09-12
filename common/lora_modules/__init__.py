@@ -24,7 +24,7 @@ from common.lora_modules.goat import *
 from common.lora_modules.lora_one import *
 from common.lora_modules.vera import *
 from common.lora_modules.eva import *
-from common.lora_modules.rasa_moe import *
+# from common.lora_modules.rasa_moe import *
 
 @contextlib.contextmanager
 def DisableLoRA(model):
@@ -92,9 +92,9 @@ def insert_shared_lora_weights(model, args):
     if getattr(args, 'use_dense_lora', False):
         from common.lora_modules.dense_lora import prepare_shared_lora_weights_denselora as prepare_shared_lora_weights
         from common.lora_modules.share_lora import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
-    if getattr(args, 'use_rasamoe', False):
-        from common.lora_modules.rasa_moe import prepare_shared_lora_weights_rasa as prepare_shared_lora_weights
-        from common.lora_modules.share_lora import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
+    # if getattr(args, 'use_rasamoe', False):
+    #     from common.lora_modules.rasa_moe import prepare_shared_lora_weights_rasa as prepare_shared_lora_weights
+    #     from common.lora_modules.share_lora import update_grouped_shared_weights_to_layer as update_shared_weights_to_layer
 
         
     print_rank_0("--->Preparing shared LoRA weights...", args.global_rank)
@@ -125,7 +125,7 @@ def create_shared_weight_references(model):
                 else:
                     update_method(ref_a, ref_b)
 
-def prepare_lora(model, train_dataloader, args):
+def prepare_lora(model, train_dataloader, tokenizer, args):
     """
     Prepare lora if needed
 
@@ -162,10 +162,12 @@ def prepare_lora(model, train_dataloader, args):
     if args.use_mola:
         init_mola_experts_by_shape(model=model, args=args)
     if args.use_eva:
+        pad_id = getattr(tokenizer, 'label_pad_id', tokenizer.pad_token_id)
         eva_reinit(
             model=model,
             dataloader=train_dataloader,
-            args=args
+            args=args,
+            pad_id=pad_id
         )
     
     # Prepare shared weights for VeRA

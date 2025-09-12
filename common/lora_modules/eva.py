@@ -80,10 +80,16 @@ class SVDHook:
         if hasattr(self.svd, "components_"):
             previous_components = self.svd.components_.clone().detach()
 
+        # print_rank_0(f"input: {input}", 0)
         try:
             states = input.detach()
         except AttributeError:
+            # print_rank_0(f"Something wrong: {input.detach()}", 0)
+            # print_rank_0(f"Something wrong: {input[0].shape}", 0)
+            # print_rank_0(f"Something wrong: {type(input[0])}", 0)
             states = input[0].detach()
+        # print_rank_0(f"states shape: {states.shape}", 0)
+        # print_rank_0(f"indices shape: {self.indices.shape}", 0)
         states = states[self.indices[:, 0], self.indices[:, 1], :]
 
         if states.size(0) < self.n_components:
@@ -131,6 +137,7 @@ def compute_svd(
     model: nn.Module,
     data_loader,
     args,
+    pad_id = None,
     forward_func: Callable = None,
 ):
     if args.eva_rho < 1:
@@ -161,10 +168,17 @@ def compute_svd(
     rank_dist = {k: max_components for k in hooks.keys()}
 
     for i, inputs in pbar:
+        # print(f"inputs: {inputs}")
+        # print(f"inputs keys: {inputs['input_ids'].shape}")
         t0 = time.perf_counter()
 
-        mask = inputs["labels"] != args.pad_id
+        # print(f"inputs labels: {inputs['labels'].shape}")
+        # print(f"pad_id: {pad_id}")
+        mask = inputs["attention_mask"] != pad_id
+        # print(f"mask shape: {mask.shape}")
+        # print(f"inputs labels shape: {inputs['labels'].shape}")
         indices = torch.nonzero(mask)
+        # print(f"indices shape: {indices.shape}")
         # inputs = {k: v.to(device) if v is not None else v for k, v in inputs.items()}
         inputs = to_device(inputs, args.device)
 
@@ -238,10 +252,11 @@ def eva_reinit(
     model: nn.Module, 
     dataloader, 
     args,
+    pad_id = None,
     task_name: str = '',
     forward_func: Callable = None
 ):
-    if getattr(args, "pad_id", None) is None:
+    if pad_id is None:
         raise ValueError("pad_id must be provided for EVA reinitialization")
 
     svd_dict, rank_dist_dict = None, None
@@ -252,7 +267,8 @@ def eva_reinit(
                 model=model,
                 data_loader=dataloader,
                 forward_func=forward_func,
-                args=args
+                args=args,
+                pad_id = pad_id
             )
 
             results_to_broadcast = [svd_dict, rank_dist_dict]

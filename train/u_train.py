@@ -51,7 +51,7 @@ ds_config = refresh_config(ds_config, args)
 # start tranning
 
 # Run this befor set up trainable parameters.
-prepare_lora(model, train_dataloader, args)
+prepare_lora(model, train_dataloader, tokenizer, args)
 # set up trainable before acquiring optimizer.
 set_up_trainable_param(model, args)
 

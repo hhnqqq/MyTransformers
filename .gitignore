@@ -147,3 +147,17 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 paths.json
+
+Roberta/benchmark/
+Roberta/download.py
+Roberta/GLUE/
+Roberta/glue_results0.0001.csv
+Roberta/glue_results0.0005.csv
+Roberta/glue_results5e-05.csv
+Roberta/glue_results.csv
+Roberta/logs/
+Roberta/refresh_mnli_dev.py
+Roberta/refresh_rte.py
+Roberta/results/
+Roberta/scripts/
+scripts/
