@@ -32,3 +32,7 @@
 [MyTransformer使用文档](https://github.com/hhnqqq/MyTransformers/blob/main/MyTransformers_document.pdf)
 ## 多机多卡训练
 [sacc](https://github.com/hhnqqq/sacc_beijingcloud)
+
+## 本仓库成果
+- [NeurIPS 2025] GoRA: Gradient-driven Adaptive Low Rank Adaptation
+- [EMNLP 2025 Findings] Biology-Instructions: A Dataset and Benchmark for Multi-Omics Sequence Understanding Capability of Large Language Models
