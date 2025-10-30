@@ -52,6 +52,7 @@ def base_parser():
                         help='Cache dir of wandb')
     parser.add_argument('--wandb-dir', type=str, default=None,
                         help='Dir of wandb')
+    parser.add_argument('--wandb-mode', type=str, default='online')
     parser.add_argument('--test-code', action='store_true', 
                         help='add this argument to avoid creating log file.')
     parser.add_argument('--profile-log-dir', type=str, default=None,   
@@ -497,6 +498,12 @@ def peft_parser(parser: argparse.ArgumentParser):
     group.add_argument('--bslora-intra-shared-rank', type=int, default=1)
     group.add_argument('--bslora-forward-method', type=str, choices=['slice','gate','kron'])
     group.add_argument('--bslora-share-size', type=int, default=128)
+
+    # --------------------------- sinelora ---------------------------------
+    group.add_argument('--use-sinelora', action='store_true',
+                       help='Whether to use sinelora')
+    group.add_argument('--sinelora-freq', type=int, default=600,
+                       help='The frequency of the sin function used by SineLoRA')
 
     return parser
 

@@ -38,13 +38,13 @@ from common.lora_modules.dense_lora import LinearWithDenseLoRA
 from common.lora_modules.eva import LinearWithEVA
 from common.lora_modules.delora import LinearWithDeLoRA
 from common.lora_modules.nzlora import LinearWithNZLoRA
-from common.lora_modules.rasa_moe import LinearWithRASAMOE
 from common.lora_modules.lora_sb import LinearWithLoRASB
 from common.lora_modules.lora_da import LinearWithLoRADA
 from common.lora_modules.qlora import LinearWithQLoRA
 from common.lora_modules.ralora import LinearWithRaLoRA
 from common.lora_modules.prolora import LinearWithPROLoRA
 from common.lora_modules.bslora import LinearWithBSLoRA
+from common.lora_modules.sinelora import LinearWithSineLoRA
 
 @dataclass
 class LoRAVariant:
@@ -252,13 +252,13 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: {"reset_weight": a.lora_reset_weight, "init_scale_a": a.nzlora_init_scale_a, "init_scale_b": a.nzlora_init_scale_b},
                 "NZLoRA use kaiming uniform to initialize weight_a and weight_b."
     ),
-    "use_rasamoe": LoRAVariant(
-                LinearWithRASAMOE,
-                lambda a: {"num_experts": a.lora_moe_n_experts, 
-                "top_k":a.lora_moe_top_k, 
-                "shared_lora_rank":a.rasa_shared_lora_rank},
-                "Rasamoe is divided into fixed experts and shared experts."
-    ),
+    # "use_rasamoe": LoRAVariant(
+    #             LinearWithRASAMOE,
+    #             lambda a: {"num_experts": a.lora_moe_n_experts, 
+    #             "top_k":a.lora_moe_top_k, 
+    #             "shared_lora_rank":a.rasa_shared_lora_rank},
+    #             "Rasamoe is divided into fixed experts and shared experts."
+    # ),
     "use_lora_sb": LoRAVariant(
                 LinearWithLoRASB,
                 lambda a: {},
@@ -297,6 +297,11 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: {"forward_method":a.bslora_forward_method},
                 ""
     ),
+    "use_sinelora":LoRAVariant(
+                LinearWithSineLoRA,
+                lambda a: {"freq": a.sinelora_freq},
+                "SineLoRA introduces a sine transformation applied to the output of the low-rank weight decomposition to effectively increase its effective rank."
+    )
 }
 
 class LoRAManager:
