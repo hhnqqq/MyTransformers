@@ -46,6 +46,7 @@ from common.lora_modules.prolora import LinearWithPROLoRA
 from common.lora_modules.bslora import LinearWithBSLoRA
 from common.lora_modules.sinelora import LinearWithSineLoRA
 from common.lora_modules.loran import LinearWithLoRAN
+from common.lora_modules.loda import LinearWithLoDA
 
 @dataclass
 class LoRAVariant:
@@ -307,7 +308,12 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 LinearWithLoRAN,
                 lambda a: {"freq": a.loran_freq, "amp": a.loran_amp},
                 "LoRAN introduces a new non-linear function to LoRA to appropriately fit the accumulated weight updates."
-    )
+    ),
+    "use_loda":LoRAVariant(
+                LinearWithLoDA,
+                lambda a: {"weight_ab_mixer_init_method":a.weight_ab_mixer_init_method},
+                "LoRAN introduces a multi-layer non-linear transformation to LoRA."
+    ),
 }
 
 class LoRAManager:
@@ -577,7 +583,7 @@ def get_lora_weight_names(args):
         (args.use_tied_lora or args.use_delora, ['weight_a', 'weight_b', 'lambda']),
         (args.use_dora or args.use_dude, ['weight_a', 'weight_b', 'origin_magnitude']),
         (args.use_adalora or args.use_rasa, ['weight_a', 'weight_b', 'weight_e']),
-        (args.use_mos_lora or args.use_dense_lora or args.use_nlora, ['weight_a', 'weight_b', 'weight_ab_mixer']),
+        (args.use_mos_lora or args.use_dense_lora or args.use_nlora or args.use_loda, ['weight_a', 'weight_b', 'weight_ab_mixer']),
         (args.use_goat or args.use_lora_moe or args.use_rasamoe, ['weight_a', 'weight_b', 'gate']),
         (args.use_lora_sb, ['weight_ab_mixer']),
         (args.use_bslora, ['weight_a', 'weight_b', 'sampler', 'gate']),

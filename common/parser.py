@@ -504,6 +504,17 @@ def peft_parser(parser: argparse.ArgumentParser):
                        help='Whether to use sinelora')
     group.add_argument('--sinelora-freq', type=int, default=600,
                        help='The frequency of the sin function used by SineLoRA')
+    
+    # --------------------------- LoRAN ---------------------------------
+    group.add_argument('--use-loran', action='store_true',
+                       help='Whether to use loran')
+    group.add_argument('--loran-freq', type=int, default=1000,
+                       help='The frequency of the sin function used by LoRAN')
+    group.add_argument('--loran-amp', type=int, default=5e-5,
+                       help='The amplitude of the non-linear function used by SineLoRA')
+
+    group.add_argument('--use-loda', action='store_true',
+                       help='Whether to use loda')
 
     return parser
 
