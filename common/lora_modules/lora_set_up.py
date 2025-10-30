@@ -45,6 +45,7 @@ from common.lora_modules.ralora import LinearWithRaLoRA
 from common.lora_modules.prolora import LinearWithPROLoRA
 from common.lora_modules.bslora import LinearWithBSLoRA
 from common.lora_modules.sinelora import LinearWithSineLoRA
+from common.lora_modules.loran import LinearWithLoRAN
 
 @dataclass
 class LoRAVariant:
@@ -301,6 +302,11 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 LinearWithSineLoRA,
                 lambda a: {"freq": a.sinelora_freq},
                 "SineLoRA introduces a sine transformation applied to the output of the low-rank weight decomposition to effectively increase its effective rank."
+    ),
+    "use_loran":LoRAVariant(
+                LinearWithLoRAN,
+                lambda a: {"freq": a.loran_freq, "amp": a.loran_amp},
+                "LoRAN introduces a new non-linear function to LoRA to appropriately fit the accumulated weight updates."
     )
 }
 
@@ -372,7 +378,13 @@ class LoRAManager:
         # Check incompatible settings
         if any(getattr(args, attr, False) for attr in ['use_dora', 'use_dude', 'use_hira', 'use_delta_lora']) and args.lora_dropout:
             print_rank_0(
-                f'LoRA dropout is not compatible with class: {lora_layer_class.__name__}, skip',
+                f'--->LoRA dropout is not compatible with class: {lora_layer_class.__name__}, skip',
+                args.global_rank
+            )
+
+        if any(getattr(args, attr, False) for attr in ['use_sinelora', 'use_loran']):
+            print_rank_0(
+                f'--->The configured lora_scaler: {args.lora_scaler}, is not compatible with class: {lora_layer_class.__name__}, skip',
                 args.global_rank
             )
         
