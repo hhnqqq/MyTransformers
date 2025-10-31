@@ -516,6 +516,8 @@ def peft_parser(parser: argparse.ArgumentParser):
     group.add_argument('--use-loda', action='store_true',
                        help='Whether to use loda')
 
+    group.add_argument('--use-aurora', action='store_true',
+                       help='Whether to use aurora')
     return parser
 
 def multimodal_parser(parser: argparse.ArgumentParser):

@@ -47,6 +47,7 @@ from common.lora_modules.bslora import LinearWithBSLoRA
 from common.lora_modules.sinelora import LinearWithSineLoRA
 from common.lora_modules.loran import LinearWithLoRAN
 from common.lora_modules.loda import LinearWithLoDA
+from common.lora_modules.aurora import LinearWithAurora
 
 @dataclass
 class LoRAVariant:
@@ -314,6 +315,11 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: {"weight_ab_mixer_init_method":a.weight_ab_mixer_init_method},
                 "LoRAN introduces a multi-layer non-linear transformation to LoRA."
     ),
+    "use_aurora":LoRAVariant(
+                LinearWithAurora,
+                lambda a: {},
+                "Aurora introduces a multi-layer non-linear transformation (ANL) to LoRA."
+    )
 }
 
 class LoRAManager:
@@ -580,6 +586,7 @@ def get_lora_weight_names(args):
         (args.use_randlora, ['lambda', 'gemma']),
         (args.use_vera, ['lambda']),
         (args.use_lora_fa, ['weight_b']),
+        (args.use_aurora , ['weight_a', 'weight_b', 'weight_ab_mixer', 'weight_a_spline']),
         (args.use_tied_lora or args.use_delora, ['weight_a', 'weight_b', 'lambda']),
         (args.use_dora or args.use_dude, ['weight_a', 'weight_b', 'origin_magnitude']),
         (args.use_adalora or args.use_rasa, ['weight_a', 'weight_b', 'weight_e']),
