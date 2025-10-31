@@ -26,7 +26,8 @@ class LinearWithLoDA(LinearWithQLoRA):
         # If self.run_lora_in_fp32, then the dtype of lora_result will be fp32.
         weight_a = self.weight_a.to(self._get_lora_dtype())
         weight_b = self.weight_b.to(self._get_lora_dtype())
-        f1_out = F.leaky_relu(F.linear(F.linear(self.lora_dropout(x), weight_a), self.weight_ab_mixer_1), negative_slope=0.8)
-        f2_out = F.leaky_relu(F.linear(f1_out, self.weight_ab_mixer_2), negative_slope=0.8)
-        lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b) + F.linear(f2_out, weight_b)
+        A_out = F.leaky_relu(F.linear(self.lora_dropout(x), weight_a), negative_slope=0.8)
+        mixer_1_out = F.leaky_relu(F.linear(A_out, self.weight_ab_mixer_1), negative_slope=0.8)
+        f1_out = F.leaky_relu(F.linear(mixer_1_out, self.weight_ab_mixer_2), negative_slope=0.8)
+        lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b) + F.leaky_relu(F.linear(f1_out, weight_b), negative_slope=0.8)
         return result + self.lora_scaler * lora_result.to(result.dtype)

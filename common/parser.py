@@ -217,6 +217,10 @@ def peft_parser(parser: argparse.ArgumentParser):
     # --------------------------- lora ----------------------------------
     group.add_argument('--use-lora', action='store_true',
                        help='Whether to use LoRA')
+    group.add_argument('--use-loha', action='store_true',
+                       help='Whether to use LoHA')
+    group.add_argument('--use-lokr', action='store_true',
+                       help='Whether to use LoKr')
     group.add_argument('--use-qlora', action='store_true',
                        help='Whether to use QLoRA')
     group.add_argument('--std-normalize-lora', action='store_true',
@@ -233,6 +237,8 @@ def peft_parser(parser: argparse.ArgumentParser):
                        help='Init method for lora weight a')
     group.add_argument('--weight-b-init-method', type=str, default=None,                       
                        help='Init method for lora weight b')
+    group.add_argument('--weight-c-init-method', type=str, default=None,                       
+                       help='Init method for lora weight c')
     group.add_argument('--lora-dropout', type=float, default=None,
                        help='The dropout rate for lora weight.')
     group.add_argument('--run-lora-in-fp32', action='store_true',
