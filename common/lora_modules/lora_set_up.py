@@ -33,7 +33,7 @@ from common.lora_modules.dude import LinearWithDude
 from common.lora_modules.lora_ga_pro import LinearWithLoRAGAPro
 from common.lora_modules.lora_one import LinearWithLoRAOne
 from common.lora_modules.goat import LinearWithGOAT
-from common.lora_modules.rasa import LinearWithRASA
+from common.lora_modules.rasa import LinearWithRaSA
 from common.lora_modules.dense_lora import LinearWithDenseLoRA
 from common.lora_modules.eva import LinearWithEVA
 from common.lora_modules.delora import LinearWithDeLoRA
@@ -50,6 +50,7 @@ from common.lora_modules.loda import LinearWithLoDA
 from common.lora_modules.aurora import LinearWithAurora
 from common.lora_modules.loha import LinearWithLoHA
 from common.lora_modules.lokr import LinearWithLoKr
+from common.lora_modules.ridgelora import LinearWithRidgeLoRA
 
 @dataclass
 class LoRAVariant:
@@ -231,7 +232,7 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 "The initialization of GOAT requires some time, waiting..."
     ),
     "use_rasa": LoRAVariant(
-                LinearWithRASA,
+                LinearWithRaSA,
                 lambda a: {"shared_lora_rank":a.rasa_shared_lora_rank},
                 "RASA shares some lora ranks across layers to increase the overall rank."
     ),
@@ -332,6 +333,11 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
                 lambda a: {"weight_c_init_method": a.weight_c_init_method},
                 "LoHA uses kron production to increase the effective rank of LoRA."
     ),
+    "use_ridgelora":LoRAVariant(
+                LinearWithRidgeLoRA,
+                lambda a: {},
+                "RidgeLoRA proposes a architecture that incorporates matrix ridge enhanced full-rank approximation."
+    )
 }
 
 class LoRAManager:
@@ -597,6 +603,7 @@ def get_lora_weight_names(args):
     conditions = [
         (args.use_randlora, ['lambda', 'gemma']),
         (args.use_vera, ['lambda']),
+        (args.use_ridgelora, ['weight_a', 'weight_b', 'ridge']),
         (args.use_lora_fa, ['weight_b']),
         (args.use_aurora , ['weight_a', 'weight_b', 'weight_ab_mixer', 'weight_a_spline']),
         (args.use_tied_lora or args.use_delora, ['weight_a', 'weight_b', 'lambda']),
