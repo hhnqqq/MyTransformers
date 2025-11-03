@@ -1,7 +1,7 @@
 from common.lora_modules.qlora import *
 
 class LinearWithLoDA(LinearWithQLoRA):
-    def __init__(self, lora_config: LoRAConfig, weight_ab_mixer_init_method):
+    def __init__(self, lora_config: LoRAConfig, weight_ab_mixer_init_method=None):
         super().__init__(lora_config)
         self.lora_scaler = 1 / self.out_features**0.5
         self.weight_ab_mixer_1_init_method = weight_ab_mixer_init_method
@@ -31,3 +31,14 @@ class LinearWithLoDA(LinearWithQLoRA):
         f1_out = F.leaky_relu(F.linear(mixer_1_out, self.weight_ab_mixer_2), negative_slope=0.8)
         lora_result = F.linear(F.linear(self.lora_dropout(x), weight_a), weight_b) + F.leaky_relu(F.linear(f1_out, weight_b), negative_slope=0.8)
         return result + self.lora_scaler * lora_result.to(result.dtype)
+    
+    @property
+    def has_lora_weights(self):
+        has_weight_ab_mixer_1 = hasattr(self, 'weight_ab_mixer_1') and self.weight_ab_mixer_1 is not None
+        has_weight_ab_mixer_2 = hasattr(self, 'weight_ab_mixer_2') and self.weight_ab_mixer_2 is not None
+        return has_weight_ab_mixer_1 and has_weight_ab_mixer_2 and super().has_lora_weights
+    
+    def _del_lora(self):
+        super()._del_lora()
+        delattr(self, "weight_ab_mixer_1")
+        delattr(self, "weight_ab_mixer_2")

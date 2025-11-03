@@ -2,7 +2,7 @@ from common.lora_modules.lora import *
 from common.lora_modules.share_lora import get_module_groups
 from torch import Tensor
 
-class LinearWithRASA(LinearWithLoRA):
+class LinearWithRaSA(LinearWithLoRA):
     def __init__(self, lora_config: LoRAConfig, shared_lora_rank):
         super().__init__(lora_config)
         self.lora_rank -= shared_lora_rank

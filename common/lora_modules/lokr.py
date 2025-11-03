@@ -35,3 +35,12 @@ class LinearWithLoKr(LinearWithQLoRA):
         lora_weight = self._compute_lora_weight()
         lora_result = torch.matmul(x, lora_weight).to(self.weight.dtype)
         return result + lora_result
+    
+    @property
+    def has_lora_weights(self):
+        has_weight_c = hasattr(self, 'weight_c') and self.weight_c is not None
+        return has_weight_c and super().has_lora_weights
+    
+    def _del_lora(self):
+        super()._del_lora()
+        delattr(self, "weight_c")

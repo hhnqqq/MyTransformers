@@ -72,8 +72,20 @@ class LinearWithAurora(LinearWithQLoRA):
     def _compute_lora_weight(self): 
         if self.has_lora_weights:
             # Compute lora weight.
-            weight_a = self.ANL_forward(self.weight_a.to(self._get_lora_dtype()))
+            weight_a = self.ANL_forward(self.weight_a.t().to(self._get_lora_dtype())).t()
             weight_b = self.weight_b.to(self._get_lora_dtype())
             lora_weight = self.lora_scaler * torch.matmul(weight_b, weight_a)
             return lora_weight.to(self.weight.dtype)
-        
+    
+    @property
+    def has_lora_weights(self):
+        has_weight_ab_mixer = hasattr(self, 'weight_ab_mixer') and self.weight_ab_mixer is not None
+        has_weight_a_spline = hasattr(self, 'weight_a_spline') and self.weight_a_spline is not None
+        has_grid = hasattr(self, 'grid') and self.grid is not None
+        return has_weight_ab_mixer and has_weight_a_spline and has_grid and super().has_lora_weights
+    
+    def _del_lora(self):
+        super()._del_lora()
+        delattr(self, "weight_ab_mixer")
+        delattr(self, "weight_a_spline")
+        delattr(self, "grid")
