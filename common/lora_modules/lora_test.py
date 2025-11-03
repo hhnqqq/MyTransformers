@@ -1,11 +1,11 @@
 import time
 import torch
 import torch.nn as nn
-from common.lora_modules.lorapro_optim import *
+from common.lora_modules.aurora import *
 from common.lora_modules import *
 
 # initialize test
-test_class = LinearWithLoRA
+test_class = LinearWithAurora
 config = LoRAConfig(in_features=2048, 
                     out_features=2048, 
                     lora_rank=8, 
@@ -13,20 +13,24 @@ config = LoRAConfig(in_features=2048,
                     quant=False)
 linear = test_class(config)
 linear.weight.data = torch.randn(2048,2048)
+x = torch.randn(2048,2048)
+print(linear(x))
+linear.init_lora_weights()
+print(linear(x))
 
-print(linear.weight)
-linear.merge_and_reset()
-print(linear.weight)
+# print(linear.weight)
+linear.merge_and_del()
+# print(linear.weight)
 
 # forward test
-print(linear(torch.randn(2048,2048)))
+print(linear(x))
 linear.print_details()
 
 # backward test
 class TestModel(nn.Module):
-    def __init__(self, in_features, out_features, lora_rank, lora_scaler, lora_dropout, quant):
+    def __init__(self, in_features, out_features, lora_rank, lora_scaler, lora_dropout):
         super().__init__()
-        config = LoRAConfig(in_features, out_features, lora_rank, lora_scaler, lora_dropout, quant)
+        config = LoRAConfig(in_features, out_features, False, lora_rank, lora_scaler, lora_dropout)
         self.linear = test_class(config)
 
     def forward(self, x):
@@ -40,9 +44,9 @@ def test_lora_gradient():
     lora_rank = 128
     lora_scaler = 32.0
     lora_dropout = 0.1
-    quant = False
 
-    model = TestModel(in_features, out_features, lora_rank, lora_scaler, lora_dropout, quant)
+    model = TestModel(in_features, out_features, lora_rank, lora_scaler, lora_dropout)
+    model.linear.init_lora_weights()
     model.to(device)
     # model.linear.merge_and_del()
 
@@ -51,7 +55,7 @@ def test_lora_gradient():
     target_data = torch.randn(32, out_features).to(device)
     
     # Initialize the Adam optimizer
-    optimizer = LoRAProAdamW({'params':model.named_parameters()}, lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # Forward pass
     start = time.time()

@@ -92,6 +92,7 @@ if __name__ == '__main__':
                     os.environ['WANDB_API_KEY'] = args.wandb_api_key
                 wandb.init(project=args.wandb_project,
                         entity=args.wandb_team,
+                        mode=args.wandb_mode,
                         name=args.experiment_name + current_time,
                         config=args)
             elif args.tensorboard:

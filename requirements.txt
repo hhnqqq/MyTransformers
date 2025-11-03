@@ -1,3 +1,10 @@
+torch
+vllm
+liger_kernel
+bitsandbytes
+wandb
+torch_incremental_pca
+blobfile
 fairscale == 0.4.13
 numpy 
 immutabledict == 4.1.0
