@@ -51,6 +51,7 @@ from common.lora_modules.aurora import LinearWithAurora
 from common.lora_modules.loha import LinearWithLoHA
 from common.lora_modules.lokr import LinearWithLoKr
 from common.lora_modules.ridgelora import LinearWithRidgeLoRA
+from common.lora_modules.lora_dash import LinearWithLoRADash
 
 @dataclass
 class LoRAVariant:
@@ -336,7 +337,11 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
     "use_ridgelora":LoRAVariant(
                 LinearWithRidgeLoRA,
                 lambda a: {},
-                "RidgeLoRA proposes a architecture that incorporates matrix ridge enhanced full-rank approximation."
+                "RidgeLoRA proposes a architecture that incorporates matrix ridge enhanced full-rank approximation."),
+    "use_lora_dash":LoRAVariant(
+                LinearWithLoRADash,
+                lambda a: {"init_t": a.dash_lora_init_t, "index": a.dash_lora_index},
+                "LoRA-dash fine-tune the tsd direction to improve the performance."
     )
 }
 
@@ -614,6 +619,7 @@ def get_lora_weight_names(args):
         (args.use_goat or args.use_lora_moe or args.use_rasamoe, ['weight_a', 'weight_b', 'gate']),
         (args.use_lora_sb, ['weight_ab_mixer']),
         (args.use_bslora, ['weight_a', 'weight_b', 'sampler', 'gate']),
+        (args.use_lora_dash, ['weight_a', 'weight_b', 'weight_uh_top', 'weight_v_top', 'weight_index']),
         (True, ['weight_a', 'weight_b'])
     ]
 

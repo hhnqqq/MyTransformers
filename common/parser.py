@@ -113,6 +113,7 @@ def train_parser(parser: argparse.ArgumentParser):
                        help='Random seed for dataset')
     group.add_argument('--show-loss-step', type=int, default=1)
     group.add_argument('--show-avg-loss-step', type=int, default=10)
+    group.add_argument('--ds-steps-per-print', type=int, default=5)
     group.add_argument('--rope-theta', default=None,
                        help='Rope theta')
     group.add_argument('--train-pi', type=int, default=None,
@@ -527,6 +528,11 @@ def peft_parser(parser: argparse.ArgumentParser):
     
     group.add_argument('--use-ridgelora', action='store_true',
                        help='Whether to use aurora')
+    
+    group.add_argument('--use-lora-dash', action='store_true',
+                       help='Whether to use LoRA-Dash')
+    group.add_argument('--lora-dash-init-t', type=int, default=100)
+    group.add_argument('--lora-dash-index', type=int, default=8)
     return parser
 
 def multimodal_parser(parser: argparse.ArgumentParser):
