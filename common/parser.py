@@ -222,6 +222,8 @@ def peft_parser(parser: argparse.ArgumentParser):
                        help='Whether to use LoHA')
     group.add_argument('--use-lokr', action='store_true',
                        help='Whether to use LoKr')
+    group.add_argument('--lokr-k', type=int, default=32)
+    group.add_argument('--lokr-decompose-weight-c', action='store_true')
     group.add_argument('--use-qlora', action='store_true',
                        help='Whether to use QLoRA')
     group.add_argument('--std-normalize-lora', action='store_true',

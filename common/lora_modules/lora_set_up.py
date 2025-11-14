@@ -331,7 +331,7 @@ LORA_VARIANTS: Dict[str, LoRAVariant] = {
     ),
     "use_lokr":LoRAVariant(
                 LinearWithLoKr,
-                lambda a: {"weight_c_init_method": a.weight_c_init_method},
+                lambda a: {"weight_c_init_method": a.weight_c_init_method, "k": a.lokr_k, "decompose_weight_c": a.lokr_decompose_weight_c},
                 "LoHA uses kron production to increase the effective rank of LoRA."
     ),
     "use_ridgelora":LoRAVariant(
