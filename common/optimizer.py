@@ -51,7 +51,7 @@ def get_optimizer(ds_config, args, model, optimizer_sd = None, lr_scheduler_sd =
     else:
         offload_config = {}
     offload_device = offload_config.get("device", None)
-    if offload_device == 'cpu' or args.offload_optimizer:
+    if (offload_device == 'cpu' or args.offload_optimizer) and optim_type in ['adam', 'adamw']:
         optim_type = 'cpu' + optim_type
     isSuccess, optimizer = get_optimizer_instance(optim_type, args, model)
 
@@ -158,17 +158,23 @@ def get_regular_optimizer(optim_type, args, model):
             'adamax': optim.Adamax,
             'sparseadam': optim.SparseAdam,
             'torchadam': optim.Adam,
-            'torchadamw': optim.AdamW
+            'torchadamw': optim.AdamW,
+            'sgd': optim.SGD,
         }.get(optim_type)
         
         if optimizer_class is None:
-            raise NotImplementedError('Only support adam and its variants for now')
+            raise NotImplementedError(f'Not supported optimizer type: {optim_type}')
         
-        optimizer = optimizer_class(params,
-                                    lr=args.lr,
-                                    weight_decay=args.weight_decay,
-                                    eps=args.eps,
-                                    betas=tuple(args.betas))
+        optimizer_kwargs = {
+            'lr': args.lr,
+            'weight_decay': args.weight_decay
+        }
+
+        if 'adam' in optim_type:
+            optimizer_kwargs['eps'] = args.eps
+            optimizer_kwargs['betas'] = tuple(args.betas)
+
+        optimizer = optimizer_class(params, **optimizer_kwargs)
         isSuccess = True
     except Exception:
         print_rank_0(f'--->Load local optimizer error as: {traceback.format_exc()}', args.global_rank)
