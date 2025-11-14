@@ -410,11 +410,21 @@ def configure_logging(log_path, rank: Optional[int] = 0):
     if not fh_disable and experiment_name:
         experiment_name = experiment_name + '_'
         log_file_name = experiment_name + hour_string
-        fh = logging.FileHandler(os.path.join(log_path, log_file_name))
-        fh.setFormatter(formatter)
-        fh.setLevel(fh_level)
-        logger.addHandler(fh)
-    
+        full_log_path = os.path.join(log_path, log_file_name)
+        try:
+            # Ensure parent directory is writable
+            if os.access(log_path, os.W_OK):
+                fh = logging.FileHandler(full_log_path)
+                fh.setFormatter(formatter)
+                fh.setLevel(fh_level)
+                logger.addHandler(fh)
+            else:
+                if rank <= 0:
+                    logger.warning(f"--->Skipping file logging: no write permission to directory '{log_path}'")
+        except Exception as e:
+            if rank <= 0:
+                logger.warning(f"--->Skipping file logging due to error when checking write permissions: {e}")
+
     return logger
 
 
