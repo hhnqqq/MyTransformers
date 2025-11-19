@@ -134,6 +134,7 @@ class Trainer:
         # Final save
         self.end = True
         self.save_model(model, optimizer, lr_scheduler, train_data_loader, step)
+        print_rank_0(f'--->Total time consumed by training: {timer.time_cost}, peak memory used: {timer.peak_memory}', self.args.global_rank)
 
     def earily_stop(self):
         index = self.args.earily_stop_index
