@@ -72,7 +72,7 @@ def set_up_trainable_param(model, args):
                      args.global_rank)
         disable_untrainable_params(model, [])
     for module in model.modules():
-        if isinstance(module, LinearWithLoRA) and module.weight.requires_grad:
+        if hasattr(module, 'weight_a') and hasattr(module, 'weight_b') and module.weight.requires_grad:
             # If the lora layer's pretrained weight is trainable, disable the lora weight....
             module.weight_a = None
             module.weight_b = None
@@ -94,6 +94,7 @@ def refresh_config(ds_config, args):
     ds_config['optimizer']['params']['lr'] = args.lr
     ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = args.num_warmup_steps
     ds_config["gradient_clipping"] = args.clip_grad_max_norm
+    ds_config["steps_per_print"] = args.ds_steps_per_print
     if 'train_batch_size' in ds_config:
         ds_config['train_batch_size'] = args.batch_size_per_gpu * args.gpu_count
     if args.csv_monitor:
