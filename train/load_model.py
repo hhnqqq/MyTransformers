@@ -4,7 +4,7 @@ import gc
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 from transformers.utils import is_liger_kernel_available
 if is_liger_kernel_available():
-    from liger_kernel.transformers import AutoLigerKernelForCausalLM as AutoModelForCausalLM
+    from train.safe_liger_kernel import AutoLigerKernelForCausalLM as AutoModelForCausalLM
 
 from model import *
 from common.lora_modules import *
@@ -31,12 +31,31 @@ def load_huggingface_model(args):
     # Train with huggingface pretrained model. Only support data parallel training.
     return_dataset_kwargs = {}
     print_rank_0(f'--->Using tokenizer and model from huggingface with path: {args.model_name_or_path}', args.global_rank)
-    model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(args.model_name_or_path,
-                                                 trust_remote_code=True,
-                                                 torch_dtype=STR_DTYPE_TO_TORCH_DTYPE[args.default_dtype],
-                                                 attn_implementation="sdpa",
-                                                 device_map=f"cuda:{args.local_rank}",
-                                                 use_cache=False if args.activation_checkpoint else True)
+    fixed_kwargs = {
+            "trust_remote_code": True,
+            "dtype": STR_DTYPE_TO_TORCH_DTYPE[args.default_dtype],
+            "device_map": f"cuda:{args.local_rank}",
+            "use_cache": False if args.activation_checkpoint else True
+        }
+        
+    for impl in ["sdpa", "eager"]:
+        print_rank_0(f"Attempting to load model with attn_implementation='{impl}'...", args.global_rank)
+        try:
+            model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+                                    args.model_name_or_path,
+                                    attn_implementation=impl,
+                                    **fixed_kwargs
+                                    )
+            print_rank_0(f"✅ Successfully loaded model with {impl.upper()} implementation.", args.global_rank)
+            break
+        
+        except Exception as e:
+            if impl == "eager":
+                print_rank_0(f"❌ Final fallback ({impl.upper()}) failed. Aborting load.", args.global_rank)
+                raise e
+            else:
+                print_rank_0(f"⚠️ {impl.upper()} failed ({e.__class__.__name__}). Falling back to eager implementation...", args.global_rank)
+
     model = modify_hf_forward(model)
     if args.activation_checkpoint:
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
@@ -53,6 +72,13 @@ def load_huggingface_model(args):
         print_rank_0(f'Sequence parallelism is not supported for huggingface models, ignore.')
 
     # For compatibility with Dataset classes.
+    if tokenizer.pad_token_id is None:
+            if tokenizer.eos_token_id is not None:
+                print_rank_0(f"Warning: tokenizer.pad_token_id is None. Setting pad_token to eos_token: {tokenizer.eos_token} (id={tokenizer.eos_token_id})", args.global_rank)
+                tokenizer.pad_token = tokenizer.eos_token
+                tokenizer.pad_token_id = tokenizer.eos_token_id
+            else:
+                tokenizer.pad_token_id = 0
     tokenizer.pad_id, tokenizer.bos_id, tokenizer.eos_id = tokenizer.pad_token_id, tokenizer.bos_token_id, tokenizer.eos_token_id
     tokenizer.label_pad_id = -100
     args.pad_id = -100
