@@ -232,18 +232,33 @@ supported dataset are listed below:{cls.list_datasets()}")
 
         # Acquire model and tokenizer checkpoint paths first.
         # If use huggingface, then we only need model_name_or_path to acquire model and tokenizer.
-        model_name = '_'.join([args.model_name, args.variant])
+        model_name = '_'.join([args.model_name, args.variant]) if (args.model_name and args.variant) else None
+
         if args.huggingface:
-            args.model_name_or_path = args.model_name_or_path or paths_mapping.get(f"huggingface_{model_name}", None)
+            if not (model_name or args.model_name_or_path):
+                raise ValueError(
+                    "Please provide either (args.model_name and args.variant) "
+                    "or args.model_name_or_path for Hugging Face models."
+                )
+
+            if not args.model_name_or_path:
+                hf_key = f"huggingface_{model_name}"
+                args.model_name_or_path = paths_mapping.get(hf_key)
+
             if args.model_name_or_path is None:
-                hf_mappings = {k:v for k, v in paths_mapping.items() if 'huggingface' in k}
-                raise ValueError('model_name_or_path can not be None when using huggingface models.'
-                                 f'huggingface_{model_name} not found in {hf_mappings}.')
+                hf_mappings = {k: v for k, v in paths_mapping.items() if k.startswith('huggingface_')}
+                raise ValueError(
+                    f"Could not resolve model path for Hugging Face model '{model_name}'. "
+                    f"Key 'huggingface_{model_name}' not found in paths_mapping. "
+                    f"Available Hugging Face mappings: {list(hf_mappings.keys())}"
+                )
         else:
-            tokenizer_name = "tokenizer_" + args.model_name
-            model_name = "model_"  + model_name
-            args.tokenizer_path = args.tokenizer_path if args.tokenizer_path else paths_mapping.get(tokenizer_name, None)
-            args.ckpt_path = args.ckpt_path if args.ckpt_path else paths_mapping.get(model_name, None)
+            if not model_name:
+                raise ValueError('Please provide (args.model_name and args.variant) for local pytorch models.')
+            tokenizer_key = f"tokenizer_{args.model_name}"
+            model_key = f"model_{model_name}"
+            args.tokenizer_path = args.tokenizer_path or paths_mapping.get(tokenizer_key)
+            args.ckpt_path = args.ckpt_path or paths_mapping.get(model_key)
 
         # Acquire the dataset file paths.
         train_dataset_name = "train_dataset_" + args.train_dataset_name
