@@ -53,6 +53,19 @@ def cal_metric(y_true, y_pred):
             "precision": precision_score(y_true, y_pred, average="macro", zero_division=0),
             "recall": recall_score(y_true, y_pred, average="macro", zero_division=0),}
 
+@contextlib.contextmanager
+def BatchSizeChanger(dataloader, bsz):
+    origin_bsz = dataloader.batch_sampler.batch_size
+    is_changed = (bsz != origin_bsz)
+    
+    if is_changed:
+        dataloader.batch_sampler.batch_size = bsz
+    try:
+        yield dataloader 
+    finally:
+        if is_changed:
+            dataloader.batch_sampler.batch_size = origin_bsz
+
 
 @contextlib.contextmanager
 def ignore_module_print():
@@ -223,9 +236,10 @@ def read_config(file_path, encoding='utf-8'):
         raise ValueError(f"Can not read unsupported file format: {format}")
     return config
 
-def ensure_directory_exists(directory, global_rank=0):
+def ensure_directory_exists(directory, global_rank=0, mode=0o775):
     if not os.path.exists(directory) and global_rank == 0: # Only create dir when global rank is 0.
         os.makedirs(directory)
+        os.chmod(directory, mode)
         print(f'---> Directory:{directory} is not existed. created a new floder')
 
 def count_trainable_parameters(model):
