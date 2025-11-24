@@ -60,12 +60,12 @@ def set_up_trainable_param(model, args):
         if `args.enable_list is None` and `args.diable_list == ['tok_embeddings']` then tok_embeddings
         will be disabled and other weights are trainable
     """
-    if args.enable_list is not None:
-        if args.disable_list is not None:
-            print_rank_0('--->`args.disable_list` will be ignored as `args.enable_list` is not None.',
+    if args.enable_list:
+        if args.disable_list:
+            print_rank_0('--->`args.disable_list` will be ignored as `args.enable_list` is not None or empty.',
                          args.global_rank)
         enable_trainable_params(model, args.enable_list)
-    elif args.disable_list is not None:
+    elif args.disable_list:
         disable_untrainable_params(model, args.disable_list)
     else:
         print_rank_0('--->All parameters will be set to trainable as both `args.enable_list` and `args.diable_list` are None',
