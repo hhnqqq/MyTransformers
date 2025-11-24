@@ -1,7 +1,6 @@
 import os
 import json
 import torch
-import torch.distributed
 from datetime import datetime
 
 from model import *
@@ -14,7 +13,7 @@ from train.load_data import load_dataloder
 from train.load_model import load_model
 from dataset_classes import RepeatingLoader
 from common.utils.params_manager import refresh_config, set_up_trainable_param
-from common.utils import print_rank_0, read_config, set_random_seed, init_distributed_model
+from common.utils import print_rank_0, read_config, set_random_seed, init_distributed_model, GPUMemoryPrinter
 
 args = get_args()
 args = registry.get_paths(args)
@@ -25,11 +24,13 @@ print_rank_0(f'--->Sequence parallel world size: {parallel_states.get_sequence_p
 print_rank_0(f'--->Pipeline parallel world size: {parallel_states.get_pipeline_model_parallel_world_size()}', args.global_rank)
 print_rank_0(f'--->Registry contains {json.dumps(registry.list_all(), indent=4, ensure_ascii=False)}', args.global_rank)
 
-print_rank_0('--->Loading the model', args.global_rank)
-model, tokenizer, model_config, return_dataset_kwargs = load_model(args)
+with GPUMemoryPrinter('Loading Model', args.global_rank):
+    model, tokenizer, model_config, return_dataset_kwargs = load_model(args)
 print_rank_0(f'--->Using model class: {model.__class__.__name__}', args.global_rank)
+print_rank_0(f'--->Model architecture overview: {model}', args.global_rank)
 
-setup_lora(model, args, model_config)
+with GPUMemoryPrinter('Setup LoRA', args.global_rank):
+    setup_lora(model, args, model_config)
 
 """
 GPUs=8 sp=4 pp=1 tp=1 dp=2
@@ -49,18 +50,18 @@ ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)
 
 # start tranning
-
 # Run this befor set up trainable parameters.
 prepare_lora(model, train_dataloader, args)
 # set up trainable before acquiring optimizer.
 set_up_trainable_param(model, args)
 
-optimizer_sd, lr_scheduler_sd = getattr(model_config, 'optmizer_sd',None), getattr(model_config, 'lr_scheduler_sd',None)
-optimizer, lr_scheduler = get_optimizer(ds_config=ds_config, 
-                                        args=args, 
-                                        model=model, 
-                                        optimizer_sd=optimizer_sd, 
-                                        lr_scheduler_sd=lr_scheduler_sd)
+with GPUMemoryPrinter('Loading optimizer', args.global_rank):
+    optimizer_sd, lr_scheduler_sd = getattr(model_config, 'optmizer_sd',None), getattr(model_config, 'lr_scheduler_sd',None)
+    optimizer, lr_scheduler = get_optimizer(ds_config=ds_config, 
+                                            args=args, 
+                                            model=model, 
+                                            optimizer_sd=optimizer_sd, 
+                                            lr_scheduler_sd=lr_scheduler_sd)
 
 engine, optimizer, lr_scheduler = init_distributed_model(args, 
                                                          model, 

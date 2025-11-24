@@ -94,6 +94,29 @@ def modify_hf_forward(model):
     model.forward = types.MethodType(new_forward, model)
     return model
 
+def see_gpu_memory():
+    """
+    Return the current GPU memory usage using nvidia-smi.
+    """
+    result = subprocess.run(
+        ['nvidia-smi', '--query-gpu=memory.used', '--format=csv,nounits'],
+        capture_output=True, text=True, check=True
+    )
+    # Parse the output to get memory usage in MB
+    memory_lines = result.stdout.strip().split('\n')[1:]
+    memory_used = max([int(i.strip()) for i in memory_lines])
+    return memory_used
+    
+@contextlib.contextmanager
+def GPUMemoryPrinter(name, rank):
+    """
+    A context manager that prints GPU memory usage before and after
+    executing a block of code, only on rank 0.
+    """
+    print_rank_0(f'******GPU memory used before {name}: {see_gpu_memory()}MB.******', rank)
+    yield
+    print_rank_0(f'******GPU memory used after {name}: {see_gpu_memory()}MB.******', rank)
+
 class Timer(object):
     def __init__(self, start=None, n_round=2, iterations: Optional[int] = None):
         """
