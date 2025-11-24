@@ -1,6 +1,7 @@
 import torch
+import deepspeed
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint
+# from torch.utils.checkpoint import checkpoint
 
 from common.registry import registry
 from model.base_model import BaseModel
@@ -41,12 +42,11 @@ class GemmaTrainModel(BaseModel):
         # Using activation checkpoint to reduce memory consumption or not.
         if self.args.activation_checkpoint:
             for i in range(len(self.model.layers)):
-                logits = checkpoint(self.model.layers[i], 
-                                    logits, 
-                                    freqs_cis, 
-                                    attention_mask, 
-                                    self.args.atten_type, 
-                                    use_reentrant=False)
+                logits = deepspeed.checkpointint.checkpoint(self.model.layers[i], 
+                                                            logits, 
+                                                            freqs_cis, 
+                                                            attention_mask, 
+                                                            self.args.atten_type)
         else:
             for i in range(len(self.model.layers)):
                 logits = self.model.layers[i](hidden_states=logits, 

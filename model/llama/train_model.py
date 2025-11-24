@@ -1,5 +1,6 @@
 import torch
-from torch.utils.checkpoint import checkpoint
+# from torch.utils.checkpoint import checkpoint
+import deepspeed
 
 from common.utils import parallel_states as parallel_states
 from common.registry import registry
@@ -49,13 +50,12 @@ class LLaMaTrainModel(BaseModel):
         # Using activation checkpoint to reduce memory consumption or not.
         for i in range(self.args.num_layers):
             if self.args.activation_checkpoint:
-                logits = checkpoint(self.layers[i], 
+                logits = deepspeed.checkpointing.checkpoint(self.layers[i], 
                                     logits, 
                                     0, 
                                     freqs_cis, 
                                     attention_mask, 
-                                    self.args.atten_type,
-                                    use_reentrant=False)
+                                    self.args.atten_type)
             else:
                 logits = self.layers[i](x=logits, 
                                         start_pos=0, 
