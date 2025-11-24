@@ -58,6 +58,7 @@ def base_parser():
     parser.add_argument('--profile-log-dir', type=str, default=None,   
                         help='Path of profiler log dir')
     parser.add_argument('--tqdm', action='store_true')
+    parser.add_argument('--log-flops', action='store_true')
 
     return parser
 
@@ -361,6 +362,9 @@ def peft_parser(parser: argparse.ArgumentParser):
     group.add_argument('--ralora-allocate-by-erank', action='store_true')
     group.add_argument('--ralora-disable-n-split', action='store_true')
 
+    group.add_argument('--use-e2lora', action='store_true')
+    group.add_argument('--e2lora-similarity-threshold', type=float, default=0.85)
+    
     group.add_argument('--use-pissa', action='store_true',
                        help='Whether to use pissa')
     group.add_argument('--pissa-n-iters', type=int, default=1, 
@@ -401,6 +405,8 @@ def peft_parser(parser: argparse.ArgumentParser):
                        help='Wheather to use lora ga')
     group.add_argument('--gradient-est-n-steps', type=int, default=8,
                        help='N steps for estimating full-rank gradient.')
+    group.add_argument('--gradient-est-batch-size', type=int, default=None,
+                       help='Batch size for estimating full-rank gradient.')
     group.add_argument('--lora-ga-scale-method', type=str, default='stable')
 
     group.add_argument('--use-lora-da', action='store_true',
@@ -673,6 +679,9 @@ def get_args():
                 f"must match the length of provided parameters (length {len(lr_param)})."
             )
         
+    if not args.gradient_est_batch_size:
+        args.gradient_est_batch_size = args.batch_size_per_gpu
+
     if args.fp16:
         args.default_dtype = 'fp16'
     elif args.bf16:
