@@ -259,11 +259,52 @@ def read_config(file_path, encoding='utf-8'):
         raise ValueError(f"Can not read unsupported file format: {format}")
     return config
 
-def ensure_directory_exists(directory, global_rank=0, mode=0o775):
-    if not os.path.exists(directory) and global_rank == 0: # Only create dir when global rank is 0.
-        os.makedirs(directory)
-        os.chmod(directory, mode)
-        print(f'---> Directory:{directory} is not existed. created a new floder')
+def ensure_directory_exists(
+    directory: str,
+    global_rank: int = 0,
+    mode: int = 0o777
+) -> None:
+    """
+    Ensure that the specified directory exists by creating it (with the given permissions)
+    only on the process with global rank 0 in a distributed setting.
+
+    In multi-process training (e.g., using DDP), only one process (typically rank 0)
+    should create the directory to avoid race conditions or permission errors.
+
+    Permission mode examples:
+        - 0o755 → rwxr-xr-x
+        - 0o775 → rwxrwxr-x
+        - 0o777 → rwxrwxrwx
+        - 0o700 → rwx------
+        - 0o750 → rwxr-x---
+
+    Parameters
+    ----------
+    directory : str
+        Path to the directory to ensure exists.
+    global_rank : int, optional
+        The global rank of the current process. Only the process with rank 0 will
+        attempt to create the directory. Default is 0.
+    mode : int, optional
+        The file system permissions to apply to the created directory (in octal).
+        Default is 0o777 (rwxrwxrwx).
+
+    Notes
+    -----
+    After creating the directory, this function sets its permissions using os.chmod.
+    A message is printed only by the rank-0 process to confirm creation.
+
+    """
+    if not (0 <= mode <= 0o777):
+        print_rank_0(f"--->Unusual permission mode {oct(mode)}; expected between 0o000 and 0o777.", global_rank, logging.WARNING)
+
+    if global_rank == 0 and not os.path.exists(directory):
+        try:
+            directory = os.path.abspath(directory)
+            os.makedirs(directory, exist_ok=True)
+            os.chmod(directory, mode)
+        except OSError as e:
+            raise RuntimeError(f"Failed to create or set permissions for directory '{directory}': {e}") from e
 
 def count_trainable_parameters(model):
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
