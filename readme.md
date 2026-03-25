@@ -36,3 +36,6 @@
 ## 本仓库成果
 - [NeurIPS 2025] GoRA: Gradient-driven Adaptive Low Rank Adaptation
 - [EMNLP 2025 Findings] Biology-Instructions: A Dataset and Benchmark for Multi-Omics Sequence Understanding Capability of Large Language Models
+- [ICLR 2026] Gradient Intrinsic Dimensionality Alignment：Narrowing The Gap Between Low-Rank Adaptation and Full Fine-Tuning
+- [ICLR 2026] E²LoRA: Efficient and Effective Low-Rank Adaptation with Entropy-Guided Adaptive Sharing
+- Rethinking Multi-Omics LLMs from the Perspective of Omics-Encoding
